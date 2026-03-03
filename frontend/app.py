@@ -1,0 +1,49 @@
+"""Main Streamlit app — fitness dashboard entry point.
+
+Run with:
+    streamlit run frontend/app.py
+"""
+import sys
+from datetime import date, timedelta
+from pathlib import Path
+
+# Ensure project root and frontend/ are importable
+_root = Path(__file__).parent.parent
+sys.path.insert(0, str(_root))           # config/, src/
+sys.path.insert(0, str(_root / "frontend"))  # views/
+
+import streamlit as st  # noqa: E402
+from views import activities, readiness, sleep  # noqa: E402
+
+st.set_page_config(
+    page_title="Fitness Dashboard",
+    page_icon="💪",
+    layout="wide",
+)
+
+# ── Sidebar ────────────────────────────────────────────────────────────────
+st.sidebar.title("Fitness Dashboard")
+st.sidebar.caption("Whoop · Garmin")
+
+page = st.sidebar.radio("Page", ["Recovery", "Sleep", "Activities"])
+
+st.sidebar.divider()
+st.sidebar.subheader("Date Range")
+
+today = date.today()
+default_start = today - timedelta(days=30)
+
+start_date: date = st.sidebar.date_input("From", value=default_start, max_value=today)
+end_date: date = st.sidebar.date_input("To", value=today, max_value=today)
+
+if start_date > end_date:
+    st.sidebar.error("Start date must be before end date.")
+    st.stop()
+
+# ── Page routing ───────────────────────────────────────────────────────────
+if page == "Recovery":
+    readiness.render(start_date, end_date)
+elif page == "Sleep":
+    sleep.render(start_date, end_date)
+elif page == "Activities":
+    activities.render(start_date, end_date)

@@ -35,14 +35,50 @@ source .venv/bin/activate
 uv sync
 ```
 
-**4. Run the backend**
+**4. Run the initial Whoop sync** (requires completing the OAuth flow at `http://localhost:8000/api/auth/whoop` first)
 ```bash
-uvicorn src.api.main:app --reload --port 8000
+make run-api        # starts FastAPI, then visit the auth URL in your browser
+make run-sync       # once authenticated, pull 30 days of Whoop data
 ```
 
 **5. Run the dashboard**
 ```bash
-streamlit run frontend/app.py
+make run-frontend
+```
+
+Common commands: `make test`, `make lint`, `make fmt`
+
+## Docker Setup
+
+**1. Create your `.env`**
+```bash
+cp .env.example .env
+# Fill in WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET
+```
+
+**2. Build and start both services**
+```bash
+docker compose up --build
+```
+
+- FastAPI backend: http://localhost:8000
+- Streamlit frontend: http://localhost:8501
+
+**3. Authenticate with Whoop** (first run only)
+
+Visit `http://localhost:8000/api/auth/whoop` in your browser to complete the OAuth flow.
+
+**4. Run the initial sync**
+```bash
+docker compose exec backend python scripts/initial_sync.py
+```
+
+**Volumes:** `data/` is mounted into both containers so the SQLite database persists across restarts. `config/` is mounted into the backend container to allow live config edits without rebuilding.
+
+**Stopping:**
+```bash
+docker compose down        # stop containers (data persists)
+docker compose down -v     # stop and remove volumes (deletes database)
 ```
 
 ## Project Structure
@@ -56,7 +92,7 @@ src/
   database/       # SQLAlchemy models and session management
   analytics/      # Computed metrics and trend logic
 frontend/
-  pages/          # Streamlit pages
+  views/          # Streamlit page modules (readiness, sleep, activities)
   components/     # Reusable Streamlit components
 config/
   settings.py     # All env vars loaded via python-dotenv
@@ -65,7 +101,7 @@ tests/            # pytest
 
 ## Status
 
-**Phase 1 in progress — Whoop Proof of Concept**
+**Phase 1 complete — Whoop Proof of Concept**
 
-Goal: display last 30 days of Whoop recovery, sleep, and strain data in Streamlit.
-Garmin integration follows in Phase 2.
+30 days of Whoop recovery, sleep, and activity data visible in the Streamlit dashboard.
+Phase 2 adds Garmin integration.

@@ -1,0 +1,28 @@
+# Secrets — never bake into image
+.env
+
+# Virtual environment
+.venv/
+
+# Local database — mounted as volume at runtime
+data/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Git
+.git/
+.gitignore
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+
+# Planning docs (not needed at runtime)
+opus_plan_src_files/
+Phase_Task_Breakdowns.md
