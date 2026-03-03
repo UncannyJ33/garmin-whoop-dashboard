@@ -1,0 +1,39 @@
+# Environment
+.env
+
+# Data directory (local database, exports)
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Garmin Connect session cache
+.garminconnect/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv
+uv.lock
+
+# Planning artifacts
+opus_plan_src_files/
