@@ -1,4 +1,4 @@
-"""Run an initial 30-day Whoop sync and print a summary.
+"""Run an initial 30-day sync for both Whoop and Garmin, then print a summary.
 
 Usage (from project root, venv active):
     python scripts/initial_sync.py
@@ -10,12 +10,25 @@ from datetime import UTC, datetime, timedelta
 
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
+from src.ingestion.garmin_pipeline import GarminPipeline
 from src.ingestion.whoop_pipeline import WhoopPipeline
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
+
+
+def _print_summary(label: str, log) -> None:
+    print(f"\n── {label} Sync Summary {'─' * (38 - len(label))}")
+    print(f"  Status         : {log.status}")
+    print(f"  Records fetched: {log.records_fetched}")
+    print(f"  Records stored : {log.records_stored}")
+    print(f"  Started        : {log.started_at}")
+    print(f"  Completed      : {log.completed_at}")
+    if log.error_message:
+        print(f"  Error          : {log.error_message}")
+    print("──────────────────────────────────────────")
 
 
 async def main() -> None:
@@ -27,20 +40,15 @@ async def main() -> None:
         now = datetime.now(tz=UTC)
         start = now - timedelta(days=30)
 
+        # ── Whoop ──────────────────────────────────────────────────────
         print(f"\nStarting Whoop sync: {start.date()} → {now.date()}\n")
+        whoop_log = await WhoopPipeline(db).run(start=start, end=now)
+        _print_summary("Whoop", whoop_log)
 
-        pipeline = WhoopPipeline(db)
-        log = await pipeline.run(start=start, end=now)
-
-        print("\n── Sync Summary ──────────────────────────")
-        print(f"  Status         : {log.status}")
-        print(f"  Records fetched: {log.records_fetched}")
-        print(f"  Records stored : {log.records_stored}")
-        print(f"  Started        : {log.started_at}")
-        print(f"  Completed      : {log.completed_at}")
-        if log.error_message:
-            print(f"  Error          : {log.error_message}")
-        print("──────────────────────────────────────────\n")
+        # ── Garmin ─────────────────────────────────────────────────────
+        print(f"\nStarting Garmin sync: {start.date()} → {now.date()}\n")
+        garmin_log = GarminPipeline(db).run(start=start.date(), end=now.date())
+        _print_summary("Garmin", garmin_log)
 
     finally:
         db.close()

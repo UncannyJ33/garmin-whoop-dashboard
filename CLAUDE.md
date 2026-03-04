@@ -30,6 +30,7 @@ Phase 1 — Whoop Proof of Concept + Docker — **COMPLETE**. Next: Phase 2 — 
 - Deduplication by timestamp + duration only
 - Store raw API responses in raw_json column for reprocessing
 - Garmin sleep/HRV data will be missing most nights — the watch is not worn during sleep (Whoop is worn instead). `get_sleep` and `get_hrv` returning None is expected and normal, not an error.
+- `get_activity_detail` is NOT called during ingestion — running dynamics (ground contact time, stride length, vertical oscillation, vertical ratio, VO2 max, training load) are already present in the activity list response. `avg_ground_contact_balance` is not available in either endpoint and is stored as NULL. Revisit if needed later.
 
 ## Conventions
 - Python 3.11+

@@ -104,6 +104,103 @@ class WhoopWorkout(Base):
     cycle = relationship("WhoopCycle", back_populates="workouts")
 
 
+class GarminActivity(Base):
+    """Activity record from the Garmin Connect API."""
+
+    __tablename__ = "garmin_activities"
+
+    activity_id = Column(String, primary_key=True)  # Garmin activity ID (large int as str)
+    activity_type = Column(String)
+    activity_name = Column(String)
+    start_time = Column(String)  # ISO 8601 local time
+    start_time_gmt = Column(String)  # ISO 8601 UTC
+    duration_seconds = Column(Float)
+    elapsed_seconds = Column(Float)
+    distance_meters = Column(Float)
+    avg_heart_rate = Column(Integer)
+    max_heart_rate = Column(Integer)
+    avg_running_cadence = Column(Float)
+    max_running_cadence = Column(Float)
+    calories = Column(Float)
+    avg_speed = Column(Float)
+    max_speed = Column(Float)
+    elevation_gain = Column(Float)
+    elevation_loss = Column(Float)
+    avg_stride_length = Column(Float)
+    vo2_max = Column(Float)
+    training_effect_aerobic = Column(Float)
+    training_effect_anaerobic = Column(Float)
+    training_load = Column(Float)
+    avg_ground_contact_time = Column(Float)
+    avg_vertical_oscillation = Column(Float)
+    avg_vertical_ratio = Column(Float)
+    avg_ground_contact_balance = Column(Float)
+    fetched_at = Column(String, nullable=False)
+    raw_json = Column(Text)
+
+
+class GarminDailySummary(Base):
+    """Daily wellness summary from the Garmin Connect API."""
+
+    __tablename__ = "garmin_daily_summary"
+
+    date = Column(String, primary_key=True)  # YYYY-MM-DD
+    total_steps = Column(Integer)
+    total_distance_m = Column(Float)
+    active_calories = Column(Float)
+    total_calories = Column(Float)
+    resting_heart_rate = Column(Integer)
+    min_heart_rate = Column(Integer)
+    max_heart_rate = Column(Integer)
+    avg_stress_level = Column(Integer)
+    max_stress_level = Column(Integer)
+    body_battery_high = Column(Integer)
+    body_battery_low = Column(Integer)
+    avg_spo2 = Column(Float)
+    lowest_spo2 = Column(Float)
+    fetched_at = Column(String, nullable=False)
+    raw_json = Column(Text)
+
+
+class GarminSleep(Base):
+    """Sleep data from the Garmin Connect API (when watch is worn during sleep)."""
+
+    __tablename__ = "garmin_sleep"
+
+    date = Column(String, primary_key=True)  # YYYY-MM-DD (calendar date of the sleep)
+    start_time = Column(String)
+    end_time = Column(String)
+    total_sleep_seconds = Column(Integer)
+    deep_sleep_seconds = Column(Integer)
+    light_sleep_seconds = Column(Integer)
+    rem_sleep_seconds = Column(Integer)
+    awake_seconds = Column(Integer)
+    sleep_score = Column(Float)
+    avg_spo2_sleep = Column(Float)
+    avg_respiration = Column(Float)
+    lowest_respiration = Column(Float)
+    avg_stress_sleep = Column(Float)
+    fetched_at = Column(String, nullable=False)
+    raw_json = Column(Text)
+
+
+class GarminHRV(Base):
+    """HRV summary from the Garmin Connect API (when watch is worn during sleep)."""
+
+    __tablename__ = "garmin_hrv"
+
+    date = Column(String, primary_key=True)  # YYYY-MM-DD
+    weekly_avg_ms = Column(Float)
+    last_night_avg_ms = Column(Float)
+    last_night_5min_high = Column(Float)
+    baseline_low_ms = Column(Float)
+    baseline_balanced_low = Column(Float)
+    baseline_balanced_up = Column(Float)
+    status = Column(String)  # BALANCED, UNBALANCED, POOR, etc.
+    fetched_at = Column(String, nullable=False)
+    raw_json = Column(Text)
+
+
 class SyncLog(Base):
     """Audit log for all data sync operations."""
 

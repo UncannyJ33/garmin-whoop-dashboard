@@ -28,3 +28,4 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
         engine: Optional pre-built SQLAlchemy engine (useful for in-memory testing).
     """
     _load("001_initial.py").run(database_url, engine)
+    _load("002_garmin_tables.py").run(database_url, engine)
