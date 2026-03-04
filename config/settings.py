@@ -25,6 +25,9 @@ class Settings:
     app_port: int
     streamlit_port: int
 
+    # Scheduler
+    garmin_poll_interval_minutes: int
+
     # Logging
     log_level: str
 
@@ -41,5 +44,6 @@ settings = Settings(
     database_url=os.getenv("DATABASE_URL", "sqlite:///data/fitness_dashboard.db"),
     app_port=int(os.getenv("APP_PORT", "8000")),
     streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
+    garmin_poll_interval_minutes=int(os.getenv("GARMIN_POLL_INTERVAL_MINUTES", "15")),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
 )

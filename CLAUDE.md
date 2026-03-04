@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-Phase 1 — Whoop Proof of Concept + Docker — **COMPLETE**. Next: Phase 2 — Garmin Integration.
+Phase 2 — Garmin Integration — **Tasks 2.1–2.4 COMPLETE**. Next: Phase 2 remaining tasks (normalization, combined views).
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -20,9 +20,19 @@ Phase 1 — Whoop Proof of Concept + Docker — **COMPLETE**. Next: Phase 2 — 
 - Whoop API client: WhoopClient with pagination + retry logic (src/clients/whoop_client.py)
 - Ingestion pipeline: WhoopPipeline fetch → transform → upsert (src/ingestion/whoop_pipeline.py)
 - FastAPI app entry point: src/api/main.py
-- Initial sync script: scripts/initial_sync.py
 - Streamlit dashboard: frontend/app.py (Recovery, Sleep, Activities pages)
 - Docker: Dockerfile + docker-compose.yml (backend port 8000, frontend port 8501, data/ volume)
+
+## What's Built (Phase 2, so far)
+- Garmin auth: GarminAuth class with token persistence via garth (src/clients/garmin_auth.py)
+  - Tokens stored at `data/garmin_tokens/` (GARMIN_TOKEN_DIR in .env)
+  - Re-auth on 401, clear error messages for 429/403
+- Garmin API client: GarminClient with rate limiting (1.5s default) + per-method error handling (src/clients/garmin_client.py)
+  - Methods: get_activities, get_activity_detail, get_daily_summary, get_sleep, get_hrv
+- Garmin DB schema: GarminActivity, GarminDailySummary, GarminSleep, GarminHRV models
+- Migration 002: creates four Garmin tables idempotently (src/database/migrations/002_garmin_tables.py)
+- Garmin pipeline: GarminPipeline with batch activity fetch + per-day loop (src/ingestion/garmin_pipeline.py)
+- initial_sync.py: runs Whoop (async) then Garmin (sync) in sequence
 
 ## Key Decisions
 - Whoop = source of truth for recovery, sleep quality, body vitals
@@ -75,10 +85,28 @@ The v2 API field names differ from our DB column names. Key mappings:
 - `respiratory_rate` is on `whoop_sleep`, not `whoop_recovery` — join via `r.sleep_id = s.id`
 - `skin_temp_celsius` displayed as Fahrenheit: `°F = °C × 9/5 + 32`
 
+## Garmin API — Actual Field Names
+Key mappings from live API inspection (confirmed against real responses):
+- `activityId` → `activity_id` (must `str()` — large int)
+- `activityType.typeKey` → `activity_type`
+- `startTimeLocal` / `startTimeGMT` → `start_time` / `start_time_gmt`
+- `averageHR` / `maxHR` → `avg_heart_rate` / `max_heart_rate` (cast to int — API returns float)
+- `averageRunningCadenceInStepsPerMinute` → `avg_running_cadence`
+- `vO2MaxValue` → `vo2_max`
+- `aerobicTrainingEffect` / `anaerobicTrainingEffect` → `training_effect_aerobic` / `training_effect_anaerobic`
+- `activityTrainingLoad` → `training_load`
+- `avgGroundContactTime` / `avgVerticalOscillation` / `avgVerticalRatio` → same pattern
+- Daily summary: `totalSteps`, `totalDistanceMeters`, `activeKilocalories`, `bodyBatteryHighestValue`, `bodyBatteryLowestValue`, `averageSpo2`, `lowestSpo2`, `averageStressLevel`, `maxStressLevel`
+- Sleep: nested under `dailySleepDTO`; timestamps are Unix ms → converted to ISO 8601 at ingest
+- HRV: nested under `hrvSummary` + `baseline` sub-dict; `weeklyAvg`, `lastNight`, `lastNight5MinHigh`
+- `get_body_battery()` returns a list — take `[0]` for the target date
+
 ## Data Notes (from live 30-day sync)
 - 128 workouts in 30 days — Whoop counts walks, stretches, etc. as workouts, not just training
+- Garmin 30-day sync: 56 activities, 31 daily summaries, 31 sleep rows, 0 HRV rows (watch not worn at night)
 - Sync window stored in `sync_log.metadata_json` as `{"sync_start": ..., "sync_end": ...}`
 - Incremental syncs pick up from `sync_end` of last successful sync_log entry
+- GarminPipeline sync window uses `date` objects (not `datetime`) in metadata_json
 
 ## Environment
 - GitHub repo: https://github.com/UncannyJ33/garmin-whoop-dashboard (private)
