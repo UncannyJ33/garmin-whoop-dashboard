@@ -1,5 +1,6 @@
 """Recovery / Readiness page."""
 
+import json
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -15,30 +16,33 @@ from frontend.db import get_engine
 
 _QUERY = """
 SELECT
-    c.start_time                AS cycle_date,
-    r.recovery_score,
-    r.hrv_rmssd,
-    r.resting_heart_rate,
-    r.spo2_pct,
-    r.skin_temp_celsius,
-    s.respiratory_rate
-FROM whoop_recovery r
-JOIN whoop_cycles c ON r.cycle_id = c.id
-LEFT JOIN whoop_sleep s ON r.sleep_id = s.id
-WHERE c.start_time >= :start
-  AND c.start_time <  :end
-  AND r.recovery_score IS NOT NULL
-ORDER BY c.start_time
+    date,
+    whoop_recovery_score,
+    whoop_hrv_rmssd,
+    whoop_rhr,
+    whoop_spo2,
+    whoop_skin_temp,
+    whoop_respiratory_rate,
+    garmin_body_battery_high,
+    garmin_body_battery_low,
+    garmin_avg_stress,
+    data_sources
+FROM unified_daily
+WHERE date >= :start AND date < :end
+  AND (whoop_recovery_score IS NOT NULL OR garmin_body_battery_high IS NOT NULL)
+ORDER BY date
 """
 
 # Human-readable labels for overlay chart
 _METRIC_LABELS = {
-    "recovery_score": "Recovery Score",
-    "hrv_rmssd": "HRV",
-    "resting_heart_rate": "Resting HR",
-    "spo2_pct": "SpO2",
-    "respiratory_rate": "Breathing Rate",
+    "whoop_recovery_score": "Recovery Score",
+    "whoop_hrv_rmssd": "HRV",
+    "whoop_rhr": "Resting HR",
+    "whoop_spo2": "SpO2",
+    "whoop_respiratory_rate": "Breathing Rate",
     "skin_temp_f": "Skin Temp",
+    "garmin_body_battery_high": "Body Battery",
+    "garmin_avg_stress": "Stress",
 }
 
 
@@ -63,8 +67,9 @@ def _line(df: pd.DataFrame, x: str, y: str, y_title: str, domain: list | None = 
 def _load(start: str, end: str) -> pd.DataFrame:
     with get_engine().connect() as conn:
         df = pd.read_sql(text(_QUERY), conn, params={"start": start, "end": end})
-    df["cycle_date"] = pd.to_datetime(df["cycle_date"]).dt.date
-    df["skin_temp_f"] = df["skin_temp_celsius"] * 9 / 5 + 32
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["skin_temp_f"] = df["whoop_skin_temp"] * 9 / 5 + 32
+    df["sources"] = df["data_sources"].apply(lambda x: json.loads(x) if x else [])
     return df
 
 
@@ -90,40 +95,44 @@ def render(start_date: date, end_date: date) -> None:
     # ── Top metrics: two rows of three ────────────────────────────────────
     col1, col2, col3 = st.columns(3)
     with col1:
-        d, _ = _delta("recovery_score")
+        d, _ = _delta("whoop_recovery_score")
         st.metric(
-            "Recovery Score", f"{latest['recovery_score']:.0f}%", delta=f"{d}%" if d else None
+            "Recovery Score",
+            f"{latest['whoop_recovery_score']:.0f}%"
+            if pd.notna(latest["whoop_recovery_score"])
+            else "—",
+            delta=f"{d}%" if d else None,
         )
     with col2:
-        d, _ = _delta("hrv_rmssd")
+        d, _ = _delta("whoop_hrv_rmssd")
         st.metric(
             "HRV",
-            f"{latest['hrv_rmssd']:.1f} ms" if pd.notna(latest["hrv_rmssd"]) else "—",
+            f"{latest['whoop_hrv_rmssd']:.1f} ms" if pd.notna(latest["whoop_hrv_rmssd"]) else "—",
             delta=d,
         )
     with col3:
-        d, color = _delta("resting_heart_rate", invert=True)
+        d, color = _delta("whoop_rhr", invert=True)
         st.metric(
             "Resting HR",
-            f"{latest['resting_heart_rate']:.0f} bpm"
-            if pd.notna(latest["resting_heart_rate"])
-            else "—",
+            f"{latest['whoop_rhr']:.0f} bpm" if pd.notna(latest["whoop_rhr"]) else "—",
             delta=d,
             delta_color=color,
         )
 
     col4, col5, col6 = st.columns(3)
     with col4:
-        d, _ = _delta("spo2_pct")
+        d, _ = _delta("whoop_spo2")
         st.metric(
-            "SpO2", f"{latest['spo2_pct']:.1f}%" if pd.notna(latest["spo2_pct"]) else "—", delta=d
+            "SpO2",
+            f"{latest['whoop_spo2']:.1f}%" if pd.notna(latest["whoop_spo2"]) else "—",
+            delta=d,
         )
     with col5:
-        d, _ = _delta("respiratory_rate")
+        d, _ = _delta("whoop_respiratory_rate")
         st.metric(
             "Breathing Rate",
-            f"{latest['respiratory_rate']:.1f} rpm"
-            if pd.notna(latest["respiratory_rate"])
+            f"{latest['whoop_respiratory_rate']:.1f} rpm"
+            if pd.notna(latest["whoop_respiratory_rate"])
             else "—",
             delta=d,
         )
@@ -135,41 +144,45 @@ def render(start_date: date, end_date: date) -> None:
             delta=d,
         )
 
+    sources = latest.get("sources", [])
+    label = " · ".join(s.capitalize() for s in sources) if sources else "Unknown"
+    st.caption(f"Latest day data sources: **{label}**")
+
     st.divider()
 
     # ── Individual charts ─────────────────────────────────────────────────
     st.subheader("Recovery Score")
     st.altair_chart(
-        _line(df, "cycle_date", "recovery_score", "Recovery %", domain=[0, 100]),
+        _line(df, "date", "whoop_recovery_score", "Recovery %", domain=[0, 100]),
         use_container_width=True,
     )
 
     st.subheader("HRV (RMSSD)")
-    hrv_df = df.dropna(subset=["hrv_rmssd"])
+    hrv_df = df.dropna(subset=["whoop_hrv_rmssd"])
     if not hrv_df.empty:
         st.altair_chart(
-            _line(hrv_df, "cycle_date", "hrv_rmssd", "HRV (ms)"), use_container_width=True
+            _line(hrv_df, "date", "whoop_hrv_rmssd", "HRV (ms)"), use_container_width=True
         )
 
     st.subheader("Resting Heart Rate")
-    rhr_df = df.dropna(subset=["resting_heart_rate"])
+    rhr_df = df.dropna(subset=["whoop_rhr"])
     if not rhr_df.empty:
         st.altair_chart(
-            _line(rhr_df, "cycle_date", "resting_heart_rate", "RHR (bpm)"), use_container_width=True
+            _line(rhr_df, "date", "whoop_rhr", "RHR (bpm)"), use_container_width=True
         )
 
     st.subheader("SpO2")
-    spo2_df = df.dropna(subset=["spo2_pct"])
+    spo2_df = df.dropna(subset=["whoop_spo2"])
     if not spo2_df.empty:
         st.altair_chart(
-            _line(spo2_df, "cycle_date", "spo2_pct", "SpO2 %"), use_container_width=True
+            _line(spo2_df, "date", "whoop_spo2", "SpO2 %"), use_container_width=True
         )
 
     st.subheader("Breathing Rate")
-    br_df = df.dropna(subset=["respiratory_rate"])
+    br_df = df.dropna(subset=["whoop_respiratory_rate"])
     if not br_df.empty:
         st.altair_chart(
-            _line(br_df, "cycle_date", "respiratory_rate", "Breaths / min"),
+            _line(br_df, "date", "whoop_respiratory_rate", "Breaths / min"),
             use_container_width=True,
         )
 
@@ -177,7 +190,46 @@ def render(start_date: date, end_date: date) -> None:
     temp_df = df.dropna(subset=["skin_temp_f"])
     if not temp_df.empty:
         st.altair_chart(
-            _line(temp_df, "cycle_date", "skin_temp_f", "Skin Temp (°F)"), use_container_width=True
+            _line(temp_df, "date", "skin_temp_f", "Skin Temp (°F)"), use_container_width=True
+        )
+
+    # ── Body Battery (Garmin) ──────────────────────────────────────────────
+    st.subheader("Body Battery (Garmin)")
+    bb_df = df.dropna(subset=["garmin_body_battery_high"])
+    if bb_df.empty:
+        st.info("No body battery data in range.")
+    else:
+        bb = bb_df[["date", "garmin_body_battery_high", "garmin_body_battery_low"]].melt(
+            id_vars="date", var_name="metric", value_name="value"
+        )
+        bb["metric"] = bb["metric"].map(
+            {"garmin_body_battery_high": "High", "garmin_body_battery_low": "Low"}
+        )
+        bb_chart = (
+            alt.Chart(bb)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
+                y=alt.Y("value:Q", title="Body Battery", scale=alt.Scale(domain=[0, 100])),
+                color=alt.Color("metric:N", title="Level"),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date", format="%b %d"),
+                    alt.Tooltip("metric:N", title="Level"),
+                    alt.Tooltip("value:Q", title="Value", format=".0f"),
+                ],
+            )
+            .properties(height=220)
+        )
+        st.altair_chart(bb_chart, use_container_width=True)
+
+    # ── Stress Level (Garmin) ──────────────────────────────────────────────
+    st.subheader("Stress Level (Garmin)")
+    stress_df = df.dropna(subset=["garmin_avg_stress"])
+    if stress_df.empty:
+        st.info("No stress data in range.")
+    else:
+        st.altair_chart(
+            _line(stress_df, "date", "garmin_avg_stress", "Stress"), use_container_width=True
         )
 
     st.divider()
@@ -189,26 +241,23 @@ def render(start_date: date, end_date: date) -> None:
     )
 
     overlay_cols = list(_METRIC_LABELS.keys())
-    valid_cols = [c for c in overlay_cols if df[c].notna().any()]
+    valid_cols = [c for c in overlay_cols if c in df.columns and df[c].notna().any()]
 
     if not valid_cols:
         st.info("Not enough data to render overlay for the selected range.")
     else:
-        # Wide format: one row per date, one column per metric (for tooltip)
         label_map = {col: _METRIC_LABELS[col] for col in valid_cols}
-        wide = df[["cycle_date"] + valid_cols].rename(columns=label_map)
+        wide = df[["date"] + valid_cols].rename(columns=label_map)
         label_cols = list(label_map.values())
 
-        # Melted format: one row per (date, metric) — used for drawing colored lines
-        melted = wide.melt(id_vars="cycle_date", var_name="metric", value_name="value")
+        melted = wide.melt(id_vars="date", var_name="metric", value_name="value")
         melted = melted.dropna(subset=["value"])
 
-        # Lines: raw values, Y axis shape kept but numbers hidden
         lines = (
             alt.Chart(melted)
             .mark_line(point=True)
             .encode(
-                x=alt.X("cycle_date:T", title=None, axis=alt.Axis(format="%b %d")),
+                x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
                 y=alt.Y(
                     "value:Q",
                     title=None,
@@ -219,15 +268,14 @@ def render(start_date: date, end_date: date) -> None:
             .properties(height=320)
         )
 
-        # Invisible full-height rules at each date — fire a tooltip with every metric
-        tooltip = [alt.Tooltip("cycle_date:T", title="Date", format="%b %d")] + [
+        tooltip = [alt.Tooltip("date:T", title="Date", format="%b %d")] + [
             alt.Tooltip(f"{lbl}:Q", title=lbl, format=".1f") for lbl in label_cols
         ]
         hover = (
             alt.Chart(wide)
             .mark_rule(opacity=0, strokeWidth=20)
             .encode(
-                x=alt.X("cycle_date:T"),
+                x=alt.X("date:T"),
                 tooltip=tooltip,
             )
         )

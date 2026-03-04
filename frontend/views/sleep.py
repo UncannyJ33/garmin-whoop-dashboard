@@ -15,22 +15,20 @@ from frontend.db import get_engine
 
 _QUERY = """
 SELECT
-    start_time,
-    total_in_bed_ms,
-    total_awake_ms,
-    total_light_ms,
-    total_sws_ms,
-    total_rem_ms,
-    sleep_performance,
-    sleep_efficiency,
-    nap
-FROM whoop_sleep
-WHERE start_time >= :start
-  AND start_time <  :end
-ORDER BY start_time
+    date,
+    total_sleep_minutes,
+    deep_sleep_minutes,
+    light_sleep_minutes,
+    rem_sleep_minutes,
+    awake_minutes,
+    whoop_performance,
+    whoop_efficiency,
+    garmin_sleep_score,
+    primary_source
+FROM unified_sleep
+WHERE date >= :start AND date < :end
+ORDER BY date
 """
-
-_MS_TO_H = 1 / 3_600_000
 
 _STAGE_ORDER = ["Light", "Deep (SWS)", "REM", "Awake"]
 _STAGE_COLORS = ["#5B9BD5", "#2E5C8A", "#7030A0", "#C0504D"]
@@ -40,16 +38,12 @@ _STAGE_COLORS = ["#5B9BD5", "#2E5C8A", "#7030A0", "#C0504D"]
 def _load(start: str, end: str) -> pd.DataFrame:
     with get_engine().connect() as conn:
         df = pd.read_sql(text(_QUERY), conn, params={"start": start, "end": end})
-    df["start_time"] = pd.to_datetime(df["start_time"])
-    df["date"] = df["start_time"].dt.date
-    for col, lbl in [
-        ("total_light_ms", "light_h"),
-        ("total_sws_ms", "sws_h"),
-        ("total_rem_ms", "rem_h"),
-        ("total_awake_ms", "awake_h"),
-    ]:
-        df[lbl] = df[col] * _MS_TO_H
-    df["total_sleep_h"] = df["light_h"] + df["sws_h"] + df["rem_h"]
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["light_h"] = df["light_sleep_minutes"] / 60
+    df["deep_h"] = df["deep_sleep_minutes"] / 60
+    df["rem_h"] = df["rem_sleep_minutes"] / 60
+    df["awake_h"] = df["awake_minutes"] / 60
+    df["total_sleep_h"] = df["light_h"] + df["deep_h"] + df["rem_h"]
     return df
 
 
@@ -63,30 +57,28 @@ def render(start_date: date, end_date: date) -> None:
         st.warning("No sleep data for the selected date range.")
         return
 
-    main = df[df["nap"] == 0].copy()
-    nap_count = len(df[df["nap"] == 1])
-    if nap_count:
-        st.caption(f"{nap_count} nap(s) excluded from charts below.")
-
-    if main.empty:
-        st.warning("No full-night sleep records in range (only naps).")
-        return
-
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Avg Sleep", f"{main['total_sleep_h'].mean():.1f} h")
+        st.metric("Avg Sleep", f"{df['total_sleep_h'].mean():.1f} h")
     with col2:
         st.metric(
             "Avg Performance",
-            f"{main['sleep_performance'].mean():.0f}%"
-            if main["sleep_performance"].notna().any()
+            f"{df['whoop_performance'].mean():.0f}%"
+            if df["whoop_performance"].notna().any()
             else "—",
         )
     with col3:
         st.metric(
             "Avg Efficiency",
-            f"{main['sleep_efficiency'].mean():.0f}%"
-            if main["sleep_efficiency"].notna().any()
+            f"{df['whoop_efficiency'].mean():.0f}%"
+            if df["whoop_efficiency"].notna().any()
+            else "—",
+        )
+    with col4:
+        st.metric(
+            "Avg Garmin Score",
+            f"{df['garmin_sleep_score'].mean():.0f}"
+            if df["garmin_sleep_score"].notna().any()
             else "—",
         )
 
@@ -95,7 +87,7 @@ def render(start_date: date, end_date: date) -> None:
     # ── Total sleep per night ──────────────────────────────────────────────
     st.subheader("Total Sleep per Night (hours)")
     total_chart = (
-        alt.Chart(main)
+        alt.Chart(df)
         .mark_bar()
         .encode(
             x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
@@ -111,11 +103,11 @@ def render(start_date: date, end_date: date) -> None:
 
     # ── Sleep stage breakdown — stacked bar ───────────────────────────────
     st.subheader("Sleep Stage Breakdown (hours)")
-    stages_melted = main[["date", "light_h", "sws_h", "rem_h", "awake_h"]].melt(
+    stages_melted = df[["date", "light_h", "deep_h", "rem_h", "awake_h"]].melt(
         id_vars="date", var_name="stage", value_name="hours"
     )
     stages_melted["stage"] = stages_melted["stage"].map(
-        {"light_h": "Light", "sws_h": "Deep (SWS)", "rem_h": "REM", "awake_h": "Awake"}
+        {"light_h": "Light", "deep_h": "Deep (SWS)", "rem_h": "REM", "awake_h": "Awake"}
     )
     stacked_chart = (
         alt.Chart(stages_melted)
@@ -142,7 +134,7 @@ def render(start_date: date, end_date: date) -> None:
 
     # ── Sleep performance trend ────────────────────────────────────────────
     st.subheader("Sleep Performance %")
-    perf_df = main.dropna(subset=["sleep_performance"])
+    perf_df = df.dropna(subset=["whoop_performance"])
     if perf_df.empty:
         st.info("No sleep performance data in range.")
     else:
@@ -152,16 +144,41 @@ def render(start_date: date, end_date: date) -> None:
             .encode(
                 x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
                 y=alt.Y(
-                    "sleep_performance:Q", title="Performance %", scale=alt.Scale(domain=[0, 100])
+                    "whoop_performance:Q",
+                    title="Performance %",
+                    scale=alt.Scale(domain=[0, 100]),
                 ),
                 tooltip=[
                     alt.Tooltip("date:T", title="Date", format="%b %d"),
-                    alt.Tooltip("sleep_performance:Q", title="Performance %", format=".0f"),
+                    alt.Tooltip("whoop_performance:Q", title="Performance %", format=".0f"),
                 ],
             )
             .properties(height=220)
         )
         st.altair_chart(perf_chart, use_container_width=True)
+
+    # ── Garmin Sleep Score ─────────────────────────────────────────────────
+    st.subheader("Garmin Sleep Score")
+    gs_df = df.dropna(subset=["garmin_sleep_score"])
+    if gs_df.empty:
+        st.info("No Garmin sleep score data (watch not worn during sleep).")
+    else:
+        gs_chart = (
+            alt.Chart(gs_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
+                y=alt.Y(
+                    "garmin_sleep_score:Q", title="Score", scale=alt.Scale(domain=[0, 100])
+                ),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date", format="%b %d"),
+                    alt.Tooltip("garmin_sleep_score:Q", title="Score", format=".0f"),
+                ],
+            )
+            .properties(height=220)
+        )
+        st.altair_chart(gs_chart, use_container_width=True)
 
     with st.expander("Raw data"):
         st.dataframe(df, use_container_width=True)

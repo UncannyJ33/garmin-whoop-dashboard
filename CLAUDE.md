@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-Phase 2 — Garmin Integration — **Tasks 2.1–2.7 COMPLETE**. Next: Task 2.8 — Normalization Layer.
+Phase 2 — Garmin Integration — **COMPLETE** (Tasks 2.1–2.8). Next: Phase 3 — Dashboard views.
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -20,10 +20,10 @@ Phase 2 — Garmin Integration — **Tasks 2.1–2.7 COMPLETE**. Next: Task 2.8 
 - Whoop API client: WhoopClient with pagination + retry logic (src/clients/whoop_client.py)
 - Ingestion pipeline: WhoopPipeline fetch → transform → upsert (src/ingestion/whoop_pipeline.py)
 - FastAPI app entry point: src/api/main.py
-- Streamlit dashboard: frontend/app.py (Recovery, Sleep, Activities pages)
+- Streamlit dashboard: frontend/app.py (Recovery, Sleep, Activities, Data Sources pages)
 - Docker: Dockerfile + docker-compose.yml (backend port 8000, frontend port 8501, data/ volume)
 
-## What's Built (Phase 2, so far)
+## What's Built (Phase 2 — COMPLETE)
 - Garmin auth: GarminAuth class with token persistence via garth (src/clients/garmin_auth.py)
   - Tokens stored at `data/garmin_tokens/` (GARMIN_TOKEN_DIR in .env)
   - Re-auth on 401, clear error messages for 429/403
@@ -35,6 +35,8 @@ Phase 2 — Garmin Integration — **Tasks 2.1–2.7 COMPLETE**. Next: Task 2.8 
 - initial_sync.py: runs Whoop (async) then Garmin (sync) in sequence
 - Schema comparison tool: src/normalization/comparison_tool.py + scripts/schema_review.py (Task 2.6)
 - Schema unification review: config/field_mappings.yaml fully populated with all source/primary/transformation decisions (Task 2.7)
+- Normalization layer: migration 003, whoop_mapper.py, garmin_mapper.py, deduplication.py, normalizer.py; both pipelines call normalize_all() after sync (Task 2.8)
+- Frontend migrated to unified tables: all views read from unified_daily/unified_sleep/unified_workouts; new Data Sources page (frontend/views/data_sources.py)
 
 ## Key Decisions
 - Whoop = source of truth for recovery, sleep quality, body vitals
@@ -111,9 +113,11 @@ The v2 API field names differ from our DB column names. Key mappings:
 - All charts use Altair directly (not `st.line_chart` / `st.bar_chart`)
 - No zoom on any chart — user preference; do not add `selection_interval` to charts
 - Altair 6.0.0 installed — use `alt.SelectionParameter`, not `alt.Selection` (renamed in v6)
-- Activity split: strain activities = `strain IS NOT NULL`, recovery activities = `strain IS NULL`
-- `respiratory_rate` is on `whoop_sleep`, not `whoop_recovery` — join via `r.sleep_id = s.id`
-- `skin_temp_celsius` displayed as Fahrenheit: `°F = °C × 9/5 + 32`
+- All views read from unified tables (unified_daily, unified_sleep, unified_workouts) — not raw whoop_* tables
+- Activity split: strain activities from unified_workouts, recovery activities from whoop_workouts WHERE strain IS NULL
+- Running data table filters by `activity_type LIKE '%run%'` (case-insensitive)
+- `whoop_skin_temp` (°C) displayed as Fahrenheit: `°F = °C × 9/5 + 32`
+- data_sources.py has no date range arg — sync log is not date-filtered
 
 ## Garmin API — Actual Field Names
 Key mappings from live API inspection (confirmed against real responses):

@@ -14,7 +14,7 @@ sys.path.insert(0, str(_root))  # config/, src/
 sys.path.insert(0, str(_root / "frontend"))  # views/
 
 import streamlit as st  # noqa: E402
-from views import activities, readiness, sleep  # noqa: E402
+from views import activities, data_sources, readiness, sleep  # noqa: E402
 
 st.set_page_config(
     page_title="Fitness Dashboard",
@@ -26,7 +26,7 @@ st.set_page_config(
 st.sidebar.title("Fitness Dashboard")
 st.sidebar.caption("Whoop · Garmin")
 
-page = st.sidebar.radio("Page", ["Recovery", "Sleep", "Activities"])
+page = st.sidebar.radio("Page", ["Recovery", "Sleep", "Activities", "Data Sources"])
 
 st.sidebar.divider()
 st.sidebar.subheader("Date Range")
@@ -48,3 +48,5 @@ elif page == "Sleep":
     sleep.render(start_date, end_date)
 elif page == "Activities":
     activities.render(start_date, end_date)
+elif page == "Data Sources":
+    data_sources.render()
