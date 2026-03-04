@@ -1,4 +1,5 @@
 """Activities page."""
+
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -30,7 +31,6 @@ ORDER BY start_time DESC
 """
 
 
-
 def _category_bar(counts: pd.DataFrame) -> alt.Chart:
     return (
         alt.Chart(counts)
@@ -43,7 +43,6 @@ def _category_bar(counts: pd.DataFrame) -> alt.Chart:
                 alt.Tooltip("count:Q", title="Count"),
             ],
         )
-
         .properties(height=220)
     )
 
@@ -56,8 +55,8 @@ def _load(start: str, end: str) -> pd.DataFrame:
     df["end_time"] = pd.to_datetime(df["end_time"])
     df["date"] = df["start_time"].dt.date
     df["duration_min"] = (
-        (df["end_time"] - df["start_time"]).dt.total_seconds() / 60
-    ).round(0).astype("Int64")
+        ((df["end_time"] - df["start_time"]).dt.total_seconds() / 60).round(0).astype("Int64")
+    )
     return df
 
 
@@ -97,10 +96,9 @@ def render(start_date: date, end_date: date) -> None:
         daily_peak = strain_df.groupby("date")["strain"].max().reset_index()
 
         # Sport name that achieved the peak
-        top_sport = (
-            strain_df.loc[strain_df.groupby("date")["strain"].idxmax(), ["date", "sport_name"]]
-            .reset_index(drop=True)
-        )
+        top_sport = strain_df.loc[
+            strain_df.groupby("date")["strain"].idxmax(), ["date", "sport_name"]
+        ].reset_index(drop=True)
 
         # All activities for the day as a readable string, sorted by strain desc
         def _day_summary(g: pd.DataFrame) -> str:
@@ -130,7 +128,6 @@ def render(start_date: date, end_date: date) -> None:
                     alt.Tooltip("all_activities:N", title="All Activities"),
                 ],
             )
-    
             .properties(height=220)
         )
         st.altair_chart(strain_chart, use_container_width=True)
@@ -141,7 +138,10 @@ def render(start_date: date, end_date: date) -> None:
         st.info("No strain activities in range.")
     else:
         strain_counts = (
-            strain_df["sport_name"].value_counts().rename_axis("sport_name").reset_index(name="count")
+            strain_df["sport_name"]
+            .value_counts()
+            .rename_axis("sport_name")
+            .reset_index(name="count")
         )
         st.altair_chart(_category_bar(strain_counts), use_container_width=True)
 
@@ -151,26 +151,41 @@ def render(start_date: date, end_date: date) -> None:
         st.info("No recovery activities in range.")
     else:
         recovery_counts = (
-            recovery_df["sport_name"].value_counts().rename_axis("sport_name").reset_index(name="count")
+            recovery_df["sport_name"]
+            .value_counts()
+            .rename_axis("sport_name")
+            .reset_index(name="count")
         )
         st.altair_chart(_category_bar(recovery_counts), use_container_width=True)
 
     # ── Recent workouts table (strain activities) ──────────────────────────
     st.subheader("Recent Workouts")
-    workouts_display = strain_df[["date", "sport_name", "strain", "avg_heart_rate", "duration_min"]].rename(columns={
-        "date": "Date",
-        "sport_name": "Activity",
-        "strain": "Strain",
-        "avg_heart_rate": "Avg HR",
-        "duration_min": "Duration (min)",
-    }).reset_index(drop=True)
+    workouts_display = (
+        strain_df[["date", "sport_name", "strain", "avg_heart_rate", "duration_min"]]
+        .rename(
+            columns={
+                "date": "Date",
+                "sport_name": "Activity",
+                "strain": "Strain",
+                "avg_heart_rate": "Avg HR",
+                "duration_min": "Duration (min)",
+            }
+        )
+        .reset_index(drop=True)
+    )
     st.dataframe(workouts_display, use_container_width=True)
 
     # ── Recent recoveries table (recovery activities) ──────────────────────
     st.subheader("Recent Recoveries")
-    recoveries_display = recovery_df[["date", "sport_name", "duration_min"]].rename(columns={
-        "date": "Date",
-        "sport_name": "Activity",
-        "duration_min": "Duration (min)",
-    }).reset_index(drop=True)
+    recoveries_display = (
+        recovery_df[["date", "sport_name", "duration_min"]]
+        .rename(
+            columns={
+                "date": "Date",
+                "sport_name": "Activity",
+                "duration_min": "Duration (min)",
+            }
+        )
+        .reset_index(drop=True)
+    )
     st.dataframe(recoveries_display, use_container_width=True)

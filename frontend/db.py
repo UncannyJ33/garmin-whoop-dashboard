@@ -1,4 +1,5 @@
 """Shared database connection helper for the Streamlit frontend."""
+
 import sys
 from pathlib import Path
 

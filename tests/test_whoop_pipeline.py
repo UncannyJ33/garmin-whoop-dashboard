@@ -148,6 +148,7 @@ WORKOUT_NULL_SCORE = {
 # DB fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def engine():
     eng = get_engine(IN_MEMORY)
@@ -167,6 +168,7 @@ def db(engine):
 # ---------------------------------------------------------------------------
 # Transform: cycle
 # ---------------------------------------------------------------------------
+
 
 def test_transform_cycle_scored():
     result = transform_cycle(CYCLE_SCORED, FETCHED_AT)
@@ -197,9 +199,10 @@ def test_transform_cycle_pending_score_is_null():
 # Transform: recovery
 # ---------------------------------------------------------------------------
 
+
 def test_transform_recovery_fields():
     result = transform_recovery(RECOVERY, FETCHED_AT)
-    assert result["id"] == "1344375740"         # synthetic from cycle_id
+    assert result["id"] == "1344375740"  # synthetic from cycle_id
     assert result["cycle_id"] == "1344375740"
     assert result["sleep_id"] == "cff40ed8-5816-4001-a3cc-501fba8e8b03"
     assert result["recovery_score"] == pytest.approx(75.0)
@@ -219,6 +222,7 @@ def test_transform_recovery_null_score():
 # ---------------------------------------------------------------------------
 # Transform: sleep
 # ---------------------------------------------------------------------------
+
 
 def test_transform_sleep_fields():
     result = transform_sleep(SLEEP, FETCHED_AT)
@@ -249,6 +253,7 @@ def test_transform_sleep_null_score():
 # Transform: workout
 # ---------------------------------------------------------------------------
 
+
 def test_transform_workout_scored():
     result = transform_workout(WORKOUT_SCORED, FETCHED_AT)
     assert result["id"] == "80e8023c-b3d4-4c15-993c-1ce41ad51001"
@@ -271,10 +276,11 @@ def test_transform_workout_null_score():
 # Upsert: no duplicates on re-run
 # ---------------------------------------------------------------------------
 
+
 def test_upsert_cycle_no_duplicates(db):
     pipeline = WhoopPipeline(db, client=MagicMock())
     pipeline._store_cycles([CYCLE_SCORED], FETCHED_AT)
-    pipeline._store_cycles([CYCLE_SCORED], FETCHED_AT)   # second run, same data
+    pipeline._store_cycles([CYCLE_SCORED], FETCHED_AT)  # second run, same data
     count = db.query(WhoopCycle).count()
     assert count == 1
 
@@ -316,6 +322,7 @@ def test_upsert_updates_existing_row(db):
 # ---------------------------------------------------------------------------
 # Sync log tracking
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_sync_log_success(db):
@@ -361,6 +368,7 @@ async def test_sync_log_error(db):
 # ---------------------------------------------------------------------------
 # Sync window determination
 # ---------------------------------------------------------------------------
+
 
 def test_sync_window_defaults_to_30_days(db):
     """With no prior sync, window starts 30 days ago."""
@@ -428,6 +436,7 @@ def test_sync_window_malformed_metadata_falls_back(db):
 # Transform: additional edge cases
 # ---------------------------------------------------------------------------
 
+
 def test_transform_sleep_no_cycle_id():
     """Sleep records without a cycle_id should map to None, not raise."""
     record = {**SLEEP}
@@ -469,6 +478,7 @@ def test_transform_cycle_id_is_stringified():
 # Store helpers — empty lists
 # ---------------------------------------------------------------------------
 
+
 def test_store_cycles_empty_list_returns_zero(db):
     """Storing an empty list commits nothing and returns 0."""
     pipeline = WhoopPipeline(db, client=MagicMock())
@@ -495,6 +505,7 @@ def test_store_workouts_empty_list_returns_zero(db):
 # Upsert — raw_json updated
 # ---------------------------------------------------------------------------
 
+
 def test_upsert_updates_raw_json(db):
     """Re-syncing a record must update raw_json, not preserve the stale blob."""
     pipeline = WhoopPipeline(db, client=MagicMock())
@@ -511,6 +522,7 @@ def test_upsert_updates_raw_json(db):
 # ---------------------------------------------------------------------------
 # Sync type: manual vs incremental
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_sync_type_is_manual_with_explicit_dates(db):

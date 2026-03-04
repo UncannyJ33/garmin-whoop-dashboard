@@ -45,6 +45,7 @@ def auth():
 # Authorization URL generation
 # ---------------------------------------------------------------------------
 
+
 def test_get_authorization_url_base(auth):
     """URL must point to the Whoop authorization endpoint."""
     url, _ = auth.get_authorization_url()
@@ -90,6 +91,7 @@ def test_get_authorization_url_state_length(auth):
 # Token expiry detection
 # ---------------------------------------------------------------------------
 
+
 def _make_token(expires_at: datetime) -> TokenStore:
     record = TokenStore(
         service="whoop",
@@ -132,6 +134,7 @@ def test_is_token_expired_no_expires_at(auth):
 # ---------------------------------------------------------------------------
 # Token exchange (mocked HTTP)
 # ---------------------------------------------------------------------------
+
 
 def _mock_token_response(access_token: str = "access-123") -> MagicMock:
     response = MagicMock()
@@ -188,6 +191,7 @@ async def test_exchange_code_raises_on_http_error(auth, db):
 # Token refresh (mocked HTTP)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_refresh_token_updates_access_token(auth, db):
     """refresh_access_token must update the stored access token."""
@@ -224,6 +228,7 @@ async def test_refresh_token_raises_when_no_token(auth, db):
 # ---------------------------------------------------------------------------
 # get_valid_token auto-refresh
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_get_valid_token_returns_unexpired(auth, db):

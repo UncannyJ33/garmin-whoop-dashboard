@@ -94,7 +94,10 @@ class WhoopClient:
                 delay = min(_BACKOFF_BASE_S * (2**attempt), _BACKOFF_MAX_S)
                 logger.warning(
                     "429 on %s — backing off %.0fs (attempt %d/%d)",
-                    path, delay, attempt + 1, _MAX_RATE_LIMIT_RETRIES,
+                    path,
+                    delay,
+                    attempt + 1,
+                    _MAX_RATE_LIMIT_RETRIES,
                 )
                 await asyncio.sleep(delay)
                 continue
@@ -104,7 +107,10 @@ class WhoopClient:
                 if attempt >= _MAX_SERVER_RETRIES:
                     logger.error(
                         "%d on %s after %d retries: %s",
-                        response.status_code, path, _MAX_SERVER_RETRIES, response.text[:300],
+                        response.status_code,
+                        path,
+                        _MAX_SERVER_RETRIES,
+                        response.text[:300],
                     )
                     raise WhoopAPIError(
                         f"{response.status_code} on {path} after {_MAX_SERVER_RETRIES} retries"
@@ -112,15 +118,17 @@ class WhoopClient:
                 delay = min(_BACKOFF_BASE_S * (2**attempt), _BACKOFF_MAX_S)
                 logger.error(
                     "%d on %s — backing off %.0fs (attempt %d/%d)",
-                    response.status_code, path, delay, attempt + 1, _MAX_SERVER_RETRIES,
+                    response.status_code,
+                    path,
+                    delay,
+                    attempt + 1,
+                    _MAX_SERVER_RETRIES,
                 )
                 await asyncio.sleep(delay)
                 continue
 
             # All other errors — fail immediately
-            logger.error(
-                "GET %s → %d: %s", path, response.status_code, response.text[:300]
-            )
+            logger.error("GET %s → %d: %s", path, response.status_code, response.text[:300])
             raise WhoopAPIError(
                 f"GET {path} returned {response.status_code}: {response.text[:300]}"
             )

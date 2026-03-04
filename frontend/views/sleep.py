@@ -1,4 +1,5 @@
 """Sleep page."""
+
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -33,7 +34,6 @@ _MS_TO_H = 1 / 3_600_000
 
 _STAGE_ORDER = ["Light", "Deep (SWS)", "REM", "Awake"]
 _STAGE_COLORS = ["#5B9BD5", "#2E5C8A", "#7030A0", "#C0504D"]
-
 
 
 @st.cache_data(ttl=300)
@@ -76,9 +76,19 @@ def render(start_date: date, end_date: date) -> None:
     with col1:
         st.metric("Avg Sleep", f"{main['total_sleep_h'].mean():.1f} h")
     with col2:
-        st.metric("Avg Performance", f"{main['sleep_performance'].mean():.0f}%" if main["sleep_performance"].notna().any() else "—")
+        st.metric(
+            "Avg Performance",
+            f"{main['sleep_performance'].mean():.0f}%"
+            if main["sleep_performance"].notna().any()
+            else "—",
+        )
     with col3:
-        st.metric("Avg Efficiency", f"{main['sleep_efficiency'].mean():.0f}%" if main["sleep_efficiency"].notna().any() else "—")
+        st.metric(
+            "Avg Efficiency",
+            f"{main['sleep_efficiency'].mean():.0f}%"
+            if main["sleep_efficiency"].notna().any()
+            else "—",
+        )
 
     st.divider()
 
@@ -95,7 +105,6 @@ def render(start_date: date, end_date: date) -> None:
                 alt.Tooltip("total_sleep_h:Q", title="Sleep (h)", format=".2f"),
             ],
         )
-
         .properties(height=220)
     )
     st.altair_chart(total_chart, use_container_width=True)
@@ -127,7 +136,6 @@ def render(start_date: date, end_date: date) -> None:
                 alt.Tooltip("hours:Q", title="Hours", format=".2f"),
             ],
         )
-
         .properties(height=220)
     )
     st.altair_chart(stacked_chart, use_container_width=True)
@@ -143,13 +151,14 @@ def render(start_date: date, end_date: date) -> None:
             .mark_line(point=True)
             .encode(
                 x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
-                y=alt.Y("sleep_performance:Q", title="Performance %", scale=alt.Scale(domain=[0, 100])),
+                y=alt.Y(
+                    "sleep_performance:Q", title="Performance %", scale=alt.Scale(domain=[0, 100])
+                ),
                 tooltip=[
                     alt.Tooltip("date:T", title="Date", format="%b %d"),
                     alt.Tooltip("sleep_performance:Q", title="Performance %", format=".0f"),
                 ],
             )
-    
             .properties(height=220)
         )
         st.altair_chart(perf_chart, use_container_width=True)

@@ -44,4 +44,5 @@ def get_session_factory(engine: Engine) -> type:
         sessionmaker class for creating DB sessions.
     """
     from sqlalchemy.orm import sessionmaker
+
     return sessionmaker(bind=engine, autocommit=False, autoflush=False)

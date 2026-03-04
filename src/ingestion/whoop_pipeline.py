@@ -25,6 +25,7 @@ _M = TypeVar("_M")  # ORM model type variable for _upsert
 # Transform functions (module-level for testability)
 # ---------------------------------------------------------------------------
 
+
 def transform_cycle(record: dict, fetched_at: str) -> dict:
     """Map a Whoop /v2/cycle response dict to whoop_cycles column values.
 
@@ -67,7 +68,7 @@ def transform_recovery(record: dict, fetched_at: str) -> dict:
     """
     score = record.get("score") or {}
     return {
-        "id": str(record["cycle_id"]),   # stable synthetic PK
+        "id": str(record["cycle_id"]),  # stable synthetic PK
         "cycle_id": str(record["cycle_id"]),
         "sleep_id": record.get("sleep_id"),
         "score_state": record.get("score_state"),
@@ -128,14 +129,18 @@ def transform_workout(record: dict, fetched_at: str) -> dict:
     """
     score = record.get("score") or {}
     zones = score.get("zone_duration") or {}
-    zone_list = [
-        zones.get("zone_zero_milli"),
-        zones.get("zone_one_milli"),
-        zones.get("zone_two_milli"),
-        zones.get("zone_three_milli"),
-        zones.get("zone_four_milli"),
-        zones.get("zone_five_milli"),
-    ] if zones else None
+    zone_list = (
+        [
+            zones.get("zone_zero_milli"),
+            zones.get("zone_one_milli"),
+            zones.get("zone_two_milli"),
+            zones.get("zone_three_milli"),
+            zones.get("zone_four_milli"),
+            zones.get("zone_five_milli"),
+        ]
+        if zones
+        else None
+    )
 
     return {
         "id": str(record["id"]),
@@ -162,6 +167,7 @@ def transform_workout(record: dict, fetched_at: str) -> dict:
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
+
 
 class WhoopPipeline:
     """Orchestrates fetching, transforming, and storing Whoop data.
@@ -235,16 +241,19 @@ class WhoopPipeline:
             sync_type=sync_type,
             started_at=now.isoformat(),
             status="running",
-            metadata_json=json.dumps({
-                "sync_start": sync_start.isoformat(),
-                "sync_end": sync_end.isoformat(),
-            }),
+            metadata_json=json.dumps(
+                {
+                    "sync_start": sync_start.isoformat(),
+                    "sync_end": sync_end.isoformat(),
+                }
+            ),
         )
         self._db.add(log)
         self._db.commit()
         logger.info(
             "Whoop sync started: %s → %s",
-            sync_start.date(), sync_end.date(),
+            sync_start.date(),
+            sync_end.date(),
         )
 
         try:
@@ -262,7 +271,10 @@ class WhoopPipeline:
             records_fetched = len(cycles) + len(recovery) + len(sleep) + len(workouts)
             logger.info(
                 "Fetched: %d cycles, %d recovery, %d sleep, %d workouts",
-                len(cycles), len(recovery), len(sleep), len(workouts),
+                len(cycles),
+                len(recovery),
+                len(sleep),
+                len(workouts),
             )
 
             stored = (

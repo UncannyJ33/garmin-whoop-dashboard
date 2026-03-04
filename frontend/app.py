@@ -3,13 +3,14 @@
 Run with:
     streamlit run frontend/app.py
 """
+
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
 # Ensure project root and frontend/ are importable
 _root = Path(__file__).parent.parent
-sys.path.insert(0, str(_root))           # config/, src/
+sys.path.insert(0, str(_root))  # config/, src/
 sys.path.insert(0, str(_root / "frontend"))  # views/
 
 import streamlit as st  # noqa: E402

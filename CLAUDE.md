@@ -29,6 +29,7 @@ Phase 1 — Whoop Proof of Concept + Docker — **COMPLETE**. Next: Phase 2 — 
 - Garmin = source of truth for workout detail, running dynamics
 - Deduplication by timestamp + duration only
 - Store raw API responses in raw_json column for reprocessing
+- Garmin sleep/HRV data will be missing most nights — the watch is not worn during sleep (Whoop is worn instead). `get_sleep` and `get_hrv` returning None is expected and normal, not an error.
 
 ## Conventions
 - Python 3.11+

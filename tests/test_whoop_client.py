@@ -15,6 +15,7 @@ END = "2024-03-31T00:00:00Z"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_response(status_code: int, json_data: dict) -> MagicMock:
     """Build a mock httpx response."""
     r = MagicMock()
@@ -44,6 +45,7 @@ def mock_http(*responses):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_auth():
     """WhoopAuth stub that always returns a valid token."""
@@ -62,6 +64,7 @@ def client(mock_auth):
 # ---------------------------------------------------------------------------
 # Pagination
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_single_page_returns_all_records(client):
@@ -106,6 +109,7 @@ async def test_empty_records_list(client):
 # Rate limit retry (429)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_429_retries_and_succeeds(client):
     """A single 429 followed by 200 returns data after one backoff."""
@@ -114,7 +118,7 @@ async def test_429_retries_and_succeeds(client):
         with patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             result = await client.get_profile()
     assert result == data
-    mock_sleep.assert_awaited_once_with(1.0)   # first backoff: 1 * 2^0 = 1s
+    mock_sleep.assert_awaited_once_with(1.0)  # first backoff: 1 * 2^0 = 1s
 
 
 @pytest.mark.asyncio
@@ -131,7 +135,7 @@ async def test_429_backoff_doubles_each_retry(client):
 @pytest.mark.asyncio
 async def test_429_raises_after_max_retries(client):
     """Exhausting all 429 retries raises WhoopAPIError."""
-    responses = [make_response(429, {})] * 6   # 1 initial + 5 retries
+    responses = [make_response(429, {})] * 6  # 1 initial + 5 retries
     with mock_http(*responses):
         with patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(WhoopAPIError, match="Rate limited"):
@@ -141,6 +145,7 @@ async def test_429_raises_after_max_retries(client):
 # ---------------------------------------------------------------------------
 # Token refresh on 401
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_401_triggers_token_refresh_and_retries(client, mock_auth):
@@ -165,6 +170,7 @@ async def test_401_after_refresh_raises(client, mock_auth):
 # Server error retry (5xx)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_500_retries_and_succeeds(client):
     """A 500 followed by 200 returns data after backoff."""
@@ -178,7 +184,7 @@ async def test_500_retries_and_succeeds(client):
 @pytest.mark.asyncio
 async def test_500_raises_after_max_server_retries(client):
     """Exhausting all 5xx retries raises WhoopAPIError."""
-    responses = [make_response(500, {})] * 4   # 1 initial + 3 retries
+    responses = [make_response(500, {})] * 4  # 1 initial + 3 retries
     with mock_http(*responses):
         with patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(WhoopAPIError, match="500"):
@@ -188,6 +194,7 @@ async def test_500_raises_after_max_server_retries(client):
 # ---------------------------------------------------------------------------
 # Non-retryable errors
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_400_raises_immediately(client):
@@ -201,6 +208,7 @@ async def test_400_raises_immediately(client):
 # ---------------------------------------------------------------------------
 # All public methods return correct structure
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_get_cycles_returns_list(client):

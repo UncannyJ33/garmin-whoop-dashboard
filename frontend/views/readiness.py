@@ -1,4 +1,5 @@
 """Recovery / Readiness page."""
+
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -32,12 +33,12 @@ ORDER BY c.start_time
 
 # Human-readable labels for overlay chart
 _METRIC_LABELS = {
-    "recovery_score":   "Recovery Score",
-    "hrv_rmssd":        "HRV",
+    "recovery_score": "Recovery Score",
+    "hrv_rmssd": "HRV",
     "resting_heart_rate": "Resting HR",
-    "spo2_pct":         "SpO2",
+    "spo2_pct": "SpO2",
     "respiratory_rate": "Breathing Rate",
-    "skin_temp_f":      "Skin Temp",
+    "skin_temp_f": "Skin Temp",
 }
 
 
@@ -54,7 +55,6 @@ def _line(df: pd.DataFrame, x: str, y: str, y_title: str, domain: list | None = 
                 alt.Tooltip(f"{y}:Q", title=y_title, format=".1f"),
             ],
         )
-
         .properties(height=220)
     )
 
@@ -91,61 +91,102 @@ def render(start_date: date, end_date: date) -> None:
     col1, col2, col3 = st.columns(3)
     with col1:
         d, _ = _delta("recovery_score")
-        st.metric("Recovery Score", f"{latest['recovery_score']:.0f}%", delta=f"{d}%" if d else None)
+        st.metric(
+            "Recovery Score", f"{latest['recovery_score']:.0f}%", delta=f"{d}%" if d else None
+        )
     with col2:
         d, _ = _delta("hrv_rmssd")
-        st.metric("HRV", f"{latest['hrv_rmssd']:.1f} ms" if pd.notna(latest["hrv_rmssd"]) else "—", delta=d)
+        st.metric(
+            "HRV",
+            f"{latest['hrv_rmssd']:.1f} ms" if pd.notna(latest["hrv_rmssd"]) else "—",
+            delta=d,
+        )
     with col3:
         d, color = _delta("resting_heart_rate", invert=True)
-        st.metric("Resting HR", f"{latest['resting_heart_rate']:.0f} bpm" if pd.notna(latest["resting_heart_rate"]) else "—", delta=d, delta_color=color)
+        st.metric(
+            "Resting HR",
+            f"{latest['resting_heart_rate']:.0f} bpm"
+            if pd.notna(latest["resting_heart_rate"])
+            else "—",
+            delta=d,
+            delta_color=color,
+        )
 
     col4, col5, col6 = st.columns(3)
     with col4:
         d, _ = _delta("spo2_pct")
-        st.metric("SpO2", f"{latest['spo2_pct']:.1f}%" if pd.notna(latest["spo2_pct"]) else "—", delta=d)
+        st.metric(
+            "SpO2", f"{latest['spo2_pct']:.1f}%" if pd.notna(latest["spo2_pct"]) else "—", delta=d
+        )
     with col5:
         d, _ = _delta("respiratory_rate")
-        st.metric("Breathing Rate", f"{latest['respiratory_rate']:.1f} rpm" if pd.notna(latest["respiratory_rate"]) else "—", delta=d)
+        st.metric(
+            "Breathing Rate",
+            f"{latest['respiratory_rate']:.1f} rpm"
+            if pd.notna(latest["respiratory_rate"])
+            else "—",
+            delta=d,
+        )
     with col6:
         d, _ = _delta("skin_temp_f")
-        st.metric("Skin Temp", f"{latest['skin_temp_f']:.1f} °F" if pd.notna(latest["skin_temp_f"]) else "—", delta=d)
+        st.metric(
+            "Skin Temp",
+            f"{latest['skin_temp_f']:.1f} °F" if pd.notna(latest["skin_temp_f"]) else "—",
+            delta=d,
+        )
 
     st.divider()
 
     # ── Individual charts ─────────────────────────────────────────────────
     st.subheader("Recovery Score")
-    st.altair_chart(_line(df, "cycle_date", "recovery_score", "Recovery %", domain=[0, 100]), use_container_width=True)
+    st.altair_chart(
+        _line(df, "cycle_date", "recovery_score", "Recovery %", domain=[0, 100]),
+        use_container_width=True,
+    )
 
     st.subheader("HRV (RMSSD)")
     hrv_df = df.dropna(subset=["hrv_rmssd"])
     if not hrv_df.empty:
-        st.altair_chart(_line(hrv_df, "cycle_date", "hrv_rmssd", "HRV (ms)"), use_container_width=True)
+        st.altair_chart(
+            _line(hrv_df, "cycle_date", "hrv_rmssd", "HRV (ms)"), use_container_width=True
+        )
 
     st.subheader("Resting Heart Rate")
     rhr_df = df.dropna(subset=["resting_heart_rate"])
     if not rhr_df.empty:
-        st.altair_chart(_line(rhr_df, "cycle_date", "resting_heart_rate", "RHR (bpm)"), use_container_width=True)
+        st.altair_chart(
+            _line(rhr_df, "cycle_date", "resting_heart_rate", "RHR (bpm)"), use_container_width=True
+        )
 
     st.subheader("SpO2")
     spo2_df = df.dropna(subset=["spo2_pct"])
     if not spo2_df.empty:
-        st.altair_chart(_line(spo2_df, "cycle_date", "spo2_pct", "SpO2 %"), use_container_width=True)
+        st.altair_chart(
+            _line(spo2_df, "cycle_date", "spo2_pct", "SpO2 %"), use_container_width=True
+        )
 
     st.subheader("Breathing Rate")
     br_df = df.dropna(subset=["respiratory_rate"])
     if not br_df.empty:
-        st.altair_chart(_line(br_df, "cycle_date", "respiratory_rate", "Breaths / min"), use_container_width=True)
+        st.altair_chart(
+            _line(br_df, "cycle_date", "respiratory_rate", "Breaths / min"),
+            use_container_width=True,
+        )
 
     st.subheader("Skin Temperature")
     temp_df = df.dropna(subset=["skin_temp_f"])
     if not temp_df.empty:
-        st.altair_chart(_line(temp_df, "cycle_date", "skin_temp_f", "Skin Temp (°F)"), use_container_width=True)
+        st.altair_chart(
+            _line(temp_df, "cycle_date", "skin_temp_f", "Skin Temp (°F)"), use_container_width=True
+        )
 
     st.divider()
 
     # ── Overlay: all metrics on their own scale ────────────────────────────
     st.subheader("All Metrics Overlaid")
-    st.caption("Hover a day to see all readings. Each metric on its own scale — Y axis intentionally unlabelled.")
+    st.caption(
+        "Hover a day to see all readings. Each metric on its own scale — Y axis intentionally unlabelled."
+    )
 
     overlay_cols = list(_METRIC_LABELS.keys())
     valid_cols = [c for c in overlay_cols if df[c].notna().any()]
@@ -175,7 +216,6 @@ def render(start_date: date, end_date: date) -> None:
                 ),
                 color=alt.Color("metric:N", title="Metric"),
             )
-    
             .properties(height=320)
         )
 
