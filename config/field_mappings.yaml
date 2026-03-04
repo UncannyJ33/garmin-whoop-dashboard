@@ -36,26 +36,26 @@ daily:
   resting_heart_rate:
     whoop_field:      whoop_recovery.resting_heart_rate   # Float, bpm
     garmin_field:     garmin_daily_summary.resting_heart_rate   # Integer, bpm
-    primary_source:   pending   # both track closely — 14-day range: Whoop 59–65, Garmin 55–67
+    primary_source:   whoop   # both track closely — 14-day range: Whoop 59–65, Garmin 55–67
     values_comparison: >
       Values are close but not identical — devices measure RHR differently
       (Whoop measures during deep sleep; Garmin uses overnight average).
       Typical delta in review data: 1–4 bpm.
     transformation:   none   # same unit (bpm), just choose one source
-    status:           pending
-    notes: ""
+    status:           keep
+    notes: "whoop sensor holds better contact, stays on when waking up vs garmin"
 
   spo2:
     whoop_field:      whoop_recovery.spo2_pct   # Float, percent
     garmin_field:     garmin_daily_summary.avg_spo2   # Float, percent
-    primary_source:   pending
+    primary_source:   whoop
     values_comparison: >
       Garmin avg_spo2 was populated on only 2 of 15 days in the review window.
       Whoop recorded it every day. Garmin SpO2 requires the watch to be worn
       during sleep — rarely the case here.
     transformation:   none
-    status:           pending
-    notes: "Garmin also has lowest_spo2 — decide if that's worth keeping."
+    status:           keep
+    notes: "Whoop primary. Garmin lowest_spo2 dropped — too sparse to be useful."
 
   recovery_score:
     whoop_field:      whoop_recovery.recovery_score   # Float, 0–100
@@ -69,16 +69,32 @@ daily:
   hrv:
     whoop_field:      whoop_recovery.hrv_rmssd   # Float, milliseconds (nightly RMSSD)
     garmin_field:     garmin_hrv.last_night_avg_ms   # Float, milliseconds
-    primary_source:   pending
+    primary_source:   whoop
     values_comparison: >
       Garmin HRV requires the watch to be worn during sleep — 0 rows recorded
       in the 30-day live sync. Whoop records HRV every night. These will almost
       always be Whoop-only in practice.
     transformation:   none   # same unit (ms RMSSD)
-    status:           pending
-    notes: >
-      Garmin also stores weekly_avg_ms and last_night_5min_high.
-      Decide if those are worth adding as separate fields or dropping entirely.
+    status:           keep
+    notes: "Primary nightly HRV. Two extra Garmin columns kept — see hrv_weekly_avg and hrv_5min_high below."
+
+  hrv_weekly_avg:
+    whoop_field:      none
+    garmin_field:     garmin_hrv.weekly_avg_ms   # Float, milliseconds
+    primary_source:   garmin
+    values_comparison: "Garmin-only. 7-day rolling average HRV — useful as a baseline trend."
+    transformation:   none
+    status:           keep
+    notes: "Only populates when watch is worn during sleep."
+
+  hrv_5min_high:
+    whoop_field:      none
+    garmin_field:     garmin_hrv.last_night_5min_high   # Float, milliseconds
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Peak 5-minute HRV window from last night — best single-night recovery signal."
+    transformation:   none
+    status:           keep
+    notes: "Only populates when watch is worn during sleep."
 
   strain:
     whoop_field:      whoop_cycles.strain   # Float, Whoop strain scale 0–21
@@ -89,22 +105,40 @@ daily:
     status:           keep
     notes: "Consider adding a derived daily_training_load from sum of garmin_activities.training_load as a companion field."
 
-  body_battery:
+  body_battery_high:
     whoop_field:      none
     garmin_field:     garmin_daily_summary.body_battery_high   # Integer, 0–100
-    primary_source:   garmin   # Garmin-only metric
-    values_comparison: "Garmin-only. body_battery_high and body_battery_low both available."
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Peak body battery reached during the day."
     transformation:   none
-    status:           pending   # decide if you want to surface this in the unified view
-    notes: "body_battery_low may be more useful (the floor reached during the day)."
+    status:           keep
+    notes: ""
 
-  stress_level:
+  body_battery_low:
+    whoop_field:      none
+    garmin_field:     garmin_daily_summary.body_battery_low   # Integer, 0–100
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Floor body battery reached during the day — reflects how depleted you got."
+    transformation:   none
+    status:           keep
+    notes: "Kept alongside high for full picture. Different metric from strain — useful for comparison later."
+
+  avg_stress_level:
     whoop_field:      none
     garmin_field:     garmin_daily_summary.avg_stress_level   # Integer, 0–100
-    primary_source:   garmin   # Garmin-only metric
-    values_comparison: "Garmin-only. avg_stress_level and max_stress_level both available."
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Average stress across the day."
     transformation:   none
-    status:           pending
+    status:           keep
+    notes: "Whoop measures stress but it doesn't surface via API."
+
+  max_stress_level:
+    whoop_field:      none
+    garmin_field:     garmin_daily_summary.max_stress_level   # Integer, 0–100
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Peak stress reached during the day."
+    transformation:   none
+    status:           keep
     notes: ""
 
   steps:
@@ -113,7 +147,37 @@ daily:
     primary_source:   garmin
     values_comparison: "Garmin-only. Whoop does not track steps."
     transformation:   none
-    status:           pending
+    status:           keep
+    notes: "Whoop tracks steps but doesn't surface via API. Garmin more accurate even though worn for less time."
+
+  skin_temp_celsius:
+    whoop_field:      whoop_recovery.skin_temp_celsius   # Float, °C
+    garmin_field:     none
+    primary_source:   whoop
+    values_comparison: "Whoop-only. No Garmin equivalent."
+    transformation:   "Display as °F: °C × 9/5 + 32. Store as °C internally."
+    status:           keep
+    notes: ""
+
+  calories_daily:
+    whoop_field:      whoop_cycles.kilojoules   # Float, kJ (total daily expenditure)
+    garmin_field:     garmin_daily_summary.active_calories   # Float, kcal (active only)
+    primary_source:   whoop
+    values_comparison: >
+      Different definitions: Whoop kilojoules is total daily energy expenditure.
+      Garmin active_calories excludes resting metabolic rate. Not directly
+      comparable — keep both with clear labels.
+    transformation:   "Whoop: kJ × 0.239 → kcal for display. Store raw kJ internally."
+    status:           keep
+    notes: "Garmin also has total_calories (active + resting estimate) — included below."
+
+  total_calories_daily:
+    whoop_field:      none
+    garmin_field:     garmin_daily_summary.total_calories   # Float, kcal
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Active + resting metabolic rate estimate."
+    transformation:   none
+    status:           keep
     notes: ""
 
 
@@ -182,14 +246,35 @@ sleep:
       Garmin sleep_score is a composite quality score using its own algorithm.
       They cannot be averaged or merged — keep as separate fields if both matter.
     transformation:   none
-    status:           pending   # keep both as separate columns, or drop Garmin's?
-    notes: "Garmin sleep_score will be blank almost always given the watch is not worn."
+    status:           keep
+    notes: >
+      Both kept as separate columns in the unified schema — they measure different
+      things and must not be merged. Garmin sleep_score will be blank almost
+      always (watch not worn), but the column exists for future use.
 
   respiratory_rate:
     whoop_field:      whoop_sleep.respiratory_rate   # Float, breaths/min
     garmin_field:     garmin_sleep.avg_respiration   # Float, breaths/min
     primary_source:   whoop
     values_comparison: "Same metric, same unit. Garmin: all blank in review data."
+    transformation:   none
+    status:           keep
+    notes: ""
+
+  sleep_efficiency:
+    whoop_field:      whoop_sleep.sleep_efficiency   # Float, 0–100 percent
+    garmin_field:     none
+    primary_source:   whoop
+    values_comparison: "Whoop-only. Time asleep ÷ time in bed × 100."
+    transformation:   none
+    status:           keep
+    notes: ""
+
+  sleep_consistency:
+    whoop_field:      whoop_sleep.sleep_consistency   # Float, 0–100 percent
+    garmin_field:     none
+    primary_source:   whoop
+    values_comparison: "Whoop-only. How consistent your sleep schedule is relative to your recent pattern."
     transformation:   none
     status:           keep
     notes: ""
@@ -205,14 +290,14 @@ workouts:
   start_time:
     whoop_field:      whoop_workouts.start_time   # ISO 8601 UTC (Z suffix)
     garmin_field:     garmin_activities.start_time   # local time, no tz marker
-    primary_source:   pending
+    primary_source:   whoop
     values_comparison: >
       Whoop stores UTC; Garmin stores local time. When matched, the same session
       shows e.g. Whoop "13:18:03Z" and Garmin "07:18:03" (CST = UTC-6).
       Need to standardise to one representation in the unified schema.
-    transformation:   "Convert one or both to a consistent tz. Recommendation: store as UTC."
+    transformation:   "Store as UTC internally. Convert to local time for display using user's timezone. Accommodates travel."
     status:           keep
-    notes: "Garmin start_time_gmt (UTC) already exists and is used for matching."
+    notes: "Garmin start_time_gmt (UTC) already used for matching. Whoop records more activities and has better auto-recognition; Garmin records more accurate start/stop times."
 
   duration:
     whoop_field:      "derived: end_time - start_time → seconds"
@@ -228,7 +313,7 @@ workouts:
   sport_type:
     whoop_field:      whoop_workouts.sport_name   # e.g. "running", "weightlifting", "walking"
     garmin_field:     garmin_activities.activity_type   # e.g. "running", "strength_training", "walking"
-    primary_source:   pending
+    primary_source:   whoop
     values_comparison: >
       Names differ between devices — see sport_type_mapping section below.
       Key mismatches found in review: weightlifting ↔ strength_training.
@@ -236,19 +321,19 @@ workouts:
       "basketball" without a watch-started session).
     transformation:   "Apply sport_type_mapping table to normalise to a canonical name."
     status:           keep
-    notes: ""
+    notes: "whoop has higher variety of sports, plus better auto-recongnition"
 
   avg_heart_rate:
     whoop_field:      whoop_workouts.avg_heart_rate   # Integer, bpm
     garmin_field:     garmin_activities.avg_heart_rate   # Integer, bpm
-    primary_source:   pending
+    primary_source:   whoop
     values_comparison: >
       When matched, values are within 2–5 bpm. E.g. running on 2026-03-04:
       Whoop 143 bpm, Garmin 146 bpm. Garmin optical HR may differ slightly
       from Whoop during high-intensity efforts.
     transformation:   none
     status:           keep
-    notes: ""
+    notes: "whoop has better contact, typically worn on bicep during activity"
 
   distance:
     whoop_field:      whoop_workouts.distance_meter   # Float, meters (often null)
@@ -258,7 +343,16 @@ workouts:
       Garmin GPS distance is reliable and present for all outdoor activities.
       Whoop distance was null for most matched workouts in the review — Whoop
       relies on phone GPS which is often unavailable.
-    transformation:   "meters ÷ 1000 → km for display, or keep meters internally."
+    transformation:   "Store meters internally. Convert to km for display only."
+    status:           keep
+    notes: ""
+
+  max_heart_rate:
+    whoop_field:      whoop_workouts.max_heart_rate   # Integer, bpm
+    garmin_field:     garmin_activities.max_heart_rate   # Integer, bpm
+    primary_source:   whoop
+    values_comparison: "Both devices record max HR per workout. Same unit."
+    transformation:   none
     status:           keep
     notes: ""
 
@@ -277,8 +371,8 @@ workouts:
     primary_source:   garmin
     values_comparison: "Garmin-only. Different scale than Whoop strain — not comparable."
     transformation:   none
-    status:           pending
-    notes: ""
+    status:           keep
+    notes: "keep both for comparison"
 
   vo2_max:
     whoop_field:      none
@@ -286,7 +380,34 @@ workouts:
     primary_source:   garmin
     values_comparison: "Garmin-only. Per-run estimate — not available on every activity."
     transformation:   none
-    status:           pending
+    status:           keep
+    notes: "whoop vo2 highly inaccurate, also doesn't pull in"
+
+  elevation_gain:
+    whoop_field:      none
+    garmin_field:     garmin_activities.elevation_gain   # Float, meters
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Requires GPS — null for indoor activities."
+    transformation:   none
+    status:           keep
+    notes: ""
+
+  elevation_loss:
+    whoop_field:      none
+    garmin_field:     garmin_activities.elevation_loss   # Float, meters
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Requires GPS — null for indoor activities."
+    transformation:   none
+    status:           keep
+    notes: ""
+
+  calories_workout:
+    whoop_field:      whoop_workouts.kilojoules   # Float, kJ
+    garmin_field:     garmin_activities.calories   # Float, kcal
+    primary_source:   whoop
+    values_comparison: "Different units. Whoop: kJ. Garmin: kcal. Same conversion applies."
+    transformation:   "Whoop: kJ × 0.239 → kcal for display. Store raw kJ internally."
+    status:           keep
     notes: ""
 
   running_dynamics:
@@ -300,8 +421,8 @@ workouts:
     primary_source:   garmin
     values_comparison: "Garmin-only. Only populated for running activities."
     transformation:   none
-    status:           pending   # keep all, keep some, or drop?
-    notes: "Only meaningful for running. Will be null for all other activity types."
+    status:           keep
+    notes: "Only meaningful for running. Will be null for all other activity types. In depth running comparison is the whole point of dashboard. Bridge the two device metrics"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -333,9 +454,14 @@ sport_type_mapping:
     notes:  "Names match."
 
   cycling:
-    whoop:  pending   # fill in once you have cycling data
-    garmin: pending
-    notes:  ""
+    whoop:  "cycling"
+    garmin: "cycling"
+    notes:  "Confirmed correct via app."
+
+  spin:
+    whoop:  "spin"
+    garmin: "indoor_cycling"
+    notes:  "Confirmed correct via app. Mismatch — mapping needed."
 
   # Activities Whoop auto-detects that Garmin never records:
   driving:
@@ -348,7 +474,7 @@ sport_type_mapping:
 
   basketball:
     whoop:  "basketball"
-    garmin: none   # only recorded if manually started on watch
+    garmin: "basketball"   # has the activity, just never been started manually
     notes:  >
       Seen on 2026-02-28. No Garmin match — watch session not started.
       Decision needed: include unmatched Whoop-only activities in unified schema?
@@ -363,64 +489,58 @@ schema_decisions:
 
   fields_to_add:
     # New derived or computed columns for the unified schema.
+    # No status field here — everything listed is confirmed to add.
 
     - field: unified_date
-      description: "Canonical date key (YYYY-MM-DD, local) used to join all sources."
+      description: "Canonical date key (YYYY-MM-DD) used to join all sources."
       source: "derived from start_time / end_time depending on record type"
-      status: pending
+      open_question: "Local date or UTC date? Whoop stores UTC, Garmin stores local — pick one and apply consistently."
+      answer: "Local date"
 
     - field: data_source
       description: >
         Which device(s) contributed to this row: 'whoop', 'garmin', or 'both'.
-        Useful for filtering and provenance tracking.
+        Useful for filtering and provenance tracking in the unified view.
       source: derived
-      status: pending
 
     - field: daily_training_load
       description: >
         Sum of garmin_activities.training_load for a given day. Garmin-derived
-        companion to Whoop's daily strain score.
+        companion to Whoop's daily strain score — different scale, not comparable,
+        but useful side-by-side.
       source: "derived: SUM(garmin_activities.training_load) GROUP BY date"
-      status: pending
 
   fields_to_drop:
-    # Fields that exist in the raw tables but should not appear in the unified view.
+    # Fields that exist in the raw tables but should be excluded from unified views.
 
     - field: "whoop_workouts: driving activity rows"
-      reason: "Auto-detected, not a real workout. strain ≈ 0.01."
-      status: pending   # confirm before dropping
+      reason: "Auto-detected, not a real workout. strain ≈ 0.01–0.04. Filter on sport_name = 'driving'."
 
     - field: "garmin_activities: start_time_gmt"
       reason: "Used internally for UTC matching only — not needed in unified view."
-      status: pending
 
     - field: "whoop_sleep: total_no_data_ms"
       reason: "Whoop internal field — not meaningful for analysis."
-      status: pending
 
     - field: "raw_json (all tables)"
-      reason: "Storage column for reprocessing — exclude from all unified views."
-      status: keep_in_raw   # keep in raw tables, just exclude from unified views
+      reason: "Storage column for reprocessing — keep in raw tables, exclude from all unified views."
 
   open_questions:
-    # Decisions not yet made — fill these in as you work through normalization.
+    # Decisions still needed before the normalization layer can be built.
 
-    - question: "For matched workouts, which device's HR do you trust more? Whoop chest vs Garmin optical wrist."
+    - question: "unified_date: local date or UTC date?"
+      options: "local | utc"
+      decision: local
+
+    - question: "For matched workouts, which device's HR do you trust more?"
+      context: "Whoop bicep band vs Garmin optical wrist. Review data shows 2–5 bpm delta."
       options: "whoop | garmin | keep_both"
-      decision: pending
+      decision: whoop   # noted in avg_heart_rate above
 
-    - question: "Should unmatched Whoop-only activities (e.g. basketball, late-night walks) be included in the unified workouts table?"
-      options: "yes_with_flag | no_drop | pending"
-      decision: pending
+    - question: "Should unmatched Whoop-only activities (e.g. basketball, late-night walks) appear in the unified workouts table?"
+      options: "yes_with_flag | drop"
+      decision: yes_with_flag
 
-    - question: "Should unmatched Garmin-only activities be included?"
-      options: "yes_with_flag | no_drop | pending"
-      decision: pending
-
-    - question: "Daily RHR: average the two sources, or pick one?"
-      options: "whoop_only | garmin_only | average | keep_both_columns"
-      decision: pending
-
-    - question: "SpO2: Whoop is reliable daily, Garmin is sparse. Merge into one field or keep separate?"
-      options: "merge_whoop_primary | keep_separate | pending"
-      decision: pending
+    - question: "Should unmatched Garmin-only activities appear in the unified workouts table?"
+      options: "yes_with_flag | drop"
+      decision: yes_with_flag
