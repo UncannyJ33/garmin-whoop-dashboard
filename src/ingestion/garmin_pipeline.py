@@ -20,6 +20,7 @@ from src.database.models import (
     GarminSleep,
     SyncLog,
 )
+from src.normalization.normalizer import Normalizer
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,10 @@ class GarminPipeline:
                 records_stored,
             )
 
+            normalizer = Normalizer(self._db)
+            norm_counts = normalizer.normalize_all(sync_start, sync_end)
+            logger.info("Normalization complete: %s", norm_counts)
+
         except Exception as exc:
             log.status = "error"
             log.error_message = str(exc)
@@ -351,9 +356,7 @@ class GarminPipeline:
                 pass
         return today - timedelta(days=DEFAULT_LOOKBACK_DAYS), today
 
-    def _sync_activities(
-        self, start: date, end: date, fetched_at: str
-    ) -> tuple[int, int]:
+    def _sync_activities(self, start: date, end: date, fetched_at: str) -> tuple[int, int]:
         """Fetch and upsert all activities in the date range.
 
         Args:

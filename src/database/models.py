@@ -201,6 +201,87 @@ class GarminHRV(Base):
     raw_json = Column(Text)
 
 
+class UnifiedDaily(Base):
+    """Unified daily wellness row combining Whoop recovery and Garmin daily summary."""
+
+    __tablename__ = "unified_daily"
+
+    date = Column(String, primary_key=True)  # YYYY-MM-DD
+    whoop_recovery_score = Column(Float)
+    whoop_strain = Column(Float)
+    whoop_hrv_rmssd = Column(Float)
+    whoop_rhr = Column(Float)
+    whoop_spo2 = Column(Float)
+    whoop_skin_temp = Column(Float)
+    whoop_respiratory_rate = Column(Float)
+    garmin_body_battery_high = Column(Integer)
+    garmin_body_battery_low = Column(Integer)
+    garmin_avg_stress = Column(Integer)
+    garmin_total_steps = Column(Integer)
+    garmin_rhr = Column(Integer)
+    garmin_vo2_max = Column(Float)
+    readiness_score = Column(Float)  # reserved for future algorithm
+    data_sources = Column(Text)  # JSON array: ["whoop","garmin"]
+    last_updated = Column(String, nullable=False)
+
+
+class UnifiedSleep(Base):
+    """Unified sleep row combining Whoop and Garmin sleep data."""
+
+    __tablename__ = "unified_sleep"
+
+    date = Column(String, primary_key=True)  # YYYY-MM-DD (wake-up date)
+    whoop_performance = Column(Float)
+    whoop_consistency = Column(Float)
+    whoop_efficiency = Column(Float)
+    total_sleep_minutes = Column(Float)
+    deep_sleep_minutes = Column(Float)
+    light_sleep_minutes = Column(Float)
+    rem_sleep_minutes = Column(Float)
+    awake_minutes = Column(Float)
+    garmin_sleep_score = Column(Float)
+    garmin_avg_stress_sleep = Column(Float)
+    garmin_avg_spo2_sleep = Column(Float)
+    primary_source = Column(String)  # "whoop" | "garmin" | "both"
+    last_updated = Column(String, nullable=False)
+
+
+class UnifiedWorkout(Base):
+    """Unified workout row combining matched Whoop and Garmin activity data."""
+
+    __tablename__ = "unified_workouts"
+
+    id = Column(String, primary_key=True)  # "w_{whoop_id}" or "g_{garmin_id}"
+    date = Column(String, nullable=False)
+    start_time = Column(String, nullable=False)  # ISO 8601 UTC
+    end_time = Column(String)
+    activity_type = Column(String)  # canonical sport name
+    duration_minutes = Column(Float)
+    whoop_workout_id = Column(String, ForeignKey("whoop_workouts.id"))
+    whoop_strain = Column(Float)
+    whoop_avg_hr = Column(Integer)
+    whoop_max_hr = Column(Integer)
+    whoop_calories_kj = Column(Float)
+    garmin_activity_id = Column(String, ForeignKey("garmin_activities.activity_id"))
+    garmin_distance_m = Column(Float)
+    garmin_avg_pace = Column(Float)  # min/km
+    garmin_elevation_gain = Column(Float)
+    garmin_avg_cadence = Column(Float)
+    garmin_training_effect = Column(Float)  # aerobic effect
+    garmin_avg_ground_contact = Column(Float)
+    garmin_avg_vertical_osc = Column(Float)
+    garmin_avg_stride_length = Column(Float)
+    hr_zone1_minutes = Column(Float)
+    hr_zone2_minutes = Column(Float)
+    hr_zone3_minutes = Column(Float)
+    hr_zone4_minutes = Column(Float)
+    hr_zone5_minutes = Column(Float)
+    matched = Column(Integer, default=0)  # 1 if matched across sources
+    match_confidence = Column(Float)  # 0–1
+    primary_source = Column(String)  # "whoop" | "garmin" | "both"
+    last_updated = Column(String, nullable=False)
+
+
 class SyncLog(Base):
     """Audit log for all data sync operations."""
 

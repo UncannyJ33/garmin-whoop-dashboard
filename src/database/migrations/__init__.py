@@ -29,3 +29,4 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
     """
     _load("001_initial.py").run(database_url, engine)
     _load("002_garmin_tables.py").run(database_url, engine)
+    _load("003_unified_tables.py").run(database_url, engine)

@@ -13,6 +13,7 @@ from src.database.models import (
     WhoopSleep,
     WhoopWorkout,
 )
+from src.normalization.normalizer import Normalizer
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,10 @@ class WhoopPipeline:
             log.completed_at = datetime.now(tz=UTC).isoformat()
             self._db.commit()
             logger.info("Whoop sync complete — %d fetched, %d stored", records_fetched, stored)
+
+            normalizer = Normalizer(self._db)
+            norm_counts = normalizer.normalize_all(sync_start.date(), sync_end.date())
+            logger.info("Normalization complete: %s", norm_counts)
 
         except Exception as exc:
             log.status = "error"
