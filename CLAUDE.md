@@ -147,5 +147,8 @@ Key mappings from live API inspection (confirmed against real responses):
 - Mock asyncio.sleep: `patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock)`
 - Migration files starting with digits (001_initial.py) can't be imported directly — loaded via `importlib.util` in migrations/__init__.py
 
+## Future Considerations
+- **Garmin sleep schema**: Current design assumes the Garmin watch is not worn during sleep (Whoop is worn instead), so `garmin_sleep` and `garmin_hrv` are nearly empty. If users sleep with Garmin on, both tables will have real data and the unified sleep schema needs to handle two populated sources simultaneously. May need two separate unified sleep schemas (Whoop-primary vs Garmin-primary) or a configurable `sleep_device` setting per user. Needs thought before the normalization layer is finalized.
+
 ## Notes
 - **Repo will go public.** Never commit or push: `.env`, credentials, access/refresh tokens, or personal data (user_id, email, health metrics). Confirm nothing sensitive is staged before every commit.
