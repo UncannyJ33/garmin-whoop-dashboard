@@ -96,6 +96,42 @@ daily:
     status:           keep
     notes: "Only populates when watch is worn during sleep."
 
+  hrv_baseline_low:
+    whoop_field:      none
+    garmin_field:     garmin_hrv.baseline_low_ms   # Float, ms — lower bound of your personal HRV baseline
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Computed from recent history. Sparse — watch not worn during sleep."
+    transformation:   none
+    status:           keep
+    notes: "Contextualises daily hrv vs personal baseline. Meaningful only alongside last_night_avg_ms."
+
+  hrv_baseline_balanced_low:
+    whoop_field:      none
+    garmin_field:     garmin_hrv.baseline_balanced_low   # Float, ms — low end of Garmin's 'balanced' band
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Sparse."
+    transformation:   none
+    status:           keep
+    notes: "Lower bound of Garmin's green zone. Pair with hrv_baseline_balanced_high to define the balanced band."
+
+  hrv_baseline_balanced_high:
+    whoop_field:      none
+    garmin_field:     garmin_hrv.baseline_balanced_up   # Float, ms — high end of Garmin's 'balanced' band
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Sparse."
+    transformation:   none
+    status:           keep
+    notes: "Upper bound of Garmin's balanced range. With hrv_baseline_balanced_low, defines the band where HRV is considered normal for you."
+
+  hrv_status:
+    whoop_field:      none
+    garmin_field:     garmin_hrv.status   # String: BALANCED, UNBALANCED, POOR, etc.
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Categorises last night's HRV relative to personal baseline."
+    transformation:   none
+    status:           keep
+    notes: "Useful as a quick readiness label even without reading the numeric values. Sparse — watch not worn during sleep."
+
   strain:
     whoop_field:      whoop_cycles.strain   # Float, Whoop strain scale 0–21
     garmin_field:     garmin_daily_summary   # no direct equivalent
@@ -179,6 +215,44 @@ daily:
     transformation:   none
     status:           keep
     notes: ""
+
+  daily_avg_heart_rate:
+    whoop_field:      whoop_cycles.avg_heart_rate   # Integer, bpm — average across the full waking cycle
+    garmin_field:     none
+    primary_source:   whoop
+    values_comparison: "Whoop-only. Covers the entire cycle (waking hours), so it is elevated by workouts and activity — not the same as RHR."
+    transformation:   none
+    status:           keep
+    notes: "Label clearly in UI as 'day avg HR' to distinguish from resting_heart_rate."
+
+  daily_max_heart_rate:
+    whoop_field:      whoop_cycles.max_heart_rate   # Integer, bpm — peak HR across the cycle
+    garmin_field:     garmin_daily_summary.max_heart_rate   # Integer, bpm
+    primary_source:   whoop
+    values_comparison: >
+      Both record daily peak HR. Values should agree closely when a workout occurred.
+      Garmin max spans all wrist-worn hours; Whoop max spans the full cycle.
+    transformation:   none
+    status:           keep
+    notes: "Useful for gauging how hard the day was at peak effort."
+
+  daily_hr_min:
+    whoop_field:      none
+    garmin_field:     garmin_daily_summary.min_heart_rate   # Integer, bpm
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Daytime minimum HR — different from RHR (which is measured during sleep)."
+    transformation:   none
+    status:           keep
+    notes: "Distinct from resting_heart_rate. Garmin measures this while the watch is on during the day."
+
+  daily_distance:
+    whoop_field:      none
+    garmin_field:     garmin_daily_summary.total_distance_m   # Float, meters — all tracked movement
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Aggregates GPS + step-based distance across all activity for the day."
+    transformation:   "Store meters internally. Display as km."
+    status:           keep
+    notes: "Different from per-workout distance — this is the full day total. Useful for volume tracking on easy or rest days."
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -278,6 +352,67 @@ sleep:
     transformation:   none
     status:           keep
     notes: ""
+
+  nap:
+    whoop_field:      whoop_sleep.nap   # Integer 0/1 — Whoop flags naps separately from main sleep
+    garmin_field:     none
+    primary_source:   whoop
+    values_comparison: "Whoop-only."
+    transformation:   none
+    status:           keep
+    notes: >
+      Nap rows (nap = 1) must be excluded from the primary unified sleep view, which
+      targets the main overnight sleep. Keep the column so nap records remain accessible
+      as a separate filtered view if needed. Filter: WHERE nap = 0 in all main sleep queries.
+
+  sleep_start_time:
+    whoop_field:      whoop_sleep.start_time   # ISO 8601 UTC
+    garmin_field:     garmin_sleep.start_time   # ISO 8601 local time
+    primary_source:   whoop
+    values_comparison: "Same event, different timezone encoding. Whoop = UTC; Garmin = local."
+    transformation:   "Store as UTC. Convert to local time for display."
+    status:           keep
+    notes: "Useful for tracking bedtime consistency over time."
+
+  sleep_end_time:
+    whoop_field:      whoop_sleep.end_time   # ISO 8601 UTC
+    garmin_field:     garmin_sleep.end_time   # ISO 8601 local time
+    primary_source:   whoop
+    values_comparison: "Same event. Whoop = UTC; Garmin = local."
+    transformation:   "Store as UTC. Convert to local time for display."
+    status:           keep
+    notes: "Wake-up time. Also used as the join key — DATE(end_time) = garmin_sleep.date."
+
+  sleep_spo2:
+    whoop_field:      none
+    garmin_field:     garmin_sleep.avg_spo2_sleep   # Float, percent — overnight SpO2 average
+    primary_source:   garmin
+    values_comparison: >
+      Garmin-only. Distinct from garmin_daily_summary.avg_spo2 (daytime) — this is
+      specifically overnight. Almost always blank since the watch is not worn during sleep.
+    transformation:   none
+    status:           keep
+    notes: "Keep as a separate column from the daytime spo2 field — different measurement window."
+
+  lowest_respiration_sleep:
+    whoop_field:      none
+    garmin_field:     garmin_sleep.lowest_respiration   # Float, breaths/min
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Sparse — watch not worn during sleep."
+    transformation:   none
+    status:           keep
+    notes: "Minimum respiration during sleep. Pair with respiratory_rate (avg) for the full picture."
+
+  sleep_stress:
+    whoop_field:      none
+    garmin_field:     garmin_sleep.avg_stress_sleep   # Float, 0–100 — stress score derived from overnight HRV variability
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Sparse."
+    transformation:   none
+    status:           keep
+    notes: >
+      High sleep stress despite good HRV numbers can indicate physiological overreaching.
+      Interesting as a cross-check against recovery_score. Sparse — watch not worn during sleep.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -384,13 +519,15 @@ workouts:
     notes: "whoop vo2 highly inaccurate, also doesn't pull in"
 
   elevation_gain:
-    whoop_field:      none
-    garmin_field:     garmin_activities.elevation_gain   # Float, meters
+    whoop_field:      whoop_workouts.altitude_gain_meter   # Float, meters — barometric or phone GPS estimate
+    garmin_field:     garmin_activities.elevation_gain   # Float, meters — GPS-based
     primary_source:   garmin
-    values_comparison: "Garmin-only. Requires GPS — null for indoor activities."
+    values_comparison: >
+      Both track elevation gain per workout. Garmin GPS is more accurate and consistent.
+      Whoop relies on phone GPS or barometer — frequently null for indoor or phone-absent sessions.
     transformation:   none
     status:           keep
-    notes: ""
+    notes: "Use Garmin as primary; fall back to Whoop altitude_gain_meter if Garmin is null."
 
   elevation_loss:
     whoop_field:      none
@@ -401,6 +538,15 @@ workouts:
     status:           keep
     notes: ""
 
+  altitude_change:
+    whoop_field:      whoop_workouts.altitude_change_meter   # Float, meters — net change (gain minus loss, can be negative)
+    garmin_field:     none
+    primary_source:   none
+    values_comparison: "Whoop-only. Net elevation change — a different concept from gain or loss individually."
+    transformation:   none
+    status:           drop
+    notes: "Redundant given elevation_gain and elevation_loss from Garmin. Drop from unified schema."
+
   calories_workout:
     whoop_field:      whoop_workouts.kilojoules   # Float, kJ
     garmin_field:     garmin_activities.calories   # Float, kcal
@@ -410,10 +556,70 @@ workouts:
     status:           keep
     notes: ""
 
+  activity_name:
+    whoop_field:      none
+    garmin_field:     garmin_activities.activity_name   # String — user-assigned or auto-generated label (e.g. "Morning Run")
+    primary_source:   garmin
+    values_comparison: "Garmin-only."
+    transformation:   none
+    status:           keep
+    notes: "Display field only — useful for identifying specific sessions. Not used for matching or filtering logic."
+
+  avg_speed:
+    whoop_field:      none
+    garmin_field:     garmin_activities.avg_speed   # Float, m/s — average moving speed
+    primary_source:   garmin
+    values_comparison: "Garmin-only."
+    transformation:   "m/s → min/km (pace) for running display: pace_min_per_km = 1000 / (speed_m_s × 60). Store raw m/s internally."
+    status:           keep
+    notes: "Critical for running analysis. Convert to pace for display on run activities; show km/h or mph for cycling."
+
+  max_speed:
+    whoop_field:      none
+    garmin_field:     garmin_activities.max_speed   # Float, m/s — peak speed during the activity
+    primary_source:   garmin
+    values_comparison: "Garmin-only."
+    transformation:   "Same as avg_speed: m/s → min/km for running display."
+    status:           keep
+    notes: "Useful for identifying sprint efforts or peak pace surges within a run."
+
+  training_effect_aerobic:
+    whoop_field:      none
+    garmin_field:     garmin_activities.training_effect_aerobic   # Float, 0–5 Garmin scale
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Measures aerobic fitness impact of the session (0 = no effect, 5 = overreaching)."
+    transformation:   none
+    status:           keep
+    notes: "Pair with training_effect_anaerobic and training_load for the full Garmin load picture."
+
+  training_effect_anaerobic:
+    whoop_field:      none
+    garmin_field:     garmin_activities.training_effect_anaerobic   # Float, 0–5 Garmin scale
+    primary_source:   garmin
+    values_comparison: "Garmin-only. Measures anaerobic fitness impact of the session."
+    transformation:   none
+    status:           keep
+    notes: "Typically high on interval or strength sessions. Low on easy aerobic runs."
+
+  zone_durations:
+    whoop_field:      whoop_workouts.zone_durations_json   # JSON array — time spent in each HR zone (ms per zone)
+    garmin_field:     none
+    primary_source:   whoop
+    values_comparison: >
+      Whoop-only. Garmin tracks zone data per-activity internally but does not surface
+      it in the activity list endpoint used for ingestion.
+    transformation:   "Parse JSON array. Convert ms → minutes per zone."
+    status:           keep
+    notes: >
+      High value for running and training analysis — shows zone distribution per session.
+      Expose as individual columns in the unified schema (zone_1_min through zone_5_min)
+      rather than forwarding the raw JSON blob.
+
   running_dynamics:
     whoop_field:      none
     garmin_field:     >
       garmin_activities.avg_running_cadence,
+      garmin_activities.max_running_cadence,
       avg_stride_length,
       avg_ground_contact_time,
       avg_vertical_oscillation,
@@ -422,7 +628,10 @@ workouts:
     values_comparison: "Garmin-only. Only populated for running activities."
     transformation:   none
     status:           keep
-    notes: "Only meaningful for running. Will be null for all other activity types. In depth running comparison is the whole point of dashboard. Bridge the two device metrics"
+    notes: >
+      Only meaningful for running — will be null for all other activity types.
+      In-depth running mechanics comparison is a core goal of the dashboard.
+      max_running_cadence added alongside avg to capture cadence range within a session.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -519,8 +728,20 @@ schema_decisions:
     - field: "garmin_activities: start_time_gmt"
       reason: "Used internally for UTC matching only — not needed in unified view."
 
+    - field: "garmin_activities: elapsed_seconds"
+      reason: "Total wall-clock time including pauses. duration_seconds (moving time) is the relevant metric for analysis. Redundant."
+
+    - field: "garmin_activities: avg_ground_contact_balance"
+      reason: "Always NULL — not available from the activity list endpoint. Confirmed in CLAUDE.md. Revisit only if a detail endpoint is added later."
+
     - field: "whoop_sleep: total_no_data_ms"
       reason: "Whoop internal field — not meaningful for analysis."
+
+    - field: "garmin_daily_summary: lowest_spo2"
+      reason: "Too sparse to be useful — Garmin SpO2 requires the watch to be worn during sleep. Noted in the spo2 field above."
+
+    - field: "whoop_workouts: altitude_change_meter"
+      reason: "Net elevation change (gain minus loss). Redundant given elevation_gain and elevation_loss tracked separately. Marked drop in the altitude_change entry above."
 
     - field: "raw_json (all tables)"
       reason: "Storage column for reprocessing — keep in raw tables, exclude from all unified views."

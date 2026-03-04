@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-Phase 2 — Garmin Integration — **Tasks 2.1–2.4 COMPLETE**. Next: Phase 2 remaining tasks (normalization, combined views).
+Phase 2 — Garmin Integration — **Tasks 2.1–2.7 COMPLETE**. Next: Task 2.8 — Normalization Layer.
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -33,6 +33,8 @@ Phase 2 — Garmin Integration — **Tasks 2.1–2.4 COMPLETE**. Next: Phase 2 r
 - Migration 002: creates four Garmin tables idempotently (src/database/migrations/002_garmin_tables.py)
 - Garmin pipeline: GarminPipeline with batch activity fetch + per-day loop (src/ingestion/garmin_pipeline.py)
 - initial_sync.py: runs Whoop (async) then Garmin (sync) in sequence
+- Schema comparison tool: src/normalization/comparison_tool.py + scripts/schema_review.py (Task 2.6)
+- Schema unification review: config/field_mappings.yaml fully populated with all source/primary/transformation decisions (Task 2.7)
 
 ## Key Decisions
 - Whoop = source of truth for recovery, sleep quality, body vitals
