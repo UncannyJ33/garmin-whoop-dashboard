@@ -208,7 +208,10 @@ def _load_workouts(engine: Engine, start: date, end: date) -> pd.DataFrame:
         g["_g_start_dt"] = pd.to_datetime(gmt_col)
 
     # Match pairs within threshold, per day
-    all_dates = sorted(set(w["date"].tolist() if not w.empty else []) | set(g["date"].tolist() if not g.empty else []))
+    all_dates = sorted(
+        set(w["date"].tolist() if not w.empty else [])
+        | set(g["date"].tolist() if not g.empty else [])
+    )
     rows = []
 
     for d in all_dates:
@@ -225,14 +228,19 @@ def _load_workouts(engine: Engine, start: date, end: date) -> pd.DataFrame:
             for wi, wrow in w_day.iterrows():
                 if wi in matched_w:
                     continue
-                start_diff_min = abs((grow["_g_start_dt"] - wrow["_w_start_dt"]).total_seconds() / 60)
+                start_diff_min = abs(
+                    (grow["_g_start_dt"] - wrow["_w_start_dt"]).total_seconds() / 60
+                )
                 if start_diff_min > _MATCH_START_THRESHOLD_MIN:
                     continue
                 w_dur = wrow["_w_dur_s"]
                 g_dur = grow["garmin_dur_s"]
                 if w_dur and g_dur and w_dur > 0 and g_dur > 0:
                     dur_diff_pct = abs(w_dur - g_dur) / max(w_dur, g_dur)
-                    if dur_diff_pct <= _MATCH_DURATION_THRESHOLD_PCT and start_diff_min < best_start_diff:
+                    if (
+                        dur_diff_pct <= _MATCH_DURATION_THRESHOLD_PCT
+                        and start_diff_min < best_start_diff
+                    ):
                         best_start_diff = start_diff_min
                         best_wi = wi
 
@@ -255,7 +263,11 @@ def _load_workouts(engine: Engine, start: date, end: date) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
 
-    return pd.DataFrame(rows).sort_values(["date", "whoop_start", "garmin_start"]).reset_index(drop=True)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["date", "whoop_start", "garmin_start"])
+        .reset_index(drop=True)
+    )
 
 
 def _matched_row(d: str, w: "pd.Series", g: "pd.Series") -> dict:
@@ -370,7 +382,9 @@ def run_comparison(
 
     _print_section("DAILY  —  Whoop Recovery vs Garmin Daily Summary", daily_df, tablefmt)
     _print_section("SLEEP  —  Whoop Sleep vs Garmin Sleep (minutes)", sleep_df, tablefmt)
-    _print_section("WORKOUTS  —  Whoop Strain vs Garmin Activities  (✓ = matched)", workout_df, tablefmt)
+    _print_section(
+        "WORKOUTS  —  Whoop Strain vs Garmin Activities  (✓ = matched)", workout_df, tablefmt
+    )
 
     if save_csv:
         _ensure_review_dir()

@@ -57,7 +57,9 @@ def create_scheduler(interval_minutes: int | None = None) -> BackgroundScheduler
     Returns:
         Configured (but not yet started) BackgroundScheduler.
     """
-    minutes = interval_minutes if interval_minutes is not None else settings.garmin_poll_interval_minutes
+    minutes = (
+        interval_minutes if interval_minutes is not None else settings.garmin_poll_interval_minutes
+    )
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         _run_garmin_sync,

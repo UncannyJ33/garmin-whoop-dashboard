@@ -200,7 +200,9 @@ def test_transform_activity_missing_activity_type():
 
 
 def test_transform_daily_summary_maps_fields():
-    result = transform_daily_summary("2024-03-05", SAMPLE_DAILY_SUMMARY, "2024-03-05T23:00:00+00:00")
+    result = transform_daily_summary(
+        "2024-03-05", SAMPLE_DAILY_SUMMARY, "2024-03-05T23:00:00+00:00"
+    )
 
     assert result["date"] == "2024-03-05"
     assert result["total_steps"] == 10234

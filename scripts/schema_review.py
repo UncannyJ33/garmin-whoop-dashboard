@@ -31,7 +31,9 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Compare Whoop and Garmin data side by side.")
     p.add_argument("--days", type=int, default=14, help="Number of days to review (default: 14)")
     p.add_argument("--start", type=date.fromisoformat, default=None, help="Start date YYYY-MM-DD")
-    p.add_argument("--end", type=date.fromisoformat, default=None, help="End date YYYY-MM-DD (inclusive)")
+    p.add_argument(
+        "--end", type=date.fromisoformat, default=None, help="End date YYYY-MM-DD (inclusive)"
+    )
     p.add_argument("--no-csv", dest="csv", action="store_false", help="Skip saving CSV files")
     p.add_argument(
         "--fmt",
