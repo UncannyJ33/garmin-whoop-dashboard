@@ -168,17 +168,20 @@ def _load_workouts(engine: Engine, start: date, end: date) -> pd.DataFrame:
 
     garmin_sql = text("""
         SELECT
-            DATE(start_time)                       AS date,
-            start_time                             AS garmin_start,
-            ROUND(duration_seconds / 60.0, 1)      AS garmin_dur_min,
-            duration_seconds                       AS garmin_dur_s,
-            activity_type                          AS garmin_type,
-            avg_heart_rate                         AS garmin_avg_hr,
-            distance_meters                        AS garmin_dist_m
+            -- Use start_time_gmt (UTC) for date bucketing so Whoop UTC dates align.
+            -- Fall back to local start_time if gmt is missing.
+            DATE(COALESCE(start_time_gmt, start_time)) AS date,
+            start_time                                  AS garmin_start,
+            start_time_gmt                              AS garmin_start_gmt,
+            ROUND(duration_seconds / 60.0, 1)           AS garmin_dur_min,
+            duration_seconds                            AS garmin_dur_s,
+            activity_type                               AS garmin_type,
+            avg_heart_rate                              AS garmin_avg_hr,
+            distance_meters                             AS garmin_dist_m
         FROM garmin_activities
-        WHERE DATE(start_time) >= :start
-          AND DATE(start_time) <= :end
-        ORDER BY start_time
+        WHERE DATE(COALESCE(start_time_gmt, start_time)) >= :start
+          AND DATE(COALESCE(start_time_gmt, start_time)) <= :end
+        ORDER BY start_time_gmt
     """)
 
     params = {"start": start.isoformat(), "end": end.isoformat()}
@@ -189,15 +192,20 @@ def _load_workouts(engine: Engine, start: date, end: date) -> pd.DataFrame:
     if w.empty and g.empty:
         return pd.DataFrame()
 
-    # Parse timestamps and compute Whoop duration
+    # Parse timestamps for matching.
+    # Whoop start_time is UTC (stored with Z / offset). Garmin start_time_gmt is also
+    # UTC but stored without a tz marker. Convert both to tz-naive UTC so they're
+    # directly comparable regardless of the user's local timezone.
     if not w.empty:
-        w["_w_start_dt"] = pd.to_datetime(w["whoop_start"])
-        w["_w_end_dt"] = pd.to_datetime(w["whoop_end"])
+        w["_w_start_dt"] = pd.to_datetime(w["whoop_start"], utc=True).dt.tz_convert(None)
+        w["_w_end_dt"] = pd.to_datetime(w["whoop_end"], utc=True).dt.tz_convert(None)
         w["whoop_dur_min"] = ((w["_w_end_dt"] - w["_w_start_dt"]).dt.total_seconds() / 60).round(1)
         w["_w_dur_s"] = (w["_w_end_dt"] - w["_w_start_dt"]).dt.total_seconds()
 
     if not g.empty:
-        g["_g_start_dt"] = pd.to_datetime(g["garmin_start"])
+        # garmin_start_gmt is naive UTC in SQLite; parse directly, fall back to local.
+        gmt_col = g["garmin_start_gmt"].fillna(g["garmin_start"])
+        g["_g_start_dt"] = pd.to_datetime(gmt_col)
 
     # Match pairs within threshold, per day
     all_dates = sorted(set(w["date"].tolist() if not w.empty else []) | set(g["date"].tolist() if not g.empty else []))
