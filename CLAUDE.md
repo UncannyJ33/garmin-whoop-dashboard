@@ -42,6 +42,34 @@ Phase 2 — Garmin Integration — **Tasks 2.1–2.4 COMPLETE**. Next: Phase 2 r
 - Garmin sleep/HRV data will be missing most nights — the watch is not worn during sleep (Whoop is worn instead). `get_sleep` and `get_hrv` returning None is expected and normal, not an error.
 - `get_activity_detail` is NOT called during ingestion — running dynamics (ground contact time, stride length, vertical oscillation, vertical ratio, VO2 max, training load) are already present in the activity list response. `avg_ground_contact_balance` is not available in either endpoint and is stored as NULL. Revisit if needed later.
 
+## Schema Unification — Alignment Decisions
+These decisions were made during the schema review phase (comparison_tool.py) and govern how Whoop and Garmin data are joined for combined views. Will be refined once normalization layer is built.
+
+### Daily alignment
+- **Chosen**: Key Whoop recovery by `DATE(whoop_cycles.start_time)` — a cycle starts at wake-up (~6–8am), so the date matches Garmin's `garmin_daily_summary.date` directly.
+- Considered: keying by `DATE(whoop_sleep.end_time)` (wake-up time via sleep join) — more semantically precise but adds an extra join and edge-case risk. Revisit if off-by-one errors appear in practice.
+
+### Sleep alignment
+- **Chosen**: Whoop is source of truth. Key Whoop sleep by `DATE(whoop_sleep.end_time)` (the morning you woke up). Look up Garmin sleep by that same date. Garmin sleep `date` column already uses the wake-up calendar date so they align directly.
+- Considered: keying by `DATE(start_time)` (night you went to bed) — would be off-by-one vs Garmin.
+- Note: Garmin sleep rows will be sparse (watch not worn), so most rows will be Whoop-only.
+
+### Workout alignment
+- **Chosen**: Match Whoop strain workouts (strain IS NOT NULL) to Garmin activities using: start-time difference ≤5 min AND duration difference ≤20% of the longer activity.
+- Considered: ≤10 min / ≤10% threshold (stricter time, looser duration); or same-date + sport name keyword match only (no time math).
+- Whoop includes walks, stretches, yoga etc — filtering to strain-only reduces noise and improves match rate with intentional Garmin-tracked workouts.
+
+### Field equivalencies (confirmed, not yet normalized)
+- Whoop `total_sws_ms` ≡ Garmin `deep_sleep_seconds` (both = slow wave / deep sleep)
+- Whoop `sleep_performance` ≠ Garmin `sleep_score` — different algorithms, not directly comparable
+- Whoop `resting_heart_rate` (Float) ≡ Garmin `resting_heart_rate` (Integer) — same metric, safe to compare
+- Whoop `spo2_pct` ≡ Garmin `avg_spo2` — both are daily SpO2 averages
+
+### Schema review tooling
+- `src/normalization/comparison_tool.py` — `run_comparison(engine, start, end)` returns dict of DataFrames and prints tabulated output
+- `scripts/schema_review.py` — CLI runner; `python scripts/schema_review.py --days 14`
+- CSVs saved to `data/review/` (gitignored — contains personal health data)
+
 ## Conventions
 - Python 3.11+
 - Type hints on all functions
