@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-Phase 2 — Garmin Integration — **COMPLETE** (Tasks 2.1–2.8). Next: Phase 3 — Dashboard views.
+Phase 3 — Analytics Engine — **Tasks 3.1–3.4 COMPLETE**. Next: Phase 3 Dashboard views (Tasks 3.5–3.8).
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -37,6 +37,28 @@ Phase 2 — Garmin Integration — **COMPLETE** (Tasks 2.1–2.8). Next: Phase 3
 - Schema unification review: config/field_mappings.yaml fully populated with all source/primary/transformation decisions (Task 2.7)
 - Normalization layer: migration 003, whoop_mapper.py, garmin_mapper.py, deduplication.py, normalizer.py; both pipelines call normalize_all() after sync (Task 2.8)
 - Frontend migrated to unified tables: all views read from unified_daily/unified_sleep/unified_workouts; new Data Sources page (frontend/views/data_sources.py)
+
+## What's Built (Phase 3 Analytics Engine — Tasks 3.1–3.4 COMPLETE)
+- **Task 3.1** `src/analytics/readiness_score.py` — 5-component composite training readiness score
+  - Components with weights: whoop_recovery (30%), hrv_trend (25%), body_battery (20%), sleep_quality (15%), training_load (10%)
+  - HRV z-score normalization; training load ratio normalization; weights redistributed when source missing
+  - `compute_readiness(target_date, engine) → ReadinessResult`, `get_readiness_history(start, end, engine) → list[dict]`
+  - 53 tests
+- **Task 3.2** `src/analytics/workout_analysis.py` — enriched workouts combining Whoop + Garmin
+  - LEFT JOINs unified_workouts with garmin_activities for fields not in unified schema
+  - Computed: strain_per_minute, efficiency_score (distance_m/strain), recovery_impact (next_day - 7d_avg)
+  - `get_enriched_workout`, `get_enriched_workouts`, `get_workout_type_summary`; 52 tests
+- **Task 3.3** `src/analytics/sleep_analysis.py` — sleep impact analysis
+  - SleepInsight per night: links previous_day_strain/training_load + next_day_recovery/body_battery + sleep_debt
+  - Pearson r: strain vs total/deep sleep and next-day recovery (requires ≥7 paired samples)
+  - Consistency: bedtime/wake std, OLS slope trend direction; midnight-crossing bedtimes handled via +24h offset
+  - `get_sleep_insights`, `get_strain_sleep_correlation`, `get_sleep_consistency`; 59 tests
+- **Task 3.4** `src/analytics/trends.py` — rolling averages, anomaly detection, period rollups
+  - 11 supported metrics from unified_daily + unified_sleep
+  - Calendar-day windows (7d, 28d) with None-gap filling; z-score anomaly detection (default threshold=2.0)
+  - ISO weekly and calendar monthly rollups: count, avg, min, max, std
+  - `get_metric_series`, `detect_anomalies`, `get_weekly_rollup`, `get_monthly_rollup`; 61 tests
+- **Total tests**: 459 passing
 
 ## Key Decisions
 - Whoop = source of truth for recovery, sleep quality, body vitals
