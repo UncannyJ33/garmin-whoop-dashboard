@@ -274,8 +274,9 @@ class TestBuildEnriched:
         assert result.max_hr == 180
 
     def test_hr_none_when_both_missing(self):
-        row = self._base_row(whoop_avg_hr=None, whoop_max_hr=None,
-                             garmin_avg_hr=None, garmin_max_hr=None)
+        row = self._base_row(
+            whoop_avg_hr=None, whoop_max_hr=None, garmin_avg_hr=None, garmin_max_hr=None
+        )
         result = _build_enriched(row, {})
         assert result.avg_hr is None
         assert result.max_hr is None
@@ -317,7 +318,7 @@ class TestBuildEnriched:
 
     def test_recovery_impact_positive(self):
         # 7-day avg = 70, next day = 82 → impact = +12
-        recovery = {_add_days(self.BASE_DATE, -(i)) : 70.0 for i in range(7)}
+        recovery = {_add_days(self.BASE_DATE, -(i)): 70.0 for i in range(7)}
         recovery[_add_days(self.BASE_DATE, 1)] = 82.0
         result = _build_enriched(self._base_row(), recovery)
         assert result.recovery_impact == pytest.approx(12.0, abs=0.1)
@@ -446,27 +447,30 @@ class TestGetEnrichedWorkout:
         wid = "w_whoop_only"
         wdate = "2026-03-12"
         with Session(engine) as s:
-            s.merge(_workout(
-                wid, wdate,
-                primary_source="whoop",
-                matched=0,
-                garmin_activity_id=None,
-                garmin_distance_m=None,
-                garmin_avg_pace=None,
-                garmin_elevation_gain=None,
-                garmin_avg_cadence=None,
-                garmin_avg_stride_length=None,
-                garmin_training_effect=None,
-                garmin_avg_ground_contact=None,
-                garmin_avg_vertical_osc=None,
-            ))
+            s.merge(
+                _workout(
+                    wid,
+                    wdate,
+                    primary_source="whoop",
+                    matched=0,
+                    garmin_activity_id=None,
+                    garmin_distance_m=None,
+                    garmin_avg_pace=None,
+                    garmin_elevation_gain=None,
+                    garmin_avg_cadence=None,
+                    garmin_avg_stride_length=None,
+                    garmin_training_effect=None,
+                    garmin_avg_ground_contact=None,
+                    garmin_avg_vertical_osc=None,
+                )
+            )
             s.commit()
         result = get_enriched_workout(engine, wid)
         assert result is not None
         assert result.training_load is None
         assert result.vo2_max is None
-        assert result.strain == 14.0       # Whoop present
-        assert result.avg_hr == 155        # Whoop HR used
+        assert result.strain == 14.0  # Whoop present
+        assert result.avg_hr == 155  # Whoop HR used
 
 
 class TestGetEnrichedWorkouts:
@@ -542,27 +546,33 @@ class TestGetWorkoutTypeSummary:
             ("w_run3", "2026-05-09", 55.0, 16.0, 10000.0),
         ]
         for wid, d, dur, strain, dist in runs:
-            session.merge(_workout(
-                wid, d,
-                activity_type="running",
-                duration_minutes=dur,
-                whoop_strain=strain,
-                garmin_distance_m=dist,
-            ))
+            session.merge(
+                _workout(
+                    wid,
+                    d,
+                    activity_type="running",
+                    duration_minutes=dur,
+                    whoop_strain=strain,
+                    garmin_distance_m=dist,
+                )
+            )
 
         strengths = [
             ("w_str1", "2026-05-03", 60.0, 12.0),
             ("w_str2", "2026-05-07", 65.0, 13.0),
         ]
         for wid, d, dur, strain in strengths:
-            session.merge(_workout(
-                wid, d,
-                activity_type="strength_training",
-                duration_minutes=dur,
-                whoop_strain=strain,
-                garmin_distance_m=None,
-                garmin_avg_pace=None,
-            ))
+            session.merge(
+                _workout(
+                    wid,
+                    d,
+                    activity_type="strength_training",
+                    duration_minutes=dur,
+                    whoop_strain=strain,
+                    garmin_distance_m=None,
+                    garmin_avg_pace=None,
+                )
+            )
 
         session.commit()
 
@@ -624,9 +634,7 @@ class TestGetWorkoutTypeSummary:
             "avg_efficiency_score",
         }
         for atype in ("running", "strength_training"):
-            assert expected_keys.issubset(summary[atype].keys()), (
-                f"Missing keys in {atype} summary"
-            )
+            assert expected_keys.issubset(summary[atype].keys()), f"Missing keys in {atype} summary"
 
     def test_unknown_activity_type_key(self, engine):
         with Session(engine) as s:

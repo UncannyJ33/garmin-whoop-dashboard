@@ -22,7 +22,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from src.analytics.sleep_analysis import (
-    DEFAULT_TARGET_SLEEP_MINUTES,
     SleepInsight,
     _avg_nonull,
     _build_insight,
@@ -88,8 +87,12 @@ def _usleep(
     )
 
 
-def _udaily(date_str: str, strain: float | None = None,
-            recovery: float | None = None, body_battery: int | None = None) -> UnifiedDaily:
+def _udaily(
+    date_str: str,
+    strain: float | None = None,
+    recovery: float | None = None,
+    body_battery: int | None = None,
+) -> UnifiedDaily:
     return UnifiedDaily(
         date=date_str,
         whoop_strain=strain,
@@ -135,11 +138,11 @@ class TestPearsonR:
         assert _pearson_r(xs, [5.0] * 7) is None  # constant y → zero variance
 
     def test_returns_none_below_min_sample(self):
-        xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]   # 6 < min of 7
+        xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]  # 6 < min of 7
         assert _pearson_r(xs, xs) is None
 
     def test_returns_result_at_min_sample(self):
-        xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]   # exactly 7
+        xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]  # exactly 7
         assert _pearson_r(xs, xs) is not None
 
     def test_staircase_near_perfect(self):
@@ -226,21 +229,36 @@ class TestBuildInsight:
 
     def _sleep_row(self, **ov) -> dict:
         base = {
-            "date": self.DATE, "total_sleep_minutes": 430.0, "deep_sleep_minutes": 90.0,
-            "light_sleep_minutes": 180.0, "rem_sleep_minutes": 100.0, "awake_minutes": 20.0,
-            "whoop_performance": 80.0, "whoop_efficiency": 88.0,
+            "date": self.DATE,
+            "total_sleep_minutes": 430.0,
+            "deep_sleep_minutes": 90.0,
+            "light_sleep_minutes": 180.0,
+            "rem_sleep_minutes": 100.0,
+            "awake_minutes": 20.0,
+            "whoop_performance": 80.0,
+            "whoop_efficiency": 88.0,
         }
         return {**base, **ov}
 
     def _daily(self, strain=10.0, recovery=70.0, bb=65) -> dict[str, dict]:
         prev = _add_days(self.DATE, -1)
         return {
-            prev: {"whoop_strain": strain, "whoop_recovery_score": None, "garmin_body_battery_high": None},
-            self.DATE: {"whoop_strain": None, "whoop_recovery_score": recovery, "garmin_body_battery_high": bb},
+            prev: {
+                "whoop_strain": strain,
+                "whoop_recovery_score": None,
+                "garmin_body_battery_high": None,
+            },
+            self.DATE: {
+                "whoop_strain": None,
+                "whoop_recovery_score": recovery,
+                "garmin_body_battery_high": bb,
+            },
         }
 
     def test_returns_sleep_insight(self):
-        assert isinstance(_build_insight(self._sleep_row(), self._daily(), {}, {}, 480.0), SleepInsight)
+        assert isinstance(
+            _build_insight(self._sleep_row(), self._daily(), {}, {}, 480.0), SleepInsight
+        )
 
     def test_sleep_fields(self):
         r = _build_insight(self._sleep_row(), self._daily(), {}, {}, 480.0)
@@ -249,16 +267,36 @@ class TestBuildInsight:
         assert r.sleep_efficiency == 88.0
 
     def test_prev_strain(self):
-        assert _build_insight(self._sleep_row(), self._daily(strain=15.0), {}, {}, 480.0).previous_day_strain == 15.0
+        assert (
+            _build_insight(
+                self._sleep_row(), self._daily(strain=15.0), {}, {}, 480.0
+            ).previous_day_strain
+            == 15.0
+        )
 
     def test_next_day_recovery(self):
-        assert _build_insight(self._sleep_row(), self._daily(recovery=82.0), {}, {}, 480.0).next_day_recovery_score == 82.0
+        assert (
+            _build_insight(
+                self._sleep_row(), self._daily(recovery=82.0), {}, {}, 480.0
+            ).next_day_recovery_score
+            == 82.0
+        )
 
     def test_next_day_body_battery(self):
-        assert _build_insight(self._sleep_row(), self._daily(bb=75), {}, {}, 480.0).next_day_body_battery == 75
+        assert (
+            _build_insight(
+                self._sleep_row(), self._daily(bb=75), {}, {}, 480.0
+            ).next_day_body_battery
+            == 75
+        )
 
     def test_body_battery_none(self):
-        assert _build_insight(self._sleep_row(), self._daily(bb=None), {}, {}, 480.0).next_day_body_battery is None
+        assert (
+            _build_insight(
+                self._sleep_row(), self._daily(bb=None), {}, {}, 480.0
+            ).next_day_body_battery
+            is None
+        )
 
     def test_training_load(self):
         prev = _add_days(self.DATE, -1)
@@ -267,20 +305,29 @@ class TestBuildInsight:
 
     def test_debt_deficit(self):
         hist = {_add_days(self.DATE, -i): {"total_sleep_minutes": 420.0} for i in range(7)}
-        r = _build_insight(self._sleep_row(total_sleep_minutes=420.0), self._daily(), {}, hist, 480.0)
+        r = _build_insight(
+            self._sleep_row(total_sleep_minutes=420.0), self._daily(), {}, hist, 480.0
+        )
         assert r.sleep_debt_estimate == pytest.approx(-60.0, abs=0.1)
 
     def test_debt_surplus(self):
         hist = {_add_days(self.DATE, -i): {"total_sleep_minutes": 540.0} for i in range(7)}
-        r = _build_insight(self._sleep_row(total_sleep_minutes=540.0), self._daily(), {}, hist, 480.0)
+        r = _build_insight(
+            self._sleep_row(total_sleep_minutes=540.0), self._daily(), {}, hist, 480.0
+        )
         assert r.sleep_debt_estimate == pytest.approx(60.0, abs=0.1)
 
     def test_debt_none_no_history(self):
-        assert _build_insight(self._sleep_row(), self._daily(), {}, {}, 480.0).sleep_debt_estimate is None
+        assert (
+            _build_insight(self._sleep_row(), self._daily(), {}, {}, 480.0).sleep_debt_estimate
+            is None
+        )
 
     def test_custom_target(self):
         hist = {_add_days(self.DATE, -i): {"total_sleep_minutes": 420.0} for i in range(7)}
-        r = _build_insight(self._sleep_row(total_sleep_minutes=420.0), self._daily(), {}, hist, 420.0)
+        r = _build_insight(
+            self._sleep_row(total_sleep_minutes=420.0), self._daily(), {}, hist, 420.0
+        )
         assert r.sleep_debt_estimate == pytest.approx(0.0, abs=0.1)
 
 
@@ -377,7 +424,6 @@ class TestGetSleepInsights:
 
 
 class TestStrainSleepCorrelation:
-
     def _insert(self, session, n_days: int, anchor: date):
         """Insert correlated sleep/daily data ending at anchor.
 
@@ -406,18 +452,20 @@ class TestStrainSleepCorrelation:
             # i.e., strain_at_d = 10 + (i+1) = 11 + i
             # recovery at d is used by sleep insight at start+i (same date)
             recovery = 50.0 - i * 0.5
-            strain = 11.0 + i   # = 10 + (i+1)
+            strain = 11.0 + i  # = 10 + (i+1)
             daily[d] = {"whoop_strain": strain, "whoop_recovery_score": recovery}
             session.merge(_usleep(d, total_min=400.0 + i * 2, deep_min=80.0 + i))
 
         for d_str, vals in daily.items():
-            session.merge(UnifiedDaily(
-                date=d_str,
-                whoop_strain=vals["whoop_strain"],
-                whoop_recovery_score=vals["whoop_recovery_score"],
-                data_sources='["whoop"]',
-                last_updated=NOW_ISO,
-            ))
+            session.merge(
+                UnifiedDaily(
+                    date=d_str,
+                    whoop_strain=vals["whoop_strain"],
+                    whoop_recovery_score=vals["whoop_recovery_score"],
+                    data_sources='["whoop"]',
+                    last_updated=NOW_ISO,
+                )
+            )
 
         session.commit()
 
@@ -463,12 +511,14 @@ class TestStrainSleepCorrelation:
                 d = (anchor - timedelta(days=2 - i)).isoformat()
                 session_obj = s
                 session_obj.merge(_usleep(d, total_min=420.0))
-                session_obj.merge(UnifiedDaily(
-                    date=_add_days(d, -1),
-                    whoop_strain=10.0 + i,
-                    data_sources='["whoop"]',
-                    last_updated=NOW_ISO,
-                ))
+                session_obj.merge(
+                    UnifiedDaily(
+                        date=_add_days(d, -1),
+                        whoop_strain=10.0 + i,
+                        data_sources='["whoop"]',
+                        last_updated=NOW_ISO,
+                    )
+                )
             s.commit()
         sub = get_strain_sleep_correlation(engine, days=3, end_date=anchor)["strain_vs_total_sleep"]
         assert sub["r"] is None
@@ -489,18 +539,26 @@ class TestStrainSleepCorrelation:
 
 
 class TestGetSleepConsistency:
-
-    def _insert_schedule(self, session, n_days: int, anchor: date,
-                         bed_hour: int = 23, wake_hour: int = 7,
-                         sleep_min: float = 480.0, prefix: str = "wsc"):
+    def _insert_schedule(
+        self,
+        session,
+        n_days: int,
+        anchor: date,
+        bed_hour: int = 23,
+        wake_hour: int = 7,
+        sleep_min: float = 480.0,
+        prefix: str = "wsc",
+    ):
         for i in range(n_days):
             wake = anchor - timedelta(days=n_days - 1 - i)
             prev = wake - timedelta(days=1)
-            session.merge(_whoop_sleep(
-                f"{prefix}_{i}",
-                f"{prev.isoformat()}T{bed_hour:02d}:00:00+00:00",
-                f"{wake.isoformat()}T{wake_hour:02d}:00:00+00:00",
-            ))
+            session.merge(
+                _whoop_sleep(
+                    f"{prefix}_{i}",
+                    f"{prev.isoformat()}T{bed_hour:02d}:00:00+00:00",
+                    f"{wake.isoformat()}T{wake_hour:02d}:00:00+00:00",
+                )
+            )
             session.merge(_usleep(wake.isoformat(), total_min=sleep_min))
         session.commit()
 
@@ -523,9 +581,14 @@ class TestGetSleepConsistency:
         result = get_sleep_consistency(engine, days=10, end_date=anchor)
         assert result["insufficient_data"] is False
         required = {
-            "avg_bedtime_hour", "bedtime_std_hours", "avg_wake_hour",
-            "wake_time_std_hours", "avg_total_sleep_minutes",
-            "sleep_debt_trend", "sleep_debt_trend_slope_min_per_day", "sample_size",
+            "avg_bedtime_hour",
+            "bedtime_std_hours",
+            "avg_wake_hour",
+            "wake_time_std_hours",
+            "avg_total_sleep_minutes",
+            "sleep_debt_trend",
+            "sleep_debt_trend_slope_min_per_day",
+            "sample_size",
         }
         assert required.issubset(result.keys())
 
@@ -561,11 +624,10 @@ class TestGetSleepConsistency:
                 wake = anchor - timedelta(days=9 - i)
                 prev = wake - timedelta(days=1)
                 if i % 2 == 0:
-                    bed_iso = f"{prev.isoformat()}T23:30:00+00:00"   # 23.5 h
+                    bed_iso = f"{prev.isoformat()}T23:30:00+00:00"  # 23.5 h
                 else:
-                    bed_iso = f"{wake.isoformat()}T00:30:00+00:00"   # 0.5 h → +24 = 24.5
-                s.merge(_whoop_sleep(f"wsmid_{i}", bed_iso,
-                                     f"{wake.isoformat()}T07:00:00+00:00"))
+                    bed_iso = f"{wake.isoformat()}T00:30:00+00:00"  # 0.5 h → +24 = 24.5
+                s.merge(_whoop_sleep(f"wsmid_{i}", bed_iso, f"{wake.isoformat()}T07:00:00+00:00"))
                 s.merge(_usleep(wake.isoformat(), total_min=450.0))
             s.commit()
         result = get_sleep_consistency(engine, days=10, end_date=anchor)
@@ -590,11 +652,13 @@ class TestGetSleepConsistency:
             for i in range(14):
                 wake = anchor - timedelta(days=13 - i)
                 prev = wake - timedelta(days=1)
-                s.merge(_whoop_sleep(
-                    f"wrse_{i}",
-                    f"{prev.isoformat()}T23:00:00+00:00",
-                    f"{wake.isoformat()}T07:00:00+00:00",
-                ))
+                s.merge(
+                    _whoop_sleep(
+                        f"wrse_{i}",
+                        f"{prev.isoformat()}T23:00:00+00:00",
+                        f"{wake.isoformat()}T07:00:00+00:00",
+                    )
+                )
                 s.merge(_usleep(wake.isoformat(), total_min=max(480.0 - i * 10.0, 200.0)))
             s.commit()
         result = get_sleep_consistency(engine, days=14, end_date=anchor)
@@ -608,11 +672,13 @@ class TestGetSleepConsistency:
             for i in range(14):
                 wake = anchor - timedelta(days=13 - i)
                 prev = wake - timedelta(days=1)
-                s.merge(_whoop_sleep(
-                    f"impv_{i}",
-                    f"{prev.isoformat()}T23:30:00+00:00",
-                    f"{wake.isoformat()}T07:00:00+00:00",
-                ))
+                s.merge(
+                    _whoop_sleep(
+                        f"impv_{i}",
+                        f"{prev.isoformat()}T23:30:00+00:00",
+                        f"{wake.isoformat()}T07:00:00+00:00",
+                    )
+                )
                 s.merge(_usleep(wake.isoformat(), total_min=360.0 + i * 10.0))
             s.commit()
         result = get_sleep_consistency(engine, days=14, end_date=anchor)

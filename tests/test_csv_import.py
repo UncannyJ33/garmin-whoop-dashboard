@@ -154,7 +154,11 @@ def test_extract_activities_non_dict():
 
 
 def _activity_meta() -> tuple[frozenset, frozenset, frozenset]:
-    return _int_columns(GarminActivity), _float_columns(GarminActivity), _known_columns(GarminActivity)
+    return (
+        _int_columns(GarminActivity),
+        _float_columns(GarminActivity),
+        _known_columns(GarminActivity),
+    )
 
 
 def test_coerce_row_int_field():

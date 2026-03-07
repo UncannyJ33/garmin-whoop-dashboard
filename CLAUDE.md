@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-Phase 3 — Analytics Engine — **Tasks 3.1–3.4 COMPLETE**. Next: Phase 3 Dashboard views (Tasks 3.5–3.8).
+**Phase 3 COMPLETE** — all tasks (3.1–3.8 + error handling + logging + cleanup). Ready for Phase 4.
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -38,7 +38,7 @@ Phase 3 — Analytics Engine — **Tasks 3.1–3.4 COMPLETE**. Next: Phase 3 Das
 - Normalization layer: migration 003, whoop_mapper.py, garmin_mapper.py, deduplication.py, normalizer.py; both pipelines call normalize_all() after sync (Task 2.8)
 - Frontend migrated to unified tables: all views read from unified_daily/unified_sleep/unified_workouts; new Data Sources page (frontend/views/data_sources.py)
 
-## What's Built (Phase 3 Analytics Engine — Tasks 3.1–3.4 COMPLETE)
+## What's Built (Phase 3 — COMPLETE)
 - **Task 3.1** `src/analytics/readiness_score.py` — 5-component composite training readiness score
   - Components with weights: whoop_recovery (30%), hrv_trend (25%), body_battery (20%), sleep_quality (15%), training_load (10%)
   - HRV z-score normalization; training load ratio normalization; weights redistributed when source missing
@@ -58,7 +58,22 @@ Phase 3 — Analytics Engine — **Tasks 3.1–3.4 COMPLETE**. Next: Phase 3 Das
   - Calendar-day windows (7d, 28d) with None-gap filling; z-score anomaly detection (default threshold=2.0)
   - ISO weekly and calendar monthly rollups: count, avg, min, max, std
   - `get_metric_series`, `detect_anomalies`, `get_weekly_rollup`, `get_monthly_rollup`; 61 tests
-- **Total tests**: 459 passing
+- **Tasks 3.5–3.8** Streamlit dashboard views wired to analytics engine:
+  - `frontend/views/readiness.py` — Morning Readiness: hero score, 5-factor breakdown, 30d trend, key metrics, weekly comparison
+  - `frontend/views/sleep.py` — Sleep: last night hero, trends + anomaly chart, stage distribution, consistency, training↔sleep correlations
+  - `frontend/views/workouts.py` — Workouts: type breakdown, workout log expanders with HR zones, strain vs recovery scatter
+  - `frontend/views/trends.py` — Trends: weekly summary card, metric explorer (7d/30d rolling), anomaly log, Pearson r heatmap
+- **FastAPI REST API** (Phase 3 completion):
+  - 16 endpoints across 5 route files: readiness, workouts, sleep, trends, sync
+  - Pydantic response models in `src/api/models.py`; auto-docs at `/docs`
+  - `src/api/routes/webhooks.py` — Whoop webhook receiver with BackgroundTask processing
+- **Error handling + logging** (Phase 3 cleanup):
+  - `src/logging_config.py` — centralized logging; call `configure_logging(settings.log_level)` at startup
+  - Called from `src/api/main.py` (lifespan) and `frontend/app.py` (top-level)
+  - All 4 analytics modules + all pipeline modules use `logging.getLogger(__name__)`
+  - Every frontend view `render()` wrapped in try/except → shows `st.error()` instead of traceback
+  - `frontend/db.py` exports `get_last_sync_info()` + `render_sync_status()` — sync-age + stale warning shown in sidebar
+- **Total tests**: 498 passing
 
 ## Key Decisions
 - Whoop = source of truth for recovery, sleep quality, body vitals
@@ -177,6 +192,23 @@ Key mappings from live API inspection (confirmed against real responses):
 
 ## Future Considerations
 - **Garmin sleep schema**: Current design assumes the Garmin watch is not worn during sleep (Whoop is worn instead), so `garmin_sleep` and `garmin_hrv` are nearly empty. If users sleep with Garmin on, both tables will have real data and the unified sleep schema needs to handle two populated sources simultaneously. May need two separate unified sleep schemas (Whoop-primary vs Garmin-primary) or a configurable `sleep_device` setting per user. Needs thought before the normalization layer is finalized.
+
+## Whoop Webhook Setup
+- Endpoint: `POST /api/webhooks/whoop` — receives real-time Whoop events
+- Health check: `GET /api/webhooks/whoop/test` — Whoop pings this to verify the URL
+- Handled event types: `cycle.updated`, `recovery.updated`, `sleep.updated`, `workout.updated`
+- Processing: returns 200 immediately; fetch+upsert+normalize runs in a `BackgroundTask`
+- Logged to `sync_log` with `source="whoop_webhook"` for each event
+- **Local dev tunneling** (Whoop must reach a public URL):
+  ```bash
+  # Install ngrok: brew install ngrok
+  ngrok http 8000
+  # Copy the https://*.ngrok-free.app URL
+  ```
+  Register that URL + `/api/webhooks/whoop` in Whoop Developer Dashboard → Webhooks.
+  The test endpoint (`/api/webhooks/whoop/test`) must return 200 for Whoop to activate it.
+- **Production**: set a stable public URL (e.g. Fly.io, Railway, or a VPS) in Whoop Dashboard.
+  No secret/signature verification is currently implemented — add HMAC validation before exposing to the internet if needed.
 
 ## Notes
 - **Repo will go public.** Never commit or push: `.env`, credentials, access/refresh tokens, or personal data (user_id, email, health metrics). Confirm nothing sensitive is staged before every commit.

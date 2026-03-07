@@ -295,9 +295,7 @@ class TestComputeFromData:
         daily = self._build_daily_dict(self.TARGET)
         sleep = {self.TARGET.isoformat(): _sleep_row(80.0)}
         result = _compute_from_data(self.TARGET, daily, sleep)
-        total_eff = sum(
-            v["effective_weight"] for v in result.contributing_factors.values()
-        )
+        total_eff = sum(v["effective_weight"] for v in result.contributing_factors.values())
         assert total_eff == pytest.approx(1.0, abs=0.001)
 
     def test_missing_body_battery_redistributes_weight(self):
@@ -309,9 +307,7 @@ class TestComputeFromData:
         # confidence = sum of available weights = 1 - 0.20
         assert result.confidence == pytest.approx(0.80, abs=0.001)
         # remaining effective weights should sum to 1
-        total_eff = sum(
-            v["effective_weight"] for v in result.contributing_factors.values()
-        )
+        total_eff = sum(v["effective_weight"] for v in result.contributing_factors.values())
         assert total_eff == pytest.approx(1.0, abs=0.001)
 
     def test_missing_whoop_recovery_redistributes_weight(self):
@@ -323,24 +319,16 @@ class TestComputeFromData:
 
     def test_only_whoop_recovery_present(self):
         # All other fields None — only recovery contributes
-        daily = {
-            self.TARGET.isoformat(): _row(whoop_recovery_score=80.0)
-        }
+        daily = {self.TARGET.isoformat(): _row(whoop_recovery_score=80.0)}
         result = _compute_from_data(self.TARGET, daily, {})
         assert result.score == pytest.approx(80.0, abs=0.5)
-        assert result.confidence == pytest.approx(
-            READINESS_WEIGHTS["whoop_recovery"], abs=0.001
-        )
+        assert result.confidence == pytest.approx(READINESS_WEIGHTS["whoop_recovery"], abs=0.001)
 
     def test_only_body_battery_present(self):
-        daily = {
-            self.TARGET.isoformat(): _row(garmin_body_battery_high=60)
-        }
+        daily = {self.TARGET.isoformat(): _row(garmin_body_battery_high=60)}
         result = _compute_from_data(self.TARGET, daily, {})
         assert result.score == pytest.approx(60.0, abs=0.5)
-        assert result.confidence == pytest.approx(
-            READINESS_WEIGHTS["body_battery"], abs=0.001
-        )
+        assert result.confidence == pytest.approx(READINESS_WEIGHTS["body_battery"], abs=0.001)
 
     def test_no_data_returns_50_confidence_0(self):
         result = _compute_from_data(self.TARGET, {}, {})
@@ -362,9 +350,7 @@ class TestComputeFromData:
         result = _compute_from_data(self.TARGET, daily, sleep)
         required_keys = {"name", "raw_value", "normalized_value", "weight", "effective_weight"}
         for key, component in result.contributing_factors.items():
-            assert required_keys.issubset(component.keys()), (
-                f"Component '{key}' missing keys"
-            )
+            assert required_keys.issubset(component.keys()), f"Component '{key}' missing keys"
 
     def test_custom_weights_applied(self):
         # Give recovery weight=1.0 and everything else 0 — score should equal recovery
@@ -386,7 +372,7 @@ class TestComputeFromData:
             if i == 0:  # today: HRV well above history avg, low recent strain
                 daily[d] = _row(
                     whoop_recovery_score=92.0,
-                    whoop_hrv_rmssd=85.0,   # z ≈ +12 → clamped to 100
+                    whoop_hrv_rmssd=85.0,  # z ≈ +12 → clamped to 100
                     whoop_strain=3.0,
                     garmin_body_battery_high=95,
                 )
@@ -394,7 +380,7 @@ class TestComputeFromData:
                 daily[d] = _row(
                     whoop_recovery_score=92.0,
                     whoop_hrv_rmssd=hrv_history[i - 1],
-                    whoop_strain=12.0,      # high history avg → recent ratio ≈ 0.25 → load ≈ 87.5
+                    whoop_strain=12.0,  # high history avg → recent ratio ≈ 0.25 → load ≈ 87.5
                     garmin_body_battery_high=95,
                 )
         sleep = {self.TARGET.isoformat(): _sleep_row(90.0)}
@@ -464,8 +450,8 @@ class TestComputeReadiness:
                 target,
                 recovery=90.0,
                 hrv_history=55.0,
-                hrv_today=70.0,   # well above average
-                strain=3.0,       # low load
+                hrv_today=70.0,  # well above average
+                strain=3.0,  # low load
                 body_battery=90,
                 sleep=90.0,
             )
@@ -481,8 +467,8 @@ class TestComputeReadiness:
                 target,
                 recovery=20.0,
                 hrv_history=65.0,
-                hrv_today=45.0,   # well below average
-                strain=18.0,      # heavy load
+                hrv_today=45.0,  # well below average
+                strain=18.0,  # heavy load
                 body_battery=10,
                 sleep=35.0,
             )
@@ -496,9 +482,7 @@ class TestComputeReadiness:
             for i in range(8):
                 d = (target - timedelta(days=i)).isoformat()
                 session_obj = s
-                session_obj.merge(
-                    _daily(d, recovery=75.0, hrv=55.0, strain=8.0, body_battery=None)
-                )
+                session_obj.merge(_daily(d, recovery=75.0, hrv=55.0, strain=8.0, body_battery=None))
             s.merge(_sleep(target.isoformat(), 80.0))
             s.commit()
         result = compute_readiness(target, engine)

@@ -56,9 +56,13 @@ def _load_workouts(start: str, end: str) -> pd.DataFrame:
         df = pd.read_sql(text(_QUERY_WORKOUTS), conn, params={"start": start, "end": end})
     df["date"] = pd.to_datetime(df["date"]).dt.date
     df["matched_label"] = df.apply(
-        lambda r: "Both" if r["matched"] else r["primary_source"].capitalize()
-        if pd.notna(r["primary_source"])
-        else "Unknown",
+        lambda r: (
+            "Both"
+            if r["matched"]
+            else r["primary_source"].capitalize()
+            if pd.notna(r["primary_source"])
+            else "Unknown"
+        ),
         axis=1,
     )
     return df
@@ -80,6 +84,16 @@ def _load_recoveries(start: str, end: str) -> pd.DataFrame:
 def render(start_date: date, end_date: date) -> None:
     st.title("Activities")
 
+    try:
+        _render_body(start_date, end_date)
+    except Exception as exc:  # noqa: BLE001
+        st.error(
+            f"Failed to load activity data. This may be a temporary database issue. "
+            f"Details: `{exc}`"
+        )
+
+
+def _render_body(start_date: date, end_date: date) -> None:
     end_exclusive = (end_date + timedelta(days=1)).isoformat()
     wdf = _load_workouts(start_date.isoformat(), end_exclusive)
     rdf = _load_recoveries(start_date.isoformat(), end_exclusive)
@@ -213,10 +227,7 @@ def render(start_date: date, end_date: date) -> None:
         st.info("No recovery activities in range.")
     else:
         recovery_counts = (
-            rdf["sport_name"]
-            .value_counts()
-            .rename_axis("sport_name")
-            .reset_index(name="count")
+            rdf["sport_name"].value_counts().rename_axis("sport_name").reset_index(name="count")
         )
         st.altair_chart(_category_bar(recovery_counts, "sport_name"), use_container_width=True)
 

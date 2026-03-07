@@ -38,6 +38,16 @@ def _load() -> tuple[pd.DataFrame, pd.DataFrame]:
 def render() -> None:
     st.title("Data Sources")
 
+    try:
+        _render_body()
+    except Exception as exc:  # noqa: BLE001
+        st.error(
+            f"Failed to load data source info. This may be a temporary database issue. "
+            f"Details: `{exc}`"
+        )
+
+
+def _render_body() -> None:
     last_sync, recent = _load()
 
     # ── Last Successful Sync ───────────────────────────────────────────────
@@ -47,9 +57,7 @@ def render() -> None:
     labels = ["Whoop", "Garmin", "CSV Import"]
     cols = [col1, col2, col3]
 
-    sync_map = (
-        last_sync.set_index("source").to_dict("index") if not last_sync.empty else {}
-    )
+    sync_map = last_sync.set_index("source").to_dict("index") if not last_sync.empty else {}
 
     for col, source, label in zip(cols, sources, labels):
         with col:

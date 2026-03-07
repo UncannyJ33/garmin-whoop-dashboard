@@ -1,286 +1,490 @@
-"""Recovery / Readiness page."""
+"""Morning-first readiness dashboard.
 
-import json
+Sections (top to bottom):
+  1. Today's Readiness — hero score, recommendation, confidence
+  2. Contributing Factors — 5-component breakdown with yesterday delta
+  3. Readiness Trend — 30-day history, 7d rolling avg, anomalies
+  4. Key Metrics Snapshot — HRV, RHR, sleep, strain (2×2 grid)
+  5. Weekly Comparison — this week vs last week % changes
+"""
+
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import altair as alt
-import pandas as pd
-import streamlit as st
-from sqlalchemy import text
+import altair as alt  # noqa: E402
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
-from frontend.db import get_engine
+from frontend.db import get_engine  # noqa: E402
+from src.analytics.readiness_score import compute_readiness, get_readiness_history  # noqa: E402
+from src.analytics.trends import (  # noqa: E402
+    detect_anomalies,
+    get_metric_series,
+    get_weekly_summary,
+)
 
-_QUERY = """
-SELECT
-    date,
-    whoop_recovery_score,
-    whoop_hrv_rmssd,
-    whoop_rhr,
-    whoop_spo2,
-    whoop_skin_temp,
-    whoop_respiratory_rate,
-    garmin_body_battery_high,
-    garmin_body_battery_low,
-    garmin_avg_stress,
-    data_sources
-FROM unified_daily
-WHERE date >= :start AND date < :end
-  AND (whoop_recovery_score IS NOT NULL OR garmin_body_battery_high IS NOT NULL)
-ORDER BY date
-"""
+# Score → color mapping (checked highest-first)
+_SCORE_BANDS: list[tuple[float, str]] = [
+    (80, "#2E8B57"),  # green
+    (60, "#9ACD32"),  # yellow-green
+    (40, "#FF8C00"),  # orange
+    (0, "#DC143C"),  # red
+]
 
-# Human-readable labels for overlay chart
-_METRIC_LABELS = {
-    "whoop_recovery_score": "Recovery Score",
-    "whoop_hrv_rmssd": "HRV",
-    "whoop_rhr": "Resting HR",
-    "whoop_spo2": "SpO2",
-    "whoop_respiratory_rate": "Breathing Rate",
-    "skin_temp_f": "Skin Temp",
-    "garmin_body_battery_high": "Body Battery",
-    "garmin_avg_stress": "Stress",
+# How to format each factor's raw_value for the caption line
+_FACTOR_RAW_FMT: dict[str, str] = {
+    "whoop_recovery": "{:.0f}",
+    "hrv_trend": "{:.1f} ms",
+    "body_battery": "{:.0f}",
+    "sleep_quality": "{:.0f}%",
+    "training_load": "{:.1f}",
 }
 
+_FACTOR_ORDER = [
+    "whoop_recovery",
+    "hrv_trend",
+    "body_battery",
+    "sleep_quality",
+    "training_load",
+]
 
-def _line(df: pd.DataFrame, x: str, y: str, y_title: str, domain: list | None = None) -> alt.Chart:
-    scale = alt.Scale(domainMin=0) if domain is None else alt.Scale(domain=domain)
-    return (
-        alt.Chart(df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %d")),
-            y=alt.Y(f"{y}:Q", title=y_title, scale=scale),
-            tooltip=[
-                alt.Tooltip(f"{x}:T", title="Date", format="%b %d"),
-                alt.Tooltip(f"{y}:Q", title=y_title, format=".1f"),
-            ],
-        )
-        .properties(height=220)
-    )
+
+# ---------------------------------------------------------------------------
+# Cached data loaders (each calls get_engine() internally to avoid
+# passing an un-hashable Engine as a cache key)
+# ---------------------------------------------------------------------------
 
 
 @st.cache_data(ttl=300)
-def _load(start: str, end: str) -> pd.DataFrame:
+def _load_readiness(date_str: str) -> dict:
+    r = compute_readiness(date.fromisoformat(date_str), get_engine())
+    return {
+        "score": r.score,
+        "recommendation": r.recommendation,
+        "confidence": r.confidence,
+        "factors": r.contributing_factors,
+    }
+
+
+@st.cache_data(ttl=300)
+def _load_history(start: str, end: str) -> list[dict]:
+    return get_readiness_history(date.fromisoformat(start), date.fromisoformat(end), get_engine())
+
+
+@st.cache_data(ttl=300)
+def _load_spark(metric: str, start: str, end: str) -> list[dict]:
+    pts = get_metric_series(
+        get_engine(), metric, date.fromisoformat(start), date.fromisoformat(end)
+    )
+    return [{"date": p.date, "value": p.value} for p in pts]
+
+
+@st.cache_data(ttl=300)
+def _load_weekly(today: str) -> dict:
+    return get_weekly_summary(get_engine(), date.fromisoformat(today))
+
+
+@st.cache_data(ttl=300)
+def _find_latest_data_date(end: str) -> str:
+    """Return the most recent date ≤ end that has a whoop_recovery_score."""
     with get_engine().connect() as conn:
-        df = pd.read_sql(text(_QUERY), conn, params={"start": start, "end": end})
-    df["date"] = pd.to_datetime(df["date"]).dt.date
-    df["skin_temp_f"] = df["whoop_skin_temp"] * 9 / 5 + 32
-    df["sources"] = df["data_sources"].apply(lambda x: json.loads(x) if x else [])
-    return df
+        row = conn.execute(
+            text(
+                "SELECT MAX(date) FROM unified_daily"
+                " WHERE whoop_recovery_score IS NOT NULL AND date <= :end"
+            ),
+            {"end": end},
+        ).fetchone()
+    if row and row[0]:
+        return row[0]
+    # Fall back: most recent date in unified_daily at all
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            text("SELECT MAX(date) FROM unified_daily WHERE date <= :end"),
+            {"end": end},
+        ).fetchone()
+    return row[0] if (row and row[0]) else end
+
+
+@st.cache_data(ttl=300)
+def _load_snapshot(today: str, yesterday: str, week_start: str) -> dict:
+    engine = get_engine()
+    with engine.connect() as conn:
+        td = (
+            conn.execute(
+                text("SELECT whoop_hrv_rmssd, whoop_rhr FROM unified_daily WHERE date = :d"),
+                {"d": today},
+            )
+            .mappings()
+            .fetchone()
+        )
+        sl = (
+            conn.execute(
+                text(
+                    "SELECT total_sleep_minutes, deep_sleep_minutes"
+                    " FROM unified_sleep WHERE date = :d"
+                ),
+                {"d": today},
+            )
+            .mappings()
+            .fetchone()
+        )
+        yd = (
+            conn.execute(
+                text("SELECT whoop_strain FROM unified_daily WHERE date = :d"),
+                {"d": yesterday},
+            )
+            .mappings()
+            .fetchone()
+        )
+        week_strain = conn.execute(
+            text("SELECT SUM(whoop_strain) FROM unified_daily WHERE date >= :s AND date <= :e"),
+            {"s": week_start, "e": today},
+        ).scalar()
+    return {
+        "hrv": td["whoop_hrv_rmssd"] if td else None,
+        "rhr": td["whoop_rhr"] if td else None,
+        "sleep_minutes": sl["total_sleep_minutes"] if sl else None,
+        "deep_minutes": sl["deep_sleep_minutes"] if sl else None,
+        "strain_yesterday": yd["whoop_strain"] if yd else None,
+        "strain_week": week_strain,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Chart helpers
+# ---------------------------------------------------------------------------
+
+
+def _score_color(score: float) -> str:
+    for threshold, color in _SCORE_BANDS:
+        if score >= threshold:
+            return color
+    return _SCORE_BANDS[-1][1]
+
+
+def _rolling_7d(values: list) -> list:
+    result = []
+    for i in range(len(values)):
+        win = [values[j] for j in range(max(0, i - 6), i + 1) if values[j] is not None]
+        result.append(sum(win) / len(win) if win else None)
+    return result
+
+
+def _sparkline(data: list[dict], color: str = "#4472CA") -> alt.Chart:
+    df = pd.DataFrame(data)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.dropna(subset=["value"])
+    if df.empty:
+        return (
+            alt.Chart(pd.DataFrame({"date": pd.Series(dtype="datetime64[ns]"), "value": []}))
+            .mark_line()
+            .encode(x="date:T", y="value:Q")
+            .properties(height=50)
+        )
+    return (
+        alt.Chart(df)
+        .mark_line(color=color, strokeWidth=2)
+        .encode(
+            x=alt.X("date:T", axis=None),
+            y=alt.Y("value:Q", axis=None, scale=alt.Scale(zero=False)),
+        )
+        .properties(height=50)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main render
+# ---------------------------------------------------------------------------
 
 
 def render(start_date: date, end_date: date) -> None:
-    st.title("Recovery")
+    st.title("Readiness")
 
-    end_exclusive = (end_date + timedelta(days=1)).isoformat()
-    df = _load(start_date.isoformat(), end_exclusive)
-
-    if df.empty:
-        st.warning("No recovery data for the selected date range.")
-        return
-
-    latest = df.iloc[-1]
-    prev = df.iloc[-2] if len(df) > 1 else None
-
-    def _delta(field: str, invert: bool = False) -> tuple[str | None, str]:
-        if prev is None or pd.isna(latest[field]) or pd.isna(prev[field]):
-            return None, "normal"
-        d = round(latest[field] - prev[field], 1)
-        return f"{d:+.1f}", "inverse" if invert else "normal"
-
-    # ── Top metrics: two rows of three ────────────────────────────────────
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        d, _ = _delta("whoop_recovery_score")
-        st.metric(
-            "Recovery Score",
-            f"{latest['whoop_recovery_score']:.0f}%"
-            if pd.notna(latest["whoop_recovery_score"])
-            else "—",
-            delta=f"{d}%" if d else None,
-        )
-    with col2:
-        d, _ = _delta("whoop_hrv_rmssd")
-        st.metric(
-            "HRV",
-            f"{latest['whoop_hrv_rmssd']:.1f} ms" if pd.notna(latest["whoop_hrv_rmssd"]) else "—",
-            delta=d,
-        )
-    with col3:
-        d, color = _delta("whoop_rhr", invert=True)
-        st.metric(
-            "Resting HR",
-            f"{latest['whoop_rhr']:.0f} bpm" if pd.notna(latest["whoop_rhr"]) else "—",
-            delta=d,
-            delta_color=color,
+    try:
+        _render_body(start_date, end_date)
+    except Exception as exc:  # noqa: BLE001
+        st.error(
+            f"Failed to load readiness data. This may be a temporary database issue. "
+            f"Details: `{exc}`"
         )
 
-    col4, col5, col6 = st.columns(3)
-    with col4:
-        d, _ = _delta("whoop_spo2")
-        st.metric(
-            "SpO2",
-            f"{latest['whoop_spo2']:.1f}%" if pd.notna(latest["whoop_spo2"]) else "—",
-            delta=d,
-        )
-    with col5:
-        d, _ = _delta("whoop_respiratory_rate")
-        st.metric(
-            "Breathing Rate",
-            f"{latest['whoop_respiratory_rate']:.1f} rpm"
-            if pd.notna(latest["whoop_respiratory_rate"])
-            else "—",
-            delta=d,
-        )
-    with col6:
-        d, _ = _delta("skin_temp_f")
-        st.metric(
-            "Skin Temp",
-            f"{latest['skin_temp_f']:.1f} °F" if pd.notna(latest["skin_temp_f"]) else "—",
-            delta=d,
+
+def _render_body(start_date: date, end_date: date) -> None:
+    latest_str = _find_latest_data_date(end_date.isoformat())
+    today = date.fromisoformat(latest_str)
+    if today < end_date:
+        st.info(
+            f"No readiness data for {end_date}. "
+            f"Showing most recent available: **{today}**. Run a sync to update."
         )
 
-    sources = latest.get("sources", [])
-    label = " · ".join(s.capitalize() for s in sources) if sources else "Unknown"
-    st.caption(f"Latest day data sources: **{label}**")
+    yesterday = today - timedelta(days=1)
+    trend_start = max(start_date, today - timedelta(days=29))
+    week_start = today - timedelta(days=6)
+
+    # Load everything upfront
+    readiness = _load_readiness(today.isoformat())
+    readiness_yday = _load_readiness(yesterday.isoformat())
+    history = _load_history(trend_start.isoformat(), today.isoformat())
+    weekly = _load_weekly(today.isoformat())
+    snapshot = _load_snapshot(today.isoformat(), yesterday.isoformat(), week_start.isoformat())
+
+    score = readiness["score"]
+    factors = readiness["factors"]
+    factors_yday = readiness_yday["factors"]
+    n_sources = sum(1 for f in factors.values() if f["normalized_value"] is not None)
+
+    # ── 1. TODAY'S READINESS ─────────────────────────────────────────────────
+    color = _score_color(score)
+    _, hero_col, _ = st.columns([1, 2, 1])
+    with hero_col:
+        st.markdown(
+            f"<div style='text-align:center'>"
+            f"<span style='font-size:96px;font-weight:700;color:{color};line-height:1.1'>"
+            f"{score:.0f}</span></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<p style='text-align:center;font-size:17px;margin-top:4px'>"
+            f"{readiness['recommendation']}</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<p style='text-align:center;color:gray;font-size:13px;margin-top:2px'>"
+            f"Based on {n_sources} of 5 data sources</p>",
+            unsafe_allow_html=True,
+        )
 
     st.divider()
 
-    # ── Individual charts ─────────────────────────────────────────────────
-    st.subheader("Recovery Score")
-    st.altair_chart(
-        _line(df, "date", "whoop_recovery_score", "Recovery %", domain=[0, 100]),
-        use_container_width=True,
-    )
+    # ── 2. CONTRIBUTING FACTORS ───────────────────────────────────────────────
+    st.subheader("Contributing Factors")
 
-    st.subheader("HRV (RMSSD)")
-    hrv_df = df.dropna(subset=["whoop_hrv_rmssd"])
-    if not hrv_df.empty:
-        st.altair_chart(
-            _line(hrv_df, "date", "whoop_hrv_rmssd", "HRV (ms)"), use_container_width=True
-        )
+    factor_cols = st.columns(5)
+    for col, key in zip(factor_cols, _FACTOR_ORDER):
+        f = factors[key]
+        norm = f["normalized_value"]
+        eff_w = f["effective_weight"]
+        raw = f["raw_value"]
 
-    st.subheader("Resting Heart Rate")
-    rhr_df = df.dropna(subset=["whoop_rhr"])
-    if not rhr_df.empty:
-        st.altair_chart(
-            _line(rhr_df, "date", "whoop_rhr", "RHR (bpm)"), use_container_width=True
-        )
+        yday_norm = factors_yday[key]["normalized_value"]
+        delta = f"{norm - yday_norm:+.1f}" if (norm is not None and yday_norm is not None) else None
 
-    st.subheader("SpO2")
-    spo2_df = df.dropna(subset=["whoop_spo2"])
-    if not spo2_df.empty:
-        st.altair_chart(
-            _line(spo2_df, "date", "whoop_spo2", "SpO2 %"), use_container_width=True
-        )
-
-    st.subheader("Breathing Rate")
-    br_df = df.dropna(subset=["whoop_respiratory_rate"])
-    if not br_df.empty:
-        st.altair_chart(
-            _line(br_df, "date", "whoop_respiratory_rate", "Breaths / min"),
-            use_container_width=True,
-        )
-
-    st.subheader("Skin Temperature")
-    temp_df = df.dropna(subset=["skin_temp_f"])
-    if not temp_df.empty:
-        st.altair_chart(
-            _line(temp_df, "date", "skin_temp_f", "Skin Temp (°F)"), use_container_width=True
-        )
-
-    # ── Body Battery (Garmin) ──────────────────────────────────────────────
-    st.subheader("Body Battery (Garmin)")
-    bb_df = df.dropna(subset=["garmin_body_battery_high"])
-    if bb_df.empty:
-        st.info("No body battery data in range.")
-    else:
-        bb = bb_df[["date", "garmin_body_battery_high", "garmin_body_battery_low"]].melt(
-            id_vars="date", var_name="metric", value_name="value"
-        )
-        bb["metric"] = bb["metric"].map(
-            {"garmin_body_battery_high": "High", "garmin_body_battery_low": "Low"}
-        )
-        bb_chart = (
-            alt.Chart(bb)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
-                y=alt.Y("value:Q", title="Body Battery", scale=alt.Scale(domain=[0, 100])),
-                color=alt.Color("metric:N", title="Level"),
-                tooltip=[
-                    alt.Tooltip("date:T", title="Date", format="%b %d"),
-                    alt.Tooltip("metric:N", title="Level"),
-                    alt.Tooltip("value:Q", title="Value", format=".0f"),
-                ],
+        with col:
+            st.metric(
+                label=f["name"],
+                value=f"{norm:.0f}" if norm is not None else "—",
+                delta=delta,
             )
-            .properties(height=220)
-        )
-        st.altair_chart(bb_chart, use_container_width=True)
-
-    # ── Stress Level (Garmin) ──────────────────────────────────────────────
-    st.subheader("Stress Level (Garmin)")
-    stress_df = df.dropna(subset=["garmin_avg_stress"])
-    if stress_df.empty:
-        st.info("No stress data in range.")
-    else:
-        st.altair_chart(
-            _line(stress_df, "date", "garmin_avg_stress", "Stress"), use_container_width=True
-        )
+            raw_str = _FACTOR_RAW_FMT[key].format(raw) if raw is not None else "No data"
+            st.caption(f"{raw_str} · {eff_w:.0%} weight")
 
     st.divider()
 
-    # ── Overlay: all metrics on their own scale ────────────────────────────
-    st.subheader("All Metrics Overlaid")
-    st.caption(
-        "Hover a day to see all readings. Each metric on its own scale — Y axis intentionally unlabelled."
-    )
+    # ── 3. READINESS TREND ────────────────────────────────────────────────────
+    st.subheader("Readiness Trend — Last 30 Days")
 
-    overlay_cols = list(_METRIC_LABELS.keys())
-    valid_cols = [c for c in overlay_cols if c in df.columns and df[c].notna().any()]
-
-    if not valid_cols:
-        st.info("Not enough data to render overlay for the selected range.")
+    if not history:
+        st.info("No readiness history for the selected range.")
     else:
-        label_map = {col: _METRIC_LABELS[col] for col in valid_cols}
-        wide = df[["date"] + valid_cols].rename(columns=label_map)
-        label_cols = list(label_map.values())
+        df_h = pd.DataFrame(history)
+        df_h["date"] = pd.to_datetime(df_h["date"])
+        # Replace no-data days (confidence=0) with None so they don't show
+        df_h["real_score"] = df_h.apply(
+            lambda r: r["score"] if r["confidence"] > 0 else None, axis=1
+        )
+        raw_scores = df_h["real_score"].tolist()
+        df_h["rolling_7d"] = _rolling_7d(raw_scores)
 
-        melted = wide.melt(id_vars="date", var_name="metric", value_name="value")
-        melted = melted.dropna(subset=["value"])
+        date_strs = df_h["date"].dt.strftime("%Y-%m-%d").tolist()
+        anomaly_dates = {a["date"] for a in detect_anomalies(raw_scores, date_strs)}
+        df_h["is_anomaly"] = df_h["date"].dt.strftime("%Y-%m-%d").isin(anomaly_dates)
+        df_h["is_today"] = df_h["date"].dt.date == today
 
-        lines = (
-            alt.Chart(melted)
-            .mark_line(point=True)
+        df_scores = df_h.dropna(subset=["real_score"]).copy()
+        df_rolling = df_h.dropna(subset=["rolling_7d"]).copy()
+
+        # Base score line + dots
+        score_line = (
+            alt.Chart(df_scores)
+            .mark_line(color="#4472CA", strokeWidth=1.5)
             .encode(
                 x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d")),
                 y=alt.Y(
-                    "value:Q",
-                    title=None,
-                    axis=alt.Axis(labels=False, ticks=False, domain=False, grid=False),
+                    "real_score:Q",
+                    title="Readiness",
+                    scale=alt.Scale(domain=[0, 100]),
                 ),
-                color=alt.Color("metric:N", title="Metric"),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date", format="%b %d"),
+                    alt.Tooltip("real_score:Q", title="Score", format=".0f"),
+                ],
             )
-            .properties(height=320)
+            .properties(height=240)
+        )
+        score_dots = (
+            alt.Chart(df_scores)
+            .mark_circle(size=30, color="#4472CA", opacity=0.6)
+            .encode(x="date:T", y="real_score:Q")
         )
 
-        tooltip = [alt.Tooltip("date:T", title="Date", format="%b %d")] + [
-            alt.Tooltip(f"{lbl}:Q", title=lbl, format=".1f") for lbl in label_cols
-        ]
-        hover = (
-            alt.Chart(wide)
-            .mark_rule(opacity=0, strokeWidth=20)
+        # 7-day rolling average overlay
+        rolling_line = (
+            alt.Chart(df_rolling)
+            .mark_line(color="#ED7D31", strokeWidth=2, strokeDash=[5, 3])
             .encode(
-                x=alt.X("date:T"),
-                tooltip=tooltip,
+                x="date:T",
+                y=alt.Y("rolling_7d:Q", scale=alt.Scale(domain=[0, 100])),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date", format="%b %d"),
+                    alt.Tooltip("rolling_7d:Q", title="7d Avg", format=".1f"),
+                ],
             )
         )
 
-        st.altair_chart(lines + hover, use_container_width=True)
+        chart = score_line + score_dots + rolling_line
 
-    with st.expander("Raw data"):
-        st.dataframe(df, use_container_width=True)
+        # Anomaly markers (red)
+        df_anom = df_scores[df_scores["is_anomaly"]].copy()
+        if not df_anom.empty:
+            chart = chart + (
+                alt.Chart(df_anom)
+                .mark_circle(size=90, color="#DC143C", opacity=0.9)
+                .encode(
+                    x="date:T",
+                    y="real_score:Q",
+                    tooltip=[
+                        alt.Tooltip("date:T", title="Anomaly", format="%b %d"),
+                        alt.Tooltip("real_score:Q", title="Score", format=".0f"),
+                    ],
+                )
+            )
+
+        # Today marker (green)
+        df_today_pt = df_scores[df_scores["is_today"]].copy()
+        if not df_today_pt.empty:
+            chart = chart + (
+                alt.Chart(df_today_pt)
+                .mark_circle(size=150, color="#00B050")
+                .encode(x="date:T", y="real_score:Q")
+            )
+
+        st.altair_chart(chart, use_container_width=True)
+        st.caption(
+            "Blue = daily score · Dashed orange = 7-day rolling avg"
+            " · Red dot = anomaly · Green dot = today"
+        )
+
+    st.divider()
+
+    # ── 4. KEY METRICS SNAPSHOT ───────────────────────────────────────────────
+    st.subheader("Key Metrics")
+
+    spark_start = (today - timedelta(days=6)).isoformat()
+    hrv_spark = _load_spark("hrv", spark_start, today.isoformat())
+    rhr_spark = _load_spark("resting_hr", spark_start, today.isoformat())
+
+    k1, k2, k3, k4 = st.columns(4)
+
+    with k1:
+        st.markdown("**HRV**")
+        hrv = snapshot["hrv"]
+        st.metric(
+            "HRV",
+            f"{hrv:.1f} ms" if hrv is not None else "—",
+            label_visibility="collapsed",
+        )
+        st.altair_chart(_sparkline(hrv_spark, "#4472CA"), use_container_width=True)
+        st.caption("7-day trend")
+
+    with k2:
+        st.markdown("**Resting HR**")
+        rhr = snapshot["rhr"]
+        st.metric(
+            "RHR",
+            f"{rhr:.0f} bpm" if rhr is not None else "—",
+            label_visibility="collapsed",
+        )
+        st.altair_chart(_sparkline(rhr_spark, "#ED7D31"), use_container_width=True)
+        st.caption("7-day trend")
+
+    with k3:
+        st.markdown("**Sleep Last Night**")
+        mins = snapshot["sleep_minutes"]
+        deep = snapshot["deep_minutes"]
+        hours_str = f"{mins / 60:.1f} h" if mins is not None else "—"
+        st.metric("Sleep", hours_str, label_visibility="collapsed")
+        if mins and deep and mins > 0:
+            st.caption(f"{deep / mins * 100:.0f}% deep sleep")
+
+    with k4:
+        st.markdown("**Strain**")
+        strain_yd = snapshot["strain_yesterday"]
+        strain_wk = snapshot["strain_week"]
+        st.metric(
+            "Strain",
+            f"{strain_yd:.1f}" if strain_yd is not None else "—",
+            label_visibility="collapsed",
+        )
+        if strain_wk is not None:
+            st.caption(f"Week total: {strain_wk:.1f}")
+        else:
+            st.caption("Yesterday's strain")
+
+    st.divider()
+
+    # ── 5. WEEKLY COMPARISON ──────────────────────────────────────────────────
+    st.subheader("This Week vs Last Week")
+
+    comparison = weekly.get("comparison", {})
+
+    def _pct_delta(key: str) -> str | None:
+        v = comparison.get(key)
+        return f"{v:+.1f}%" if v is not None else None
+
+    wk1, wk2, wk3, wk4, wk5 = st.columns(5)
+
+    with wk1:
+        v = weekly.get("avg_readiness")
+        st.metric(
+            "Avg Readiness",
+            f"{v:.0f}" if v is not None else "—",
+            delta=_pct_delta("avg_readiness"),
+        )
+
+    with wk2:
+        v = weekly.get("avg_recovery")
+        st.metric(
+            "Avg Recovery",
+            f"{v:.0f}%" if v is not None else "—",
+            delta=_pct_delta("avg_recovery"),
+        )
+
+    with wk3:
+        v = weekly.get("total_strain")
+        st.metric(
+            "Total Strain",
+            f"{v:.1f}" if v is not None else "—",
+            delta=_pct_delta("total_strain"),
+        )
+
+    with wk4:
+        v = weekly.get("avg_sleep_duration")
+        st.metric(
+            "Avg Sleep",
+            f"{v / 60:.1f} h" if v is not None else "—",
+            delta=_pct_delta("avg_sleep_duration"),
+        )
+
+    with wk5:
+        v = weekly.get("workout_count", 0)
+        st.metric(
+            "Workouts",
+            str(v),
+            delta=_pct_delta("workout_count"),
+        )

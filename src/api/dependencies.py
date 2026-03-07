@@ -1,5 +1,6 @@
 from collections.abc import Generator
 
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from src.database.connection import get_engine, get_session_factory
@@ -17,3 +18,12 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def get_engine_dep() -> Engine:
+    """FastAPI dependency returning the shared SQLAlchemy engine.
+
+    Analytics modules take Engine directly; this avoids creating a new
+    engine per request.
+    """
+    return _engine

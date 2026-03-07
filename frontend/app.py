@@ -14,7 +14,13 @@ sys.path.insert(0, str(_root))  # config/, src/
 sys.path.insert(0, str(_root / "frontend"))  # views/
 
 import streamlit as st  # noqa: E402
-from views import activities, data_sources, readiness, sleep  # noqa: E402
+from views import activities, data_sources, readiness, sleep, trends, workouts  # noqa: E402
+
+from config.settings import settings  # noqa: E402
+from frontend.db import render_sync_status  # noqa: E402
+from src.logging_config import configure_logging  # noqa: E402
+
+configure_logging(settings.log_level)
 
 st.set_page_config(
     page_title="Fitness Dashboard",
@@ -26,7 +32,11 @@ st.set_page_config(
 st.sidebar.title("Fitness Dashboard")
 st.sidebar.caption("Whoop · Garmin")
 
-page = st.sidebar.radio("Page", ["Recovery", "Sleep", "Activities", "Data Sources"])
+page = st.sidebar.radio(
+    "Page", ["Recovery", "Sleep", "Workouts", "Trends", "Activities", "Data Sources"]
+)
+
+render_sync_status()
 
 st.sidebar.divider()
 st.sidebar.subheader("Date Range")
@@ -46,6 +56,10 @@ if page == "Recovery":
     readiness.render(start_date, end_date)
 elif page == "Sleep":
     sleep.render(start_date, end_date)
+elif page == "Workouts":
+    workouts.render(start_date, end_date)
+elif page == "Trends":
+    trends.render(start_date, end_date)
 elif page == "Activities":
     activities.render(start_date, end_date)
 elif page == "Data Sources":

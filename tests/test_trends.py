@@ -5,10 +5,13 @@ Isolation strategy
 All integration tests share a single module-scoped in-memory SQLite engine.
 Each test class that writes data uses a unique, non-overlapping date window:
 
-  TestGetMetricSeries   → recovery, 2029-02 (series) + 2029-07 (gap)
-  TestDetectAnomalies   → recovery, 2029-05-01..28
-  TestWeeklyRollup      → recovery, 2029-10-07..27
-  TestMonthlyRollup     → recovery, 2029-11-01..2029-12-31
+  TestGetMetricSeries      → recovery, 2029-02 (series) + 2029-07 (gap)
+  TestWeeklyRollup         → recovery, 2029-10-07..27
+  TestMonthlyRollup        → recovery, 2029-11-01..2029-12-31
+  TestGetMetricTrend       → recovery_score + training_load, 2031-01
+  TestGetWeeklySummary     → unified_daily/sleep/workouts, 2031-06
+
+TestDetectAnomalies, TestCalculateTrendDirection — pure functions, no DB.
 
 get_metric_series fetches a 27-day lookback window before start_date.
 All anchors are spaced ≥ 35 days apart to prevent cross-contamination.
@@ -23,8 +26,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from src.analytics.trends import (
-    AnomalyPoint,
-    DailyPoint,
+    MetricTrend,
     PeriodRollup,
     _avg_nonull,
     _calendar_fill,
@@ -33,14 +35,17 @@ from src.analytics.trends import (
     _std_nonull,
     _week_key,
     _z_score,
+    calculate_trend_direction,
     detect_anomalies,
     get_metric_series,
+    get_metric_trend,
     get_monthly_rollup,
     get_weekly_rollup,
+    get_weekly_summary,
 )
 from src.database.connection import get_engine
 from src.database.migrations import run as run_migrations
-from src.database.models import UnifiedDaily
+from src.database.models import UnifiedDaily, UnifiedSleep, UnifiedWorkout
 
 IN_MEMORY = "sqlite:///:memory:"
 NOW_ISO = datetime.now(UTC).isoformat()
@@ -298,67 +303,82 @@ class TestGetMetricSeries:
 
 
 class TestDetectAnomalies:
-    """Uses recovery data in 2029-05: normal (70), high outlier (100), low outlier (30)."""
+    """Pure function: detect_anomalies(values, dates, window=7, threshold=2.0).
 
-    # May 01-26 = 70, May 27 = 100 (high), May 28 = 30 (low)
-    _END = date(2029, 5, 28)
+    Test data: 10 days alternating 65/75 (mean≈70, std≈5.2), then a high
+    outlier (100) and a low outlier (30).  The 7-day preceding window for
+    the outlier days has real variance, so the detection fires.
+    """
 
-    @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
-        with Session(engine) as session:
-            for i in range(26):
-                d = date(2029, 5, 1) + timedelta(days=i)
-                session.merge(_daily(d.isoformat(), 70.0))
-            session.merge(_daily("2029-05-27", 100.0))
-            session.merge(_daily("2029-05-28", 30.0))
-            session.commit()
+    # 10 normal days alternating 65/75, then 100, then 30
+    _DATES = [(date(2035, 1, 1) + timedelta(days=i)).isoformat() for i in range(12)]
+    _NORMAL = [65.0 if i % 2 == 0 else 75.0 for i in range(10)]
+    _VALUES: list[float | None] = _NORMAL + [100.0, 30.0]
 
-    def test_high_outlier_detected(self, engine):
-        anomalies = detect_anomalies(engine, "recovery", days=27, end_date=date(2029, 5, 27))
-        dates = [a.date for a in anomalies]
-        assert "2029-05-27" in dates
+    def test_high_outlier_detected(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES)
+        assert self._DATES[10] in {a["date"] for a in anomalies}
 
-    def test_low_outlier_detected(self, engine):
-        anomalies = detect_anomalies(engine, "recovery", days=28, end_date=self._END)
-        dates = [a.date for a in anomalies]
-        assert "2029-05-28" in dates
+    def test_low_outlier_detected(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES)
+        assert self._DATES[11] in {a["date"] for a in anomalies}
 
-    def test_high_direction(self, engine):
-        anomalies = detect_anomalies(engine, "recovery", days=27, end_date=date(2029, 5, 27))
-        a = next(x for x in anomalies if x.date == "2029-05-27")
-        assert a.direction == "high"
-        assert a.z_score > 0
+    def test_high_direction(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES)
+        a = next(x for x in anomalies if x["date"] == self._DATES[10])
+        assert a["direction"] == "high"
+        assert a["severity"] > 0
 
-    def test_low_direction(self, engine):
-        anomalies = detect_anomalies(engine, "recovery", days=28, end_date=self._END)
-        a = next(x for x in anomalies if x.date == "2029-05-28")
-        assert a.direction == "low"
-        assert a.z_score < 0
+    def test_low_direction(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES)
+        a = next(x for x in anomalies if x["date"] == self._DATES[11])
+        assert a["direction"] == "low"
+        assert a["severity"] < 0
 
-    def test_normal_days_not_flagged(self, engine):
-        anomalies = detect_anomalies(engine, "recovery", days=28, end_date=self._END)
-        flagged = {a.date for a in anomalies}
-        # None of the 70-valued days (May 01-26) should be flagged
-        for i in range(26):
-            d = (date(2029, 5, 1) + timedelta(days=i)).isoformat()
+    def test_normal_days_not_flagged(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES)
+        flagged = {a["date"] for a in anomalies}
+        # First 10 normal days (indices 0-9) should not be flagged.
+        # The first 7 lack the required prior window; 7-9 have low severity.
+        for d in self._DATES[:10]:
             assert d not in flagged
 
-    def test_rolling_mean_and_std_populated(self, engine):
-        anomalies = detect_anomalies(engine, "recovery", days=27, end_date=date(2029, 5, 27))
-        a = next(x for x in anomalies if x.date == "2029-05-27")
-        assert a.rolling_mean is not None
-        assert a.rolling_std is not None and a.rolling_std > 0
+    def test_insufficient_window_skips_early_positions(self):
+        # With window=7, positions 0-6 cannot be flagged (fewer than 7 prior values)
+        anomalies = detect_anomalies(self._VALUES, self._DATES, window=7)
+        flagged = {a["date"] for a in anomalies}
+        for d in self._DATES[:7]:
+            assert d not in flagged
 
-    def test_custom_high_threshold_suppresses_normal_outlier(self, engine):
-        # threshold=10.0 → nothing flagged (max z ≈ 5)
-        anomalies = detect_anomalies(
-            engine, "recovery", days=27, end_date=date(2029, 5, 27), z_threshold=10.0
-        )
+    def test_custom_threshold_suppresses_outlier(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES, threshold=10.0)
         assert anomalies == []
 
-    def test_returns_anomaly_point_instances(self, engine):
-        anomalies = detect_anomalies(engine, "recovery", days=27, end_date=date(2029, 5, 27))
-        assert all(isinstance(a, AnomalyPoint) for a in anomalies)
+    def test_returns_list_of_dicts(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES)
+        assert all(isinstance(a, dict) for a in anomalies)
+
+    def test_dict_has_required_keys(self):
+        anomalies = detect_anomalies(self._VALUES, self._DATES)
+        for a in anomalies:
+            assert set(a.keys()) == {"date", "value", "direction", "severity"}
+
+    def test_all_none_returns_empty(self):
+        nones: list[float | None] = [None] * 12
+        assert detect_anomalies(nones, self._DATES) == []
+
+    def test_zero_std_not_flagged(self):
+        # All same values → std=0 → nothing flagged
+        same: list[float | None] = [70.0] * 12
+        assert detect_anomalies(same, self._DATES) == []
+
+    def test_window_parameter_respected(self):
+        # window=3: need only 3 prior values, so position 3 onward is eligible
+        anomalies = detect_anomalies(self._VALUES, self._DATES, window=3)
+        flagged = {a["date"] for a in anomalies}
+        # Positions 0-2 must still be skipped (fewer than 3 prior values)
+        for d in self._DATES[:3]:
+            assert d not in flagged
 
 
 class TestWeeklyRollup:
@@ -371,8 +391,8 @@ class TestWeeklyRollup:
     """
 
     # These are computed dynamically from _week_key to avoid hard-coding ISO numbers.
-    _START = date(2029, 10, 8)   # Monday of W41
-    _END = date(2029, 10, 28)    # Sunday of W43
+    _START = date(2029, 10, 8)  # Monday of W41
+    _END = date(2029, 10, 28)  # Sunday of W43
 
     @pytest.fixture(scope="class", autouse=True)
     def seed(self, engine):
@@ -460,8 +480,8 @@ class TestMonthlyRollup:
 
     def test_count_matches_days_in_month(self, engine):
         rollups = self._rollup(engine)
-        assert rollups[0].count == 30   # November
-        assert rollups[1].count == 31   # December
+        assert rollups[0].count == 30  # November
+        assert rollups[1].count == 31  # December
 
     def test_avg_correct(self, engine):
         rollups = self._rollup(engine)
@@ -477,3 +497,320 @@ class TestMonthlyRollup:
     def test_uniform_std_zero(self, engine):
         for r in self._rollup(engine):
             assert r.std == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# New: pure function tests — no DB
+# ---------------------------------------------------------------------------
+
+
+class TestCalculateTrendDirection:
+    """calculate_trend_direction(rolling_avg, window=7) -> str."""
+
+    def test_strictly_increasing_is_improving(self):
+        # Values rising 1 unit/day from 50; mean≈53, slope=1, relative≈0.019 > 0.002
+        avgs = [50.0 + i for i in range(7)]
+        assert calculate_trend_direction(avgs) == "improving"
+
+    def test_strictly_decreasing_is_declining(self):
+        avgs = [80.0 - i for i in range(7)]
+        assert calculate_trend_direction(avgs) == "declining"
+
+    def test_flat_is_stable(self):
+        avgs = [70.0] * 7
+        assert calculate_trend_direction(avgs) == "stable"
+
+    def test_tiny_slope_is_stable(self):
+        # Slope of 0.001/day, mean 70 → relative ≈ 0.000014 < threshold
+        avgs = [70.0 + i * 0.001 for i in range(7)]
+        assert calculate_trend_direction(avgs) == "stable"
+
+    def test_single_value_is_stable(self):
+        assert calculate_trend_direction([70.0]) == "stable"
+
+    def test_all_none_is_stable(self):
+        avgs: list[float | None] = [None] * 7
+        assert calculate_trend_direction(avgs) == "stable"
+
+    def test_uses_last_window_values(self):
+        # Prepend declining values; last 7 are sharply increasing → improving
+        prefix = [100.0 - i for i in range(10)]
+        suffix = [50.0 + i * 2 for i in range(7)]  # slope=2, mean≈56, rel≈0.036
+        assert calculate_trend_direction(prefix + suffix) == "improving"
+
+    def test_none_values_skipped(self):
+        # Mix Nones into a clearly increasing series
+        avgs: list[float | None] = [None, 50.0, None, 56.0, None, 62.0, 68.0]
+        assert calculate_trend_direction(avgs) == "improving"
+
+
+# ---------------------------------------------------------------------------
+# New: integration tests — DB access
+# ---------------------------------------------------------------------------
+
+
+def _make_daily(date_str: str, **kwargs) -> UnifiedDaily:
+    return UnifiedDaily(
+        date=date_str,
+        data_sources='["whoop"]',
+        last_updated=datetime.now(UTC).isoformat(),
+        **kwargs,
+    )
+
+
+def _make_sleep(date_str: str, **kwargs) -> UnifiedSleep:
+    return UnifiedSleep(
+        date=date_str,
+        primary_source="whoop",
+        last_updated=datetime.now(UTC).isoformat(),
+        **kwargs,
+    )
+
+
+def _make_workout(id_: str, date_str: str, **kwargs) -> UnifiedWorkout:
+    return UnifiedWorkout(
+        id=id_,
+        date=date_str,
+        start_time=f"{date_str}T08:00:00",
+        last_updated=datetime.now(UTC).isoformat(),
+        **kwargs,
+    )
+
+
+class TestGetMetricTrend:
+    """get_metric_trend(engine, metric_name, start_date, end_date) -> MetricTrend.
+
+    Uses dates in 2031-01 for standard metrics, 2031-03 for training_load.
+    Lookback window goes back 29 days; all anchors are far from existing data.
+    """
+
+    # 40 days of recovery data in 2031-01-01..2031-02-09
+    _START = date(2031, 1, 10)  # start of requested range (10 days in)
+    _END = date(2031, 1, 31)
+
+    @pytest.fixture(scope="class", autouse=True)
+    def seed(self, engine):
+        with Session(engine) as session:
+            # 40 days ascending 50..89 — trend should be "improving"
+            for i in range(40):
+                d = date(2031, 1, 1) + timedelta(days=i)
+                session.merge(_make_daily(d.isoformat(), whoop_recovery_score=50.0 + i))
+            # training_load: seed 14 workouts across 2031-03 (7 days × 2 workouts)
+            for day in range(7):
+                d = date(2031, 3, 1) + timedelta(days=day)
+                for j in range(2):
+                    session.merge(
+                        _make_workout(
+                            f"tl_{day}_{j}",
+                            d.isoformat(),
+                            whoop_strain=5.0 + j,
+                            duration_minutes=45.0,
+                        )
+                    )
+            session.commit()
+
+    def test_returns_metric_trend_instance(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        assert isinstance(result, MetricTrend)
+
+    def test_metric_name_stored(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        assert result.metric_name == "recovery_score"
+
+    def test_dates_span_requested_range(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        assert result.dates[0] == self._START.isoformat()
+        assert result.dates[-1] == self._END.isoformat()
+        assert len(result.dates) == (self._END - self._START).days + 1
+
+    def test_values_aligned_with_dates(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        assert len(result.values) == len(result.dates)
+
+    def test_rolling_lists_aligned(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        n = len(result.dates)
+        assert len(result.rolling_avg_7d) == n
+        assert len(result.rolling_avg_30d) == n
+        assert len(result.rolling_std_7d) == n
+
+    def test_rolling_7d_non_none_after_enough_data(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        # All days in range have data; rolling_7d should be non-None everywhere
+        assert all(v is not None for v in result.rolling_avg_7d)
+
+    def test_rolling_7d_correct_value(self, engine):
+        # Jan 10 (index 9 of full series 50..89) → value=59
+        # 7-day window includes Jan 04..10 (values 53,54,55,56,57,58,59) → avg=56.0
+        result = get_metric_trend(engine, "recovery_score", self._START, self._START)
+        assert result.rolling_avg_7d[0] == pytest.approx(56.0)
+
+    def test_trend_direction_improving(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        assert result.trend_direction == "improving"
+
+    def test_anomalies_is_list(self, engine):
+        result = get_metric_trend(engine, "recovery_score", self._START, self._END)
+        assert isinstance(result.anomalies, list)
+
+    def test_invalid_metric_raises(self, engine):
+        with pytest.raises(ValueError, match="Unknown metric"):
+            get_metric_trend(engine, "not_a_metric", self._START, self._END)
+
+    def test_strain_metric_alias(self, engine):
+        # "strain" should work the same as "daily_strain"
+        result = get_metric_trend(engine, "strain", self._START, self._END)
+        assert isinstance(result, MetricTrend)
+
+    def test_training_load_sums_per_day(self, engine):
+        # Each day in 2031-03 has 2 workouts with strain 5 and 6 → sum=11
+        start = date(2031, 3, 1)
+        end = date(2031, 3, 7)
+        result = get_metric_trend(engine, "training_load", start, end)
+        assert result.values[0] == pytest.approx(11.0)
+        assert all(v == pytest.approx(11.0) for v in result.values if v is not None)
+
+    def test_missing_days_appear_as_none(self, engine):
+        # 2031-04 has no data seeded → all values None
+        start = date(2031, 4, 1)
+        end = date(2031, 4, 7)
+        result = get_metric_trend(engine, "recovery_score", start, end)
+        assert all(v is None for v in result.values)
+
+
+class TestGetWeeklySummary:
+    """get_weekly_summary(engine, end_date) -> dict.
+
+    Uses dates in 2031-06. Current week: Jun 08-14. Prev week: Jun 01-07.
+    """
+
+    _END = date(2031, 6, 14)
+    _CURR_START = date(2031, 6, 8)
+    _PREV_START = date(2031, 6, 1)
+    _PREV_END = date(2031, 6, 7)
+
+    @pytest.fixture(scope="class", autouse=True)
+    def seed(self, engine):
+        with Session(engine) as session:
+            # Previous week: recovery=70, hrv=50, rhr=55, strain=10
+            for i in range(7):
+                d = self._PREV_START + timedelta(days=i)
+                session.merge(
+                    _make_daily(
+                        d.isoformat(),
+                        whoop_recovery_score=70.0,
+                        whoop_hrv_rmssd=50.0,
+                        whoop_rhr=55.0,
+                        whoop_strain=10.0,
+                    )
+                )
+                session.merge(
+                    _make_sleep(
+                        d.isoformat(),
+                        total_sleep_minutes=420.0,  # 7 h
+                        deep_sleep_minutes=90.0,
+                    )
+                )
+                session.merge(_make_workout(f"ws_prev_{i}", d.isoformat(), duration_minutes=60.0))
+            # Current week: recovery=80, strain=12; more workouts
+            for i in range(7):
+                d = self._CURR_START + timedelta(days=i)
+                session.merge(
+                    _make_daily(
+                        d.isoformat(),
+                        whoop_recovery_score=80.0,
+                        whoop_hrv_rmssd=55.0,
+                        whoop_rhr=53.0,
+                        whoop_strain=12.0,
+                    )
+                )
+                session.merge(
+                    _make_sleep(
+                        d.isoformat(),
+                        total_sleep_minutes=480.0,  # 8 h
+                        deep_sleep_minutes=100.0,
+                    )
+                )
+                # 2 workouts per day this week
+                for j in range(2):
+                    session.merge(
+                        _make_workout(
+                            f"ws_curr_{i}_{j}",
+                            d.isoformat(),
+                            duration_minutes=45.0,
+                        )
+                    )
+            session.commit()
+
+    def _summary(self, engine):
+        return get_weekly_summary(engine, self._END)
+
+    def test_returns_dict(self, engine):
+        assert isinstance(self._summary(engine), dict)
+
+    def test_required_keys_present(self, engine):
+        s = self._summary(engine)
+        required = {
+            "period_start",
+            "period_end",
+            "avg_recovery",
+            "avg_hrv",
+            "avg_rhr",
+            "total_strain",
+            "workout_count",
+            "total_training_minutes",
+            "avg_sleep_duration",
+            "avg_deep_sleep",
+            "notable_anomalies",
+            "comparison",
+        }
+        assert required.issubset(s.keys())
+
+    def test_period_dates_correct(self, engine):
+        s = self._summary(engine)
+        assert s["period_start"] == self._CURR_START.isoformat()
+        assert s["period_end"] == self._END.isoformat()
+
+    def test_avg_recovery_current_week(self, engine):
+        assert self._summary(engine)["avg_recovery"] == pytest.approx(80.0)
+
+    def test_total_strain_current_week(self, engine):
+        # 7 days × 12 strain/day = 84
+        assert self._summary(engine)["total_strain"] == pytest.approx(84.0)
+
+    def test_workout_count_current_week(self, engine):
+        # 7 days × 2 workouts = 14
+        assert self._summary(engine)["workout_count"] == 14
+
+    def test_total_training_minutes_current_week(self, engine):
+        # 14 workouts × 45 min = 630
+        assert self._summary(engine)["total_training_minutes"] == pytest.approx(630.0)
+
+    def test_avg_sleep_duration_current_week(self, engine):
+        assert self._summary(engine)["avg_sleep_duration"] == pytest.approx(480.0)
+
+    def test_avg_deep_sleep_current_week(self, engine):
+        assert self._summary(engine)["avg_deep_sleep"] == pytest.approx(100.0)
+
+    def test_comparison_recovery_pct_change(self, engine):
+        # 80 vs 70 → +14.3 %
+        pct = self._summary(engine)["comparison"]["avg_recovery"]
+        assert pct == pytest.approx(14.3, abs=0.1)
+
+    def test_comparison_sleep_pct_change(self, engine):
+        # 480 vs 420 → +14.3 %
+        pct = self._summary(engine)["comparison"]["avg_sleep_duration"]
+        assert pct == pytest.approx(14.3, abs=0.1)
+
+    def test_comparison_workout_count_pct_change(self, engine):
+        # 14 vs 7 → +100 %
+        pct = self._summary(engine)["comparison"]["workout_count"]
+        assert pct == pytest.approx(100.0)
+
+    def test_notable_anomalies_is_list(self, engine):
+        assert isinstance(self._summary(engine)["notable_anomalies"], list)
+
+    def test_comparison_none_when_prev_zero(self, engine):
+        # Use a period with no previous-week data → comparison values are None
+        s = get_weekly_summary(engine, date(2031, 8, 7))
+        assert s["comparison"]["avg_recovery"] is None

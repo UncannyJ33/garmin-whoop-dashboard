@@ -184,7 +184,7 @@ src/
   ingestion/      # Fetch → transform → store pipelines + CSV importer
   normalization/  # Unified data models (normalizer, mappers, deduplication)
   database/       # SQLAlchemy models and migrations (001, 002, 003)
-  analytics/      # Computed metrics and trend logic (future)
+  analytics/      # readiness_score, workout_analysis, sleep_analysis, trends
 frontend/
   app.py          # Streamlit entry point (Recovery, Sleep, Activities, Data Sources)
   views/          # Streamlit page modules
@@ -213,4 +213,91 @@ tests/            # pytest (unit + integration)
 - CSV / ZIP bulk import fallback
 - Dashboard updated to read from unified tables (Body Battery, Stress, Running Dynamics, Data Sources page)
 
-**Phase 3** — Enhanced dashboard views and analytics.
+**Phase 3 complete** — Analytics engine + full dashboard:
+- Composite readiness score (5 components, weight redistribution for missing sources)
+- Enriched workout analysis (Whoop + Garmin merged, strain/efficiency/recovery metrics)
+- Sleep impact analysis (stage breakdown, consistency, training↔sleep correlations)
+- Trends view (rolling averages, anomaly detection, week-over-week comparison, Pearson heatmap)
+- REST API: 16 endpoints, Pydantic models, auto-docs at `/docs`
+- Whoop webhook receiver (`POST /api/webhooks/whoop`) with BackgroundTask processing
+- Structured logging via `LOG_LEVEL` env var; sidebar sync-age indicator; per-view error handling
+
+---
+
+## REST API
+
+The FastAPI backend exposes a complete REST API. Visit `http://localhost:8000/docs` for interactive documentation.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/readiness/today` | Today's composite readiness score |
+| `GET` | `/api/readiness/history?start&end` | Daily readiness history for a date range |
+| `GET` | `/api/workouts?start&end` | Enriched workout list |
+| `GET` | `/api/workouts/summary?start&end` | Per-type workout stats |
+| `GET` | `/api/workouts/{id}` | Single enriched workout |
+| `GET` | `/api/sleep/insights?start&end` | Nightly sleep insights |
+| `GET` | `/api/sleep/correlations?days&end` | Strain vs sleep/recovery Pearson r |
+| `GET` | `/api/sleep/consistency?days&end` | Bedtime variance and debt trend |
+| `GET` | `/api/trends/{metric}?start&end` | Rolling averages + anomalies for a metric |
+| `GET` | `/api/trends/weekly-summary?end` | This-week vs last-week comparison |
+| `GET` | `/api/trends/anomalies?start&end` | Anomaly log across all metrics |
+| `GET` | `/api/sync/status` | Last sync timestamp per source |
+| `POST` | `/api/sync/trigger/{source}` | Trigger a 30-day sync (whoop or garmin) |
+| `GET` | `/api/webhooks/whoop/test` | Webhook health check (for Whoop verification) |
+| `POST` | `/api/webhooks/whoop` | Receive Whoop real-time events |
+| `GET` | `/health` | Basic health check |
+
+---
+
+## Whoop Webhooks
+
+Whoop can push real-time updates whenever a cycle, recovery, sleep, or workout record changes. This eliminates the need to poll for fresh data.
+
+### How it works
+
+| Step | Detail |
+|---|---|
+| Endpoint | `POST /api/webhooks/whoop` |
+| Health check | `GET /api/webhooks/whoop/test` → must return `{"status":"ok"}` |
+| Supported events | `cycle.updated`, `recovery.updated`, `sleep.updated`, `workout.updated` |
+| Response | Always `200 OK` immediately; processing is async (BackgroundTask) |
+| Idempotency | Upsert-safe — duplicate webhooks for the same resource are harmless |
+| Audit trail | Each event is logged to `sync_log` with `source="whoop_webhook"` |
+
+### Local development with ngrok
+
+Whoop's servers must be able to reach your webhook URL, so localhost won't work directly. Use [ngrok](https://ngrok.com) (or any tunneling tool) to expose your local API:
+
+```bash
+# 1. Install ngrok
+brew install ngrok   # macOS
+# or: https://ngrok.com/download
+
+# 2. Start your API server
+make run-api         # FastAPI on http://localhost:8000
+
+# 3. Open a public tunnel in a second terminal
+ngrok http 8000
+# ngrok prints something like:
+#   Forwarding  https://abc123.ngrok-free.app -> http://localhost:8000
+
+# 4. Register the webhook in Whoop Developer Dashboard
+#    URL: https://abc123.ngrok-free.app/api/webhooks/whoop
+#    Whoop will GET /api/webhooks/whoop/test to verify — it must return 200.
+```
+
+### Registering in Whoop Developer Dashboard
+
+1. Go to [developer.whoop.com](https://developer.whoop.com) and log in.
+2. Open your application → **Webhooks** tab.
+3. Click **Add Webhook URL**.
+4. Enter your public URL: `https://<your-domain>/api/webhooks/whoop`
+5. Select the event types to subscribe to (all four recommended).
+6. Whoop sends a GET to `/api/webhooks/whoop/test` — confirm it returns `200 OK`.
+7. Save. Whoop will now push events in real time.
+
+### Production deployment
+
+For a stable always-on webhook URL, deploy the FastAPI backend to any host with a public IP (Fly.io, Railway, a VPS, etc.) and register that URL in the Whoop Dashboard instead of an ngrok tunnel.
+
+> **Security note:** The current implementation does not verify Whoop's HMAC signature on incoming payloads. For a public-facing production deployment, add signature verification using the secret Whoop provides in the Developer Dashboard.

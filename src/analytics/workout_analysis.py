@@ -13,11 +13,14 @@ get_workout_type_summary(engine, start, end) -> dict[str, dict]
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import Engine, text
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -38,20 +41,20 @@ class EnrichedWorkout:
     """
 
     # Identity
-    id: str                        # unified_workouts PK ("w_…" or "g_…")
-    date: str                      # YYYY-MM-DD (local date)
-    start_time: str | None         # ISO 8601 UTC
+    id: str  # unified_workouts PK ("w_…" or "g_…")
+    date: str  # YYYY-MM-DD (local date)
+    start_time: str | None  # ISO 8601 UTC
     activity_type: str | None
     duration_minutes: float | None
-    primary_source: str            # "whoop" | "garmin" | "both"
-    matched: bool                  # True if both devices tracked this session
+    primary_source: str  # "whoop" | "garmin" | "both"
+    matched: bool  # True if both devices tracked this session
 
     # Physiological load — Whoop primary, Garmin fallback for HR
     strain: float | None
-    avg_hr: int | None             # Whoop if available, else Garmin
-    max_hr: int | None             # Whoop if available, else Garmin
+    avg_hr: int | None  # Whoop if available, else Garmin
+    max_hr: int | None  # Whoop if available, else Garmin
     calories_kj: float | None
-    hr_zone_minutes: dict[str, float | None]   # keys "zone1"–"zone5"
+    hr_zone_minutes: dict[str, float | None]  # keys "zone1"–"zone5"
 
     # Performance metrics — Garmin primary
     distance_m: float | None
@@ -70,10 +73,10 @@ class EnrichedWorkout:
     avg_vertical_ratio_pct: float | None
 
     # Combined insights — computed
-    strain_per_minute: float | None      # strain / duration (intensity proxy)
-    efficiency_score: float | None       # distance_m / strain (output per cost)
-    next_day_recovery: float | None      # recovery score the morning after
-    recovery_impact: float | None        # next_day_recovery − 7-day avg recovery
+    strain_per_minute: float | None  # strain / duration (intensity proxy)
+    efficiency_score: float | None  # distance_m / strain (output per cost)
+    next_day_recovery: float | None  # recovery score the morning after
+    recovery_impact: float | None  # next_day_recovery − 7-day avg recovery
 
 
 # ---------------------------------------------------------------------------
@@ -90,9 +93,7 @@ def _compute_strain_per_minute(
     return strain / duration_minutes
 
 
-def _compute_efficiency_score(
-    distance_m: float | None, strain: float | None
-) -> float | None:
+def _compute_efficiency_score(distance_m: float | None, strain: float | None) -> float | None:
     """Compute distance per unit of strain; None if either input is missing or strain is 0."""
     if distance_m is None or strain is None or strain == 0.0:
         return None
@@ -154,10 +155,7 @@ def _build_enriched(
     next_day_recovery = recovery_by_date.get(next_day_date)
 
     # 7-day rolling average ending at (and including) the workout date
-    seven_day_scores = [
-        recovery_by_date.get(_add_days(workout_date, -i))
-        for i in range(7)
-    ]
+    seven_day_scores = [recovery_by_date.get(_add_days(workout_date, -i)) for i in range(7)]
     seven_day_avg = _avg_nonull(seven_day_scores)
 
     strain_per_min = _compute_strain_per_minute(strain, duration)
@@ -256,16 +254,20 @@ def _fetch_recovery_context(
 ) -> dict[str, float | None]:
     """Fetch whoop_recovery_score keyed by date for the given range."""
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
+        rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT date, whoop_recovery_score
                 FROM unified_daily
                 WHERE date >= :start AND date <= :end
                 """
-            ),
-            {"start": min_date, "end": max_date},
-        ).mappings().all()
+                ),
+                {"start": min_date, "end": max_date},
+            )
+            .mappings()
+            .all()
+        )
     return {r["date"]: r["whoop_recovery_score"] for r in rows}
 
 
@@ -288,10 +290,14 @@ def get_enriched_workout(
         EnrichedWorkout, or None if the ID does not exist.
     """
     with engine.connect() as conn:
-        row = conn.execute(
-            text(f"SELECT {_WORKOUT_COLS} {_WORKOUT_JOIN} WHERE uw.id = :id"),  # noqa: S608
-            {"id": workout_id},
-        ).mappings().fetchone()
+        row = (
+            conn.execute(
+                text(f"SELECT {_WORKOUT_COLS} {_WORKOUT_JOIN} WHERE uw.id = :id"),  # noqa: S608
+                {"id": workout_id},
+            )
+            .mappings()
+            .fetchone()
+        )
 
     if row is None:
         return None
@@ -326,19 +332,24 @@ def get_enriched_workouts(
         List of EnrichedWorkout sorted by start_time ascending.
     """
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                f"""
+        rows = (
+            conn.execute(
+                text(
+                    f"""
                 SELECT {_WORKOUT_COLS}
                 {_WORKOUT_JOIN}
                 WHERE uw.date >= :start AND uw.date <= :end
                 ORDER BY uw.start_time
                 """  # noqa: S608
-            ),
-            {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        ).mappings().all()
+                ),
+                {"start": start_date.isoformat(), "end": end_date.isoformat()},
+            )
+            .mappings()
+            .all()
+        )
 
     if not rows:
+        logger.debug("get_enriched_workouts: no workouts for %s → %s", start_date, end_date)
         return []
 
     # Recovery context: 6 days before earliest workout → 1 day after latest
@@ -346,7 +357,14 @@ def get_enriched_workouts(
     context_end = _add_days(end_date.isoformat(), 1)
     recovery_by_date = _fetch_recovery_context(engine, context_start, context_end)
 
-    return [_build_enriched(dict(r), recovery_by_date) for r in rows]
+    result = [_build_enriched(dict(r), recovery_by_date) for r in rows]
+    logger.debug(
+        "get_enriched_workouts: %d workouts enriched for %s → %s",
+        len(result),
+        start_date,
+        end_date,
+    )
+    return result
 
 
 def get_workout_type_summary(
@@ -388,12 +406,8 @@ def get_workout_type_summary(
             "avg_distance_m": _avg_nonull([w.distance_m for w in group]),
             "avg_pace_min_per_km": _avg_nonull([w.avg_pace_min_per_km for w in group]),
             "avg_training_load": _avg_nonull([w.training_load for w in group]),
-            "avg_training_effect_aerobic": _avg_nonull(
-                [w.training_effect_aerobic for w in group]
-            ),
-            "avg_next_day_recovery": _avg_nonull(
-                [w.next_day_recovery for w in group]
-            ),
+            "avg_training_effect_aerobic": _avg_nonull([w.training_effect_aerobic for w in group]),
+            "avg_next_day_recovery": _avg_nonull([w.next_day_recovery for w in group]),
             "avg_recovery_impact": _avg_nonull([w.recovery_impact for w in group]),
             "avg_strain_per_minute": _avg_nonull([w.strain_per_minute for w in group]),
             "avg_efficiency_score": _avg_nonull([w.efficiency_score for w in group]),

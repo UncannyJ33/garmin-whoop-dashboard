@@ -9,6 +9,7 @@ a ReadinessResult. No ORM models used — raw SQL only, for speed and clarity.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -16,16 +17,18 @@ from typing import Any
 
 from sqlalchemy import Engine, text
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Weights — adjust here, no other code needs to change
 # ---------------------------------------------------------------------------
 
 READINESS_WEIGHTS: dict[str, float] = {
     "whoop_recovery": 0.30,  # Whoop recovery score (0–100 directly)
-    "hrv_trend": 0.25,       # Today's HRV vs 7-day rolling average
-    "body_battery": 0.20,    # Garmin Body Battery peak (0–100 directly)
-    "sleep_quality": 0.15,   # Whoop sleep performance (0–100 directly)
-    "training_load": 0.10,   # Recent 3-day strain vs 7-day average (inverted)
+    "hrv_trend": 0.25,  # Today's HRV vs 7-day rolling average
+    "body_battery": 0.20,  # Garmin Body Battery peak (0–100 directly)
+    "sleep_quality": 0.15,  # Whoop sleep performance (0–100 directly)
+    "training_load": 0.10,  # Recent 3-day strain vs 7-day average (inverted)
 }
 
 # Recommendation bands — checked from highest threshold downward
@@ -33,13 +36,14 @@ _RECOMMENDATION_BANDS: list[tuple[float, str]] = [
     (80.0, "Push hard — your body is primed for high intensity"),
     (60.0, "Train normally — good to go for planned workout"),
     (40.0, "Go easy — consider reducing intensity or volume"),
-    (0.0,  "Rest day — recovery is the priority"),
+    (0.0, "Rest day — recovery is the priority"),
 ]
 
 
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ReadinessResult:
@@ -68,6 +72,7 @@ class ReadinessResult:
 # ---------------------------------------------------------------------------
 # Pure normalization helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_recommendation(score: float) -> str:
     """Map a 0–100 readiness score to a training recommendation string."""
@@ -146,6 +151,7 @@ def _normalize_training_load(
 # ---------------------------------------------------------------------------
 # Component computation
 # ---------------------------------------------------------------------------
+
 
 def _compute_components(
     today_row: dict | None,
@@ -231,6 +237,7 @@ def _compute_components(
 # Core computation (pure — works from pre-fetched dicts)
 # ---------------------------------------------------------------------------
 
+
 def _compute_from_data(
     target_date: date,
     daily_by_date: dict[str, dict],
@@ -269,9 +276,7 @@ def _compute_from_data(
     components = _compute_components(today_row, history_rows, sleep_row)
 
     # Identify which components have data
-    available_keys = [
-        k for k, v in components.items() if v["normalized_value"] is not None
-    ]
+    available_keys = [k for k, v in components.items() if v["normalized_value"] is not None]
     total_available_weight = sum(effective_weights[k] for k in available_keys)
 
     if not available_keys or total_available_weight == 0.0:
@@ -302,6 +307,7 @@ def _compute_from_data(
 # Database-backed public API
 # ---------------------------------------------------------------------------
 
+
 def _fetch_data_window(
     start_date: date,
     end_date: date,
@@ -313,29 +319,37 @@ def _fetch_data_window(
         (daily_by_date, sleep_by_date): dicts keyed by ISO date string.
     """
     with engine.connect() as conn:
-        daily_rows = conn.execute(
-            text(
-                """
+        daily_rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT date, whoop_recovery_score, whoop_hrv_rmssd,
                        whoop_strain, garmin_body_battery_high
                 FROM unified_daily
                 WHERE date >= :start AND date <= :end
                 ORDER BY date
                 """
-            ),
-            {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        ).mappings().all()
+                ),
+                {"start": start_date.isoformat(), "end": end_date.isoformat()},
+            )
+            .mappings()
+            .all()
+        )
 
-        sleep_rows = conn.execute(
-            text(
-                """
+        sleep_rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT date, whoop_performance
                 FROM unified_sleep
                 WHERE date >= :start AND date <= :end
                 """
-            ),
-            {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        ).mappings().all()
+                ),
+                {"start": start_date.isoformat(), "end": end_date.isoformat()},
+            )
+            .mappings()
+            .all()
+        )
 
     daily_by_date = {r["date"]: dict(r) for r in daily_rows}
     sleep_by_date = {r["date"]: dict(r) for r in sleep_rows}
@@ -364,10 +378,16 @@ def compute_readiness(
         and confidence.
     """
     fetch_start = target_date - timedelta(days=7)
-    daily_by_date, sleep_by_date = _fetch_data_window(
-        fetch_start, target_date, engine
+    daily_by_date, sleep_by_date = _fetch_data_window(fetch_start, target_date, engine)
+    result = _compute_from_data(target_date, daily_by_date, sleep_by_date, weights)
+    logger.debug(
+        "Readiness computed: date=%s score=%.1f confidence=%.2f sources=%d/5",
+        target_date,
+        result.score,
+        result.confidence,
+        sum(1 for f in result.contributing_factors.values() if f["normalized_value"] is not None),
     )
-    return _compute_from_data(target_date, daily_by_date, sleep_by_date, weights)
+    return result
 
 
 def get_readiness_history(
@@ -395,9 +415,7 @@ def get_readiness_history(
     """
     # Pull 7 extra days of history so start_date has a full HRV window
     fetch_start = start_date - timedelta(days=7)
-    daily_by_date, sleep_by_date = _fetch_data_window(
-        fetch_start, end_date, engine
-    )
+    daily_by_date, sleep_by_date = _fetch_data_window(fetch_start, end_date, engine)
 
     results: list[dict[str, Any]] = []
     current = start_date

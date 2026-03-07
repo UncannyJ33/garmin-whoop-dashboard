@@ -18,6 +18,7 @@ get_sleep_consistency(engine, days=30) -> dict
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -25,13 +26,15 @@ from typing import Any
 
 from sqlalchemy import Engine, text
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_TARGET_SLEEP_MINUTES: float = 480.0   # 8 hours
+DEFAULT_TARGET_SLEEP_MINUTES: float = 480.0  # 8 hours
 _MIN_CORRELATION_SAMPLE: int = 7
-_STABLE_SLOPE_THRESHOLD: float = 5.0          # minutes/day; below = "stable"
+_STABLE_SLOPE_THRESHOLD: float = 5.0  # minutes/day; below = "stable"
 
 
 # ---------------------------------------------------------------------------
@@ -52,19 +55,19 @@ class SleepInsight:
     the new cycle, i.e. the morning you wake up).
     """
 
-    date: str                                    # wake-up date YYYY-MM-DD
+    date: str  # wake-up date YYYY-MM-DD
     total_sleep_minutes: float | None
     deep_minutes: float | None
     light_minutes: float | None
     rem_minutes: float | None
     awake_minutes: float | None
-    sleep_performance: float | None              # Whoop 0–100
-    sleep_efficiency: float | None               # Whoop 0–100
-    previous_day_strain: float | None            # Whoop cycle strain
-    previous_day_training_load: float | None     # Garmin activity training load (sum)
-    next_day_recovery_score: float | None        # Whoop recovery on wake-up date
-    next_day_body_battery: int | None            # Garmin BB high on wake-up date
-    sleep_debt_estimate: float | None            # rolling 7-day avg − target (min, neg = deficit)
+    sleep_performance: float | None  # Whoop 0–100
+    sleep_efficiency: float | None  # Whoop 0–100
+    previous_day_strain: float | None  # Whoop cycle strain
+    previous_day_training_load: float | None  # Garmin activity training load (sum)
+    next_day_recovery_score: float | None  # Whoop recovery on wake-up date
+    next_day_body_battery: int | None  # Garmin BB high on wake-up date
+    sleep_debt_estimate: float | None  # rolling 7-day avg − target (min, neg = deficit)
 
 
 # ---------------------------------------------------------------------------
@@ -161,53 +164,56 @@ def _add_days(date_str: str, days: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_unified_sleep(
-    engine: Engine, start: str, end: str
-) -> dict[str, dict]:
+def _fetch_unified_sleep(engine: Engine, start: str, end: str) -> dict[str, dict]:
     """Fetch unified_sleep rows keyed by date."""
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
+        rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT date, total_sleep_minutes, deep_sleep_minutes,
                        light_sleep_minutes, rem_sleep_minutes, awake_minutes,
                        whoop_performance, whoop_efficiency
                 FROM unified_sleep
                 WHERE date >= :start AND date <= :end
                 """
-            ),
-            {"start": start, "end": end},
-        ).mappings().all()
+                ),
+                {"start": start, "end": end},
+            )
+            .mappings()
+            .all()
+        )
     return {r["date"]: dict(r) for r in rows}
 
 
-def _fetch_unified_daily(
-    engine: Engine, start: str, end: str
-) -> dict[str, dict]:
+def _fetch_unified_daily(engine: Engine, start: str, end: str) -> dict[str, dict]:
     """Fetch unified_daily rows keyed by date."""
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
+        rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT date, whoop_strain, whoop_recovery_score,
                        garmin_body_battery_high
                 FROM unified_daily
                 WHERE date >= :start AND date <= :end
                 """
-            ),
-            {"start": start, "end": end},
-        ).mappings().all()
+                ),
+                {"start": start, "end": end},
+            )
+            .mappings()
+            .all()
+        )
     return {r["date"]: dict(r) for r in rows}
 
 
-def _fetch_training_load_by_date(
-    engine: Engine, start: str, end: str
-) -> dict[str, float]:
+def _fetch_training_load_by_date(engine: Engine, start: str, end: str) -> dict[str, float]:
     """Sum garmin_activities.training_load per day via unified_workouts join."""
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
+        rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT uw.date, SUM(ga.training_load) AS total_load
                 FROM unified_workouts uw
                 JOIN garmin_activities ga
@@ -217,24 +223,26 @@ def _fetch_training_load_by_date(
                   AND uw.date <= :end
                 GROUP BY uw.date
                 """
-            ),
-            {"start": start, "end": end},
-        ).mappings().all()
+                ),
+                {"start": start, "end": end},
+            )
+            .mappings()
+            .all()
+        )
     return {r["date"]: r["total_load"] for r in rows}
 
 
-def _fetch_whoop_sleep_times(
-    engine: Engine, start: str, end: str
-) -> list[dict]:
+def _fetch_whoop_sleep_times(engine: Engine, start: str, end: str) -> list[dict]:
     """Fetch non-nap whoop_sleep rows with start/end timestamps.
 
     Filters by DATE(end_time) (wake-up date) within the given range.
     Returns rows sorted by end_time ascending.
     """
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
+        rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT start_time, end_time
                 FROM whoop_sleep
                 WHERE nap = 0
@@ -242,9 +250,12 @@ def _fetch_whoop_sleep_times(
                   AND SUBSTR(end_time, 1, 10) <= :end
                 ORDER BY end_time
                 """
-            ),
-            {"start": start, "end": end},
-        ).mappings().all()
+                ),
+                {"start": start, "end": end},
+            )
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
@@ -342,7 +353,7 @@ def get_sleep_insights(
                     sleep_all[d],
                     daily_all,
                     load_all,
-                    sleep_all,           # full history dict for rolling avg
+                    sleep_all,  # full history dict for rolling avg
                     target_sleep_minutes,
                 )
             )
@@ -351,9 +362,7 @@ def get_sleep_insights(
     return insights
 
 
-def _correlation_result(
-    pairs: list[tuple[float, float]], label: str
-) -> dict[str, Any]:
+def _correlation_result(pairs: list[tuple[float, float]], label: str) -> dict[str, Any]:
     """Build a correlation sub-dict from a list of (x, y) float pairs."""
     n = len(pairs)
     if n < _MIN_CORRELATION_SAMPLE:
@@ -416,7 +425,9 @@ def get_strain_sleep_correlation(
     return {
         "strain_vs_total_sleep": _correlation_result(strain_total, "strain_vs_total_sleep"),
         "strain_vs_deep_sleep": _correlation_result(strain_deep, "strain_vs_deep_sleep"),
-        "strain_vs_next_day_recovery": _correlation_result(strain_recovery, "strain_vs_next_day_recovery"),
+        "strain_vs_next_day_recovery": _correlation_result(
+            strain_recovery, "strain_vs_next_day_recovery"
+        ),
         "days_analyzed": days,
     }
 
@@ -458,17 +469,13 @@ def get_sleep_consistency(
     if n < _MIN_CORRELATION_SAMPLE:
         return {
             "insufficient_data": True,
-            "message": (
-                f"Need at least {_MIN_CORRELATION_SAMPLE} nights of data. Found: {n}."
-            ),
+            "message": (f"Need at least {_MIN_CORRELATION_SAMPLE} nights of data. Found: {n}."),
             "sample_size": n,
         }
 
     # Bedtime (start_time): offset times before noon by +24 so midnight averages work
     bed_hours_raw = [_time_str_to_fractional_hours(r["start_time"]) for r in whoop_rows]
-    bed_hours = [
-        h + 24.0 if (h is not None and h < 12.0) else h for h in bed_hours_raw
-    ]
+    bed_hours = [h + 24.0 if (h is not None and h < 12.0) else h for h in bed_hours_raw]
 
     # Wake time (end_time): typically 5–10 AM, no offset needed
     wake_hours = [_time_str_to_fractional_hours(r["end_time"]) for r in whoop_rows]
@@ -491,10 +498,7 @@ def get_sleep_consistency(
     current = start
     while current <= end:
         d = current.isoformat()
-        last_7 = [
-            sleep_all.get(_add_days(d, -i), {}).get("total_sleep_minutes")
-            for i in range(7)
-        ]
+        last_7 = [sleep_all.get(_add_days(d, -i), {}).get("total_sleep_minutes") for i in range(7)]
         avg_sleep = _avg_nonull(last_7)
         if avg_sleep is not None:
             debt_series.append(avg_sleep - DEFAULT_TARGET_SLEEP_MINUTES)
@@ -522,7 +526,9 @@ def get_sleep_consistency(
         "bedtime_std_hours": round(std_bed, 3) if std_bed is not None else None,
         "avg_wake_hour": round(avg_wake, 3) if avg_wake is not None else None,
         "wake_time_std_hours": round(std_wake, 3) if std_wake is not None else None,
-        "avg_total_sleep_minutes": round(avg_total_sleep, 1) if avg_total_sleep is not None else None,
+        "avg_total_sleep_minutes": round(avg_total_sleep, 1)
+        if avg_total_sleep is not None
+        else None,
         "sleep_debt_trend": trend,
         "sleep_debt_trend_slope_min_per_day": round(slope, 3) if slope is not None else None,
         "message": None,

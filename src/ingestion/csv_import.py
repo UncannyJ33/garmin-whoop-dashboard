@@ -200,9 +200,7 @@ class GarminImporter:
                 zf.extractall(tmp)
             self._import_json_dir(tmp, summary, fetched_at)
 
-    def _import_json_dir(
-        self, dir_path: Path, summary: ImportSummary, fetched_at: str
-    ) -> None:
+    def _import_json_dir(self, dir_path: Path, summary: ImportSummary, fetched_at: str) -> None:
         """Find and import all activity JSON files from a Garmin export directory."""
         all_dates: list[date] = []
         for json_path in _find_activity_json_files(dir_path):
@@ -223,9 +221,7 @@ class GarminImporter:
                 logger.warning(msg)
         _merge_date_range(summary, all_dates)
 
-    def _import_json_file(
-        self, json_path: Path, summary: ImportSummary, fetched_at: str
-    ) -> None:
+    def _import_json_file(self, json_path: Path, summary: ImportSummary, fetched_at: str) -> None:
         """Import a single JSON file."""
         with open(json_path, encoding="utf-8") as f:
             raw = json.load(f)
