@@ -158,7 +158,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=220)
         )
-        st.altair_chart(strain_chart, use_container_width=True)
+        st.altair_chart(strain_chart, width='stretch')
 
     # ── Strain Activity Categories ─────────────────────────────────────────
     st.subheader("Strain Activity Categories")
@@ -171,7 +171,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             .rename_axis("activity_type")
             .reset_index(name="count")
         )
-        st.altair_chart(_category_bar(strain_counts, "activity_type"), use_container_width=True)
+        st.altair_chart(_category_bar(strain_counts, "activity_type"), width='stretch')
 
     # ── Recent Workouts table ──────────────────────────────────────────────
     st.subheader("Recent Workouts")
@@ -190,7 +190,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             .rename(columns=display_cols)
             .reset_index(drop=True)
         )
-        st.dataframe(workouts_display, use_container_width=True)
+        st.dataframe(workouts_display, width='stretch')
 
     # ── Running Data ───────────────────────────────────────────────────────
     st.subheader("Running Data (Garmin)")
@@ -218,7 +218,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             rd_df[[c for c in rd_cols if c in rd_df.columns]]
             .rename(columns=rd_cols)
             .reset_index(drop=True),
-            use_container_width=True,
+            width='stretch',
         )
 
     # ── Recovery Activity Categories ───────────────────────────────────────
@@ -229,7 +229,7 @@ def _render_body(start_date: date, end_date: date) -> None:
         recovery_counts = (
             rdf["sport_name"].value_counts().rename_axis("sport_name").reset_index(name="count")
         )
-        st.altair_chart(_category_bar(recovery_counts, "sport_name"), use_container_width=True)
+        st.altair_chart(_category_bar(recovery_counts, "sport_name"), width='stretch')
 
     # ── Recent recoveries table ────────────────────────────────────────────
     st.subheader("Recent Recoveries")
@@ -245,4 +245,4 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .reset_index(drop=True)
         )
-        st.dataframe(recoveries_display, use_container_width=True)
+        st.dataframe(recoveries_display, width='stretch')

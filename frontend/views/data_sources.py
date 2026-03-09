@@ -90,4 +90,4 @@ def _render_body() -> None:
     if recent.empty:
         st.info("No sync history found.")
     else:
-        st.dataframe(recent, use_container_width=True)
+        st.dataframe(recent, width='stretch')

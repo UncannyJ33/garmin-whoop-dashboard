@@ -48,6 +48,7 @@ class EnrichedWorkout:
     duration_minutes: float | None
     primary_source: str  # "whoop" | "garmin" | "both"
     matched: bool  # True if both devices tracked this session
+    garmin_activity_id: str | None  # FK into garmin_activities; used for exercise sets
 
     # Physiological load — Whoop primary, Garmin fallback for HR
     strain: float | None
@@ -170,6 +171,7 @@ def _build_enriched(
         duration_minutes=duration,
         primary_source=row["primary_source"],
         matched=bool(row["matched"]),
+        garmin_activity_id=row["garmin_activity_id"],
         # Physiological load
         strain=strain,
         avg_hr=avg_hr,
@@ -225,6 +227,7 @@ _WORKOUT_COLS = """
     uw.hr_zone3_minutes,
     uw.hr_zone4_minutes,
     uw.hr_zone5_minutes,
+    uw.garmin_activity_id,
     uw.garmin_distance_m,
     uw.garmin_avg_pace,
     uw.garmin_elevation_gain,

@@ -377,20 +377,21 @@ class TestGetSleepInsights:
             assert insight.previous_day_strain == pytest.approx(expected, abs=0.01)
 
     def test_sleep_debt_computed(self, engine):
-        # 6 history nights + 7 test nights all at 420 → avg 420; target 480 → debt -60
+        # 6 history nights + 7 test nights all at 420 total, 20 awake → net 400; target 480 → debt -80
         with Session(engine) as s:
             self._populate(s, [10.0] * 7, [420.0] * 7)
         results = get_sleep_insights(engine, self.START, self.END)
         for r in results:
-            assert r.sleep_debt_estimate == pytest.approx(-60.0, abs=1.0)
+            assert r.sleep_debt_estimate == pytest.approx(-80.0, abs=1.0)
 
     def test_custom_target(self, engine):
         with Session(engine) as s:
             self._populate(s, [10.0] * 7, [420.0] * 7)
         r480 = get_sleep_insights(engine, self.START, self.END, 480.0)
         r420 = get_sleep_insights(engine, self.START, self.END, 420.0)
-        assert r480[-1].sleep_debt_estimate == pytest.approx(-60.0, abs=1.0)
-        assert r420[-1].sleep_debt_estimate == pytest.approx(0.0, abs=1.0)
+        # net sleep = 400 (420 total − 20 awake); debt vs 480 = −80, vs 420 = −20
+        assert r480[-1].sleep_debt_estimate == pytest.approx(-80.0, abs=1.0)
+        assert r420[-1].sleep_debt_estimate == pytest.approx(-20.0, abs=1.0)
 
     def test_empty_range(self, engine):
         assert get_sleep_insights(engine, date(2099, 1, 1), date(2099, 1, 1)) == []

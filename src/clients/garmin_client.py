@@ -98,6 +98,18 @@ class GarminClient:
         aid = str(activity_id)
         return self._call(lambda c: c.get_activity(aid))
 
+    def get_exercise_sets(self, activity_id: str | int) -> dict | None:
+        """Fetch exercise set data for a single strength training activity.
+
+        Args:
+            activity_id: Garmin activity ID.
+
+        Returns:
+            Dict with an ``exerciseSets`` list, or None on error / unavailable.
+        """
+        aid = str(activity_id)
+        return self._call(lambda c: c.get_activity_exercise_sets(aid))
+
     def get_daily_summary(self, date_: date | datetime | str) -> dict:
         """Combine stats, heart rate, body battery, and stress into one dict.
 

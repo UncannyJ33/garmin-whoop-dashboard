@@ -8,8 +8,10 @@ Sections (top to bottom):
   5. Weekly Comparison — this week vs last week % changes
 """
 
+import asyncio
+import concurrent.futures
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -125,7 +127,7 @@ def _load_snapshot(today: str, yesterday: str, week_start: str) -> dict:
         sl = (
             conn.execute(
                 text(
-                    "SELECT total_sleep_minutes, deep_sleep_minutes"
+                    "SELECT total_sleep_minutes, deep_sleep_minutes, awake_minutes"
                     " FROM unified_sleep WHERE date = :d"
                 ),
                 {"d": today},
@@ -150,6 +152,7 @@ def _load_snapshot(today: str, yesterday: str, week_start: str) -> dict:
         "rhr": td["whoop_rhr"] if td else None,
         "sleep_minutes": sl["total_sleep_minutes"] if sl else None,
         "deep_minutes": sl["deep_sleep_minutes"] if sl else None,
+        "awake_minutes": sl["awake_minutes"] if sl else None,
         "strain_yesterday": yd["whoop_strain"] if yd else None,
         "strain_week": week_strain,
     }
@@ -198,12 +201,117 @@ def _sparkline(data: list[dict], color: str = "#4472CA") -> alt.Chart:
 
 
 # ---------------------------------------------------------------------------
+# Sync helper
+# ---------------------------------------------------------------------------
+
+
+def _run_sync(start_date: date | None = None, end_date: date | None = None) -> tuple[bool, str]:
+    """Run a Whoop + Garmin sync for the given date range.
+
+    Defaults to the last 7 days when no range is provided.  Whoop pipeline is
+    async; it runs in a fresh thread with its own event loop so it can be
+    called from Streamlit's synchronous script context.
+
+    Args:
+        start_date: First date to sync (inclusive). Defaults to 7 days ago.
+        end_date: Last date to sync (inclusive). Defaults to today.
+
+    Returns:
+        (success, message) — message is a summary on success or the error string.
+    """
+    from src.database.connection import get_session_factory  # noqa: PLC0415
+    from src.ingestion.garmin_pipeline import GarminPipeline  # noqa: PLC0415
+    from src.ingestion.whoop_pipeline import WhoopPipeline  # noqa: PLC0415
+
+    engine = get_engine()
+    db = get_session_factory(engine)()
+    now = datetime.now(UTC)
+
+    sync_end = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=UTC) if end_date else now
+    sync_start = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=UTC) if start_date else now - timedelta(days=7)
+
+    try:
+        def _whoop() -> object:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(WhoopPipeline(db).run(start=sync_start, end=sync_end))
+            finally:
+                loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            whoop_log = ex.submit(_whoop).result()
+
+        garmin_log = GarminPipeline(db).run(start=sync_start.date(), end=sync_end.date())
+
+    except Exception as exc:  # noqa: BLE001
+        db.close()
+        return False, str(exc)
+
+    stored = (whoop_log.records_stored or 0) + (garmin_log.records_stored or 0)
+    db.close()
+    return True, f"{stored} records synced"
+
+
+# ---------------------------------------------------------------------------
 # Main render
 # ---------------------------------------------------------------------------
 
 
 def render(start_date: date, end_date: date) -> None:
-    st.title("Readiness")
+    col_title, col_btn = st.columns([5, 1])
+    with col_title:
+        st.title("Readiness")
+    with col_btn:
+        st.write("")  # vertical nudge to align with title
+        if st.button("🔄 Sync", use_container_width=True):
+            with st.spinner("Syncing Whoop + Garmin (last 7 days)…"):
+                ok, msg = _run_sync()
+            if ok:
+                st.cache_data.clear()
+                st.session_state["_sync_result"] = ("success", msg)
+                st.rerun()
+            else:
+                st.session_state["_sync_result"] = ("error", msg)
+
+    with st.expander("Backfill historical data"):
+        st.caption("Pull data for a custom date range — useful for importing history beyond the default 7-day window.")
+        today = date.today()
+        bf_col1, bf_col2 = st.columns(2)
+        with bf_col1:
+            bf_start = st.date_input(
+                "From",
+                value=today - timedelta(days=180),
+                max_value=today,
+                key="backfill_start",
+            )
+        with bf_col2:
+            bf_end = st.date_input(
+                "To",
+                value=today,
+                max_value=today,
+                key="backfill_end",
+            )
+        if st.button("Run Backfill", key="backfill_btn"):
+            if bf_start > bf_end:
+                st.error("Start date must be before end date.")
+            else:
+                days = (bf_end - bf_start).days + 1
+                with st.spinner(f"Backfilling {days} days ({bf_start} → {bf_end})… this may take a while."):
+                    ok, msg = _run_sync(start_date=bf_start, end_date=bf_end)
+                if ok:
+                    st.cache_data.clear()
+                    st.session_state["_sync_result"] = ("success", f"Backfill complete — {msg}")
+                    st.rerun()
+                else:
+                    st.error(f"Backfill failed: {msg}")
+
+    if "_sync_result" in st.session_state:
+        kind, msg = st.session_state.pop("_sync_result")
+        if kind == "success":
+            st.success(f"Sync complete — {msg}")
+        else:
+            st.error(f"Sync failed: {msg}")
 
     try:
         _render_body(start_date, end_date)
@@ -374,7 +482,7 @@ def _render_body(start_date: date, end_date: date) -> None:
                 .encode(x="date:T", y="real_score:Q")
             )
 
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width='stretch')
         st.caption(
             "Blue = daily score · Dashed orange = 7-day rolling avg"
             " · Red dot = anomaly · Green dot = today"
@@ -399,7 +507,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             f"{hrv:.1f} ms" if hrv is not None else "—",
             label_visibility="collapsed",
         )
-        st.altair_chart(_sparkline(hrv_spark, "#4472CA"), use_container_width=True)
+        st.altair_chart(_sparkline(hrv_spark, "#4472CA"), width='stretch')
         st.caption("7-day trend")
 
     with k2:
@@ -410,17 +518,19 @@ def _render_body(start_date: date, end_date: date) -> None:
             f"{rhr:.0f} bpm" if rhr is not None else "—",
             label_visibility="collapsed",
         )
-        st.altair_chart(_sparkline(rhr_spark, "#ED7D31"), use_container_width=True)
+        st.altair_chart(_sparkline(rhr_spark, "#ED7D31"), width='stretch')
         st.caption("7-day trend")
 
     with k3:
         st.markdown("**Sleep Last Night**")
-        mins = snapshot["sleep_minutes"]
+        total_mins = snapshot["sleep_minutes"]
         deep = snapshot["deep_minutes"]
-        hours_str = f"{mins / 60:.1f} h" if mins is not None else "—"
+        awake = snapshot["awake_minutes"] or 0
+        sleep_mins = (total_mins - awake) if total_mins is not None else None
+        hours_str = f"{sleep_mins / 60:.1f} h" if sleep_mins is not None else "—"
         st.metric("Sleep", hours_str, label_visibility="collapsed")
-        if mins and deep and mins > 0:
-            st.caption(f"{deep / mins * 100:.0f}% deep sleep")
+        if total_mins and deep and total_mins > 0:
+            st.caption(f"{deep / total_mins * 100:.0f}% deep sleep")
 
     with k4:
         st.markdown("**Strain**")

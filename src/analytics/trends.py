@@ -739,7 +739,8 @@ def get_weekly_summary(engine: Engine, end_date: date) -> dict:
         with engine.connect() as conn:
             row = conn.execute(
                 text(
-                    "SELECT AVG(total_sleep_minutes), AVG(deep_sleep_minutes)"
+                    "SELECT AVG(total_sleep_minutes - COALESCE(awake_minutes, 0)),"
+                    "       AVG(deep_sleep_minutes)"
                     " FROM unified_sleep WHERE date >= :s AND date <= :e"
                 ),
                 {"s": s.isoformat(), "e": e.isoformat()},

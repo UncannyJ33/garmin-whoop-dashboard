@@ -324,7 +324,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
         )
 
-    st.altair_chart(alt.layer(*layers).properties(height=280), use_container_width=True)
+    st.altair_chart(alt.layer(*layers).properties(height=280), width='stretch')
     st.caption(
         "Blue dots: daily values  ·  Orange: 7d rolling avg  ·  "
         "Dashed blue: 30d rolling avg  ·  Red dots: anomalies (≥ 2σ)"
@@ -361,7 +361,7 @@ def _render_body(start_date: date, end_date: date) -> None:
     if not anomaly_rows:
         st.info("No anomalies detected in the selected period.")
     else:
-        st.dataframe(pd.DataFrame(anomaly_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(anomaly_rows), width='stretch', hide_index=True)
 
     st.divider()
 
@@ -430,4 +430,4 @@ def _render_body(start_date: date, end_date: date) -> None:
                 text=alt.Text("Label:N"),
             )
         )
-        st.altair_chart((heatmap + text_marks).properties(height=300), use_container_width=True)
+        st.altair_chart((heatmap + text_marks).properties(height=300), width='stretch')

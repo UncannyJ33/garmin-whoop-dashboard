@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Phase 3 COMPLETE** — all tasks (3.1–3.8 + error handling + logging + cleanup). Ready for Phase 4.
+**Phase 3 COMPLETE** — all tasks (3.1–3.8 + error handling + logging + cleanup + post-phase dashboard enhancements). Ready for Phase 4.
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -28,7 +28,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
   - Tokens stored at `data/garmin_tokens/` (GARMIN_TOKEN_DIR in .env)
   - Re-auth on 401, clear error messages for 429/403
 - Garmin API client: GarminClient with rate limiting (1.5s default) + per-method error handling (src/clients/garmin_client.py)
-  - Methods: get_activities, get_activity_detail, get_daily_summary, get_sleep, get_hrv
+  - Methods: get_activities, get_activity_detail, get_daily_summary, get_sleep, get_hrv, get_exercise_sets
 - Garmin DB schema: GarminActivity, GarminDailySummary, GarminSleep, GarminHRV models
 - Migration 002: creates four Garmin tables idempotently (src/database/migrations/002_garmin_tables.py)
 - Garmin pipeline: GarminPipeline with batch activity fetch + per-day loop (src/ingestion/garmin_pipeline.py)
@@ -59,10 +59,11 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
   - ISO weekly and calendar monthly rollups: count, avg, min, max, std
   - `get_metric_series`, `detect_anomalies`, `get_weekly_rollup`, `get_monthly_rollup`; 61 tests
 - **Tasks 3.5–3.8** Streamlit dashboard views wired to analytics engine:
-  - `frontend/views/readiness.py` — Morning Readiness: hero score, 5-factor breakdown, 30d trend, key metrics, weekly comparison
+  - `frontend/views/readiness.py` — Morning Readiness: hero score, 5-factor breakdown, 30d trend, key metrics, weekly comparison; Sync button (7-day) + Backfill expander (custom date range)
   - `frontend/views/sleep.py` — Sleep: last night hero, trends + anomaly chart, stage distribution, consistency, training↔sleep correlations
-  - `frontend/views/workouts.py` — Workouts: type breakdown, workout log expanders with HR zones, strain vs recovery scatter
+  - `frontend/views/workouts.py` — Workouts: charts-first layout (strain vs recovery scatter w/ activity filter, running dynamics trends, weekly volume, pace vs cadence, training load, VO2 max, strength training section); workout log expanders with HR zones + exercise sets; all charts use `width='stretch'`
   - `frontend/views/trends.py` — Trends: weekly summary card, metric explorer (7d/30d rolling), anomaly log, Pearson r heatmap
+  - `frontend/views/recovery_activities.py` — Recovery Activities (NEW): session breakdown by week, duration over time, with/without-recovery-day next-day recovery comparison, duration vs next-day recovery scatter, next-day recovery + sleep performance by activity type, activity log
 - **FastAPI REST API** (Phase 3 completion):
   - 16 endpoints across 5 route files: readiness, workouts, sleep, trends, sync
   - Pydantic response models in `src/api/models.py`; auto-docs at `/docs`
@@ -74,6 +75,25 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
   - Every frontend view `render()` wrapped in try/except → shows `st.error()` instead of traceback
   - `frontend/db.py` exports `get_last_sync_info()` + `render_sync_status()` — sync-age + stale warning shown in sidebar
 - **Total tests**: 498 passing
+
+## What's Built (Post-Phase 3 Dashboard Enhancements)
+- **Garmin Exercise Sets** — strength training set-level data integrated end-to-end:
+  - `GarminExerciseSet` model + migration 004 (`src/database/migrations/004_exercise_sets.py`)
+  - `GarminClient.get_exercise_sets()` — wraps `get_activity_exercise_sets` with rate limiting/retry
+  - Pipeline: `_STRENGTH_TYPES` constant; `_sync_strength_sets` fetches sets for newly-synced strength activities; `_find_strength_activities_without_sets` backfills any existing strength activities missing sets
+  - API field notes: weight in **grams** (÷1000 → kg), exercise field is `name` (not `exerciseName`), set order is `messageIndex`, `startTime` is ISO string (not Unix ms), exercises sorted by probability descending
+  - `EnrichedWorkout` now includes `garmin_activity_id` field
+- **Workouts page** — major expansion:
+  - Charts-first layout: all charts above workout log
+  - Strain vs next-day recovery scatter with activity type multiselect filter
+  - Running section: weekly volume (distance + time side-by-side bars), running dynamics trend line (selectbox: cadence/vert ratio/vert osc/ground contact/stride length, cadence has 170–185 spm reference band), pace vs cadence scatter, training load bars, VO2 max trend
+  - Strength section: max weight per session by exercise (lbs, tracked exercises only), total volume per session (lbs bar), strain + duration dual-axis chart
+  - Exercise sets displayed inside workout expanders for strength activities (grouped by exercise, set table with reps/weight/volume)
+- **Readiness page** — Sync button enhanced:
+  - `_run_sync(start_date, end_date)` accepts custom range
+  - "Backfill historical data" expander with From/To date pickers (default: 6 months back)
+- **Recovery Activities page** (`frontend/views/recovery_activities.py`) — new dedicated page in sidebar
+- **Deprecation fixes** — `use_container_width=True` → `width='stretch'` across all frontend views (st.button excluded)
 
 ## Key Decisions
 - Whoop = source of truth for recovery, sleep quality, body vitals

@@ -159,6 +159,18 @@ def _add_days(date_str: str, days: int) -> str:
     return (date.fromisoformat(date_str) + timedelta(days=days)).isoformat()
 
 
+def _net_sleep(row: dict) -> float | None:
+    """Total sleep minus awake time for a unified_sleep row.
+
+    Returns None when total_sleep_minutes is absent (no data for that night).
+    Treats missing awake_minutes as zero.
+    """
+    total = row.get("total_sleep_minutes")
+    if total is None:
+        return None
+    return total - (row.get("awake_minutes") or 0.0)
+
+
 # ---------------------------------------------------------------------------
 # Data fetch helpers
 # ---------------------------------------------------------------------------
@@ -278,9 +290,9 @@ def _build_insight(
     prev_daily = daily_by_date.get(prev_date, {})
     today_daily = daily_by_date.get(wake_date, {})
 
-    # 7-day rolling average (ending at wake_date, inclusive)
+    # 7-day rolling average (ending at wake_date, inclusive) — awake time excluded
     last_7 = [
-        sleep_history_by_date.get(_add_days(wake_date, -i), {}).get("total_sleep_minutes")
+        _net_sleep(sleep_history_by_date.get(_add_days(wake_date, -i), {}))
         for i in range(7)
     ]
     rolling_avg = _avg_nonull(last_7)
@@ -498,7 +510,7 @@ def get_sleep_consistency(
     current = start
     while current <= end:
         d = current.isoformat()
-        last_7 = [sleep_all.get(_add_days(d, -i), {}).get("total_sleep_minutes") for i in range(7)]
+        last_7 = [_net_sleep(sleep_all.get(_add_days(d, -i), {})) for i in range(7)]
         avg_sleep = _avg_nonull(last_7)
         if avg_sleep is not None:
             debt_series.append(avg_sleep - DEFAULT_TARGET_SLEEP_MINUTES)
@@ -515,9 +527,10 @@ def get_sleep_consistency(
     else:
         trend = "improving"
 
-    # Average total sleep from unified_sleep for the period
+    # Average sleep for the period: net (awake excluded) and time-in-bed (awake included)
     sleep_range = _fetch_unified_sleep(engine, start_str, end_str)
-    avg_total_sleep = _avg_nonull([r.get("total_sleep_minutes") for r in sleep_range.values()])
+    avg_total_sleep = _avg_nonull([_net_sleep(r) for r in sleep_range.values()])
+    avg_time_in_bed = _avg_nonull([r.get("total_sleep_minutes") for r in sleep_range.values()])
 
     return {
         "insufficient_data": False,
@@ -528,6 +541,9 @@ def get_sleep_consistency(
         "wake_time_std_hours": round(std_wake, 3) if std_wake is not None else None,
         "avg_total_sleep_minutes": round(avg_total_sleep, 1)
         if avg_total_sleep is not None
+        else None,
+        "avg_time_in_bed_minutes": round(avg_time_in_bed, 1)
+        if avg_time_in_bed is not None
         else None,
         "sleep_debt_trend": trend,
         "sleep_debt_trend_slope_min_per_day": round(slope, 3) if slope is not None else None,

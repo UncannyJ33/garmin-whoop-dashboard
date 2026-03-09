@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import altair as alt  # noqa: E402
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
 from frontend.db import get_engine  # noqa: E402
 from src.analytics.workout_analysis import (  # noqa: E402
@@ -23,6 +24,8 @@ from src.analytics.workout_analysis import (  # noqa: E402
     get_enriched_workouts,
     get_workout_type_summary,
 )
+
+_STRENGTH_TYPES = {"strength_training", "weight_training", "indoor_cardio", "hiit", "pilates", "yoga"}
 
 # HR zone colour scale (Z1 easy → Z5 max)
 _ZONE_COLORS = ["#4472CA", "#70AD47", "#FFC000", "#FF7A00", "#DC143C"]
@@ -43,6 +46,72 @@ def _load_type_summary(start: str, end: str) -> dict:
     return get_workout_type_summary(
         get_engine(), date.fromisoformat(start), date.fromisoformat(end)
     )
+
+
+@st.cache_data(ttl=300)
+def _load_exercise_sets(garmin_activity_id: str) -> list[dict]:
+    """Load exercise sets for a single Garmin strength activity."""
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT set_order, set_type, exercise_category, exercise_name,
+                       repetition_count, weight_kg, duration_seconds
+                FROM garmin_exercise_sets
+                WHERE activity_id = :aid
+                ORDER BY set_order
+            """),
+            {"aid": garmin_activity_id},
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
+def _load_strength_session_volume(start: str, end: str) -> list[dict]:
+    """Load total volume (kg × reps) per strength session for the date range."""
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    uw.date,
+                    SUM(es.repetition_count * es.weight_kg) AS total_volume_kg
+                FROM unified_workouts uw
+                JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
+                WHERE uw.date BETWEEN :start AND :end
+                  AND es.set_type = 'ACTIVE'
+                  AND es.repetition_count IS NOT NULL
+                  AND es.weight_kg IS NOT NULL
+                  AND es.weight_kg > 0
+                GROUP BY uw.date
+                ORDER BY uw.date
+            """),
+            {"start": start, "end": end},
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@st.cache_data(ttl=300)
+def _load_strength_max_weight(start: str, end: str) -> list[dict]:
+    """Load max weight per tracked exercise per session for the date range."""
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    uw.date,
+                    es.exercise_name,
+                    MAX(es.weight_kg) AS max_weight_kg
+                FROM unified_workouts uw
+                JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
+                WHERE uw.date BETWEEN :start AND :end
+                  AND es.set_type = 'ACTIVE'
+                  AND es.weight_kg IS NOT NULL
+                  AND es.weight_kg > 0
+                GROUP BY uw.date, es.exercise_name
+                ORDER BY uw.date, es.exercise_name
+            """),
+            {"start": start, "end": end},
+        ).mappings().all()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -153,11 +222,41 @@ def _render_detail(w: EnrichedWorkout) -> None:
         st.metric("Stride Length", _fmt(w.avg_stride_length, ".2f", " m"))
         st.metric("Efficiency", _fmt(w.efficiency_score, ".0f", " m/strain"))
 
+    # Exercise sets (strength activities only)
+    is_strength = (w.activity_type or "").lower() in _STRENGTH_TYPES
+    if is_strength and w.garmin_activity_id:
+        sets = _load_exercise_sets(w.garmin_activity_id)
+        active_sets = [s for s in sets if s["set_type"] == "ACTIVE"]
+        if active_sets:
+            st.markdown("**Exercise Sets**")
+            # Group by exercise name
+            by_exercise: dict[str, list[dict]] = {}
+            for s in active_sets:
+                name = (s["exercise_name"] or s["exercise_category"] or "Unknown").replace("_", " ").title()
+                by_exercise.setdefault(name, []).append(s)
+            for ex_name, ex_sets in by_exercise.items():
+                set_rows = []
+                total_volume = 0.0
+                for i, s in enumerate(ex_sets, 1):
+                    reps = s["repetition_count"]
+                    kg = s["weight_kg"]
+                    vol = (reps or 0) * (kg or 0)
+                    total_volume += vol
+                    set_rows.append({
+                        "Set": i,
+                        "Reps": reps if reps is not None else "—",
+                        "Weight (kg)": f"{kg:.1f}" if kg is not None else "BW",
+                        "Volume (kg)": f"{vol:.0f}" if (reps and kg) else "—",
+                    })
+                vol_str = f"  ·  {total_volume:.0f} kg total volume" if total_volume > 0 else ""
+                st.markdown(f"*{ex_name}* — {len(ex_sets)} sets{vol_str}")
+                st.dataframe(pd.DataFrame(set_rows), width='stretch', hide_index=True)
+
     # HR zone distribution
     zone_chart = _hr_zone_chart(w)
     if zone_chart is not None:
         st.markdown("**HR Zone Distribution**")
-        st.altair_chart(zone_chart, use_container_width=True)
+        st.altair_chart(zone_chart, width='stretch')
 
     # Recovery impact
     if w.next_day_recovery is not None:
@@ -243,31 +342,11 @@ def _render_body(start_date: date, end_date: date) -> None:
                     "Efficiency (m/strain)": _fmt(stats["avg_efficiency_score"], ".0f"),
                 }
             )
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
     st.divider()
 
-    # ── 4. WORKOUT LOG ────────────────────────────────────────────────────────
-    st.subheader("Workout Log")
-    st.caption("Click a row to expand full details, HR zone breakdown, and recovery impact.")
-
-    for w in sorted(workouts, key=lambda x: x.date, reverse=True):
-        badge = _source_badge(w)
-        atype = (w.activity_type or "Unknown").title()
-        label = (
-            f"{w.date}  ·  {atype}  ·  {_fmt_dur(w.duration_minutes)}  ·  "
-            f"Strain: {_fmt(w.strain, '.1f')}  ·  "
-            f"HR: {f'{w.avg_hr} bpm' if w.avg_hr else '—'}  ·  "
-            f"Dist: {_fmt_dist(w.distance_m)}  ·  "
-            f"Eff: {_fmt(w.efficiency_score, '.0f', ' m/s')}  ·  "
-            f"[{badge}]"
-        )
-        with st.expander(label, expanded=False):
-            _render_detail(w)
-
-    st.divider()
-
-    # ── 5. STRAIN vs RECOVERY SCATTER ─────────────────────────────────────────
+    # ── 4. STRAIN vs RECOVERY SCATTER ─────────────────────────────────────────
     st.subheader("Strain vs Next-Day Recovery")
 
     scatter_rows = [
@@ -287,30 +366,469 @@ def _render_body(start_date: date, end_date: date) -> None:
         st.info("Not enough paired strain + recovery data for this period.")
     else:
         scatter_df = pd.DataFrame(scatter_rows)
-        scatter = (
-            alt.Chart(scatter_df)
-            .mark_circle(size=80, opacity=0.75)
+        all_activity_types = sorted(scatter_df["Activity"].unique().tolist())
+        selected_types = st.multiselect(
+            "Filter activities",
+            options=all_activity_types,
+            default=all_activity_types,
+            key="scatter_activity_filter",
+        )
+        filtered_df = scatter_df[scatter_df["Activity"].isin(selected_types)]
+        if filtered_df.empty:
+            st.info("No data for the selected activity types.")
+        else:
+            scatter = (
+                alt.Chart(filtered_df)
+                .mark_circle(size=80, opacity=0.75)
+                .encode(
+                    x=alt.X("Strain:Q", title="Workout Strain", scale=alt.Scale(zero=True)),
+                    y=alt.Y(
+                        "Next-Day Recovery:Q",
+                        title="Next-Day Recovery",
+                        scale=alt.Scale(domain=[0, 100]),
+                    ),
+                    color=alt.Color("Activity:N", title="Activity"),
+                    tooltip=[
+                        alt.Tooltip("Date:N", title="Date"),
+                        alt.Tooltip("Activity:N"),
+                        alt.Tooltip("Strain:Q", format=".1f"),
+                        alt.Tooltip("Next-Day Recovery:Q", format=".0f"),
+                        alt.Tooltip("Duration:N"),
+                        alt.Tooltip("Recovery Impact:N"),
+                    ],
+                )
+                .properties(height=320)
+            )
+            st.altair_chart(scatter, width='stretch')
+            st.caption(
+                "Each dot is one workout. Dots in the upper-right corner indicate high-strain "
+                "sessions your body recovers well from."
+            )
+
+    st.divider()
+
+    # ── 6. RUNNING SECTION ────────────────────────────────────────────────────
+    runs = [
+        w
+        for w in sorted(workouts, key=lambda x: x.date)
+        if (w.activity_type or "").lower().find("run") != -1
+    ]
+
+    if not runs:
+        st.info("No running data in the selected date range.")
+        return
+
+    st.subheader("Running")
+
+    # ── 6a. Weekly Volume ─────────────────────────────────────────────────────
+    st.markdown("**Weekly Volume**")
+
+    from datetime import datetime  # noqa: E402 (local import to avoid top-level churn)
+
+    week_vol: dict[str, dict] = {}
+    for w in runs:
+        d = datetime.fromisoformat(w.date)
+        # ISO week label: "YYYY-Www"
+        week = d.strftime("%G-W%V")
+        if week not in week_vol:
+            week_vol[week] = {"Week": week, "Distance (km)": 0.0, "Time (min)": 0.0}
+        if w.distance_m is not None:
+            week_vol[week]["Distance (km)"] += w.distance_m / 1000
+        if w.duration_minutes is not None:
+            week_vol[week]["Time (min)"] += w.duration_minutes
+
+    if week_vol:
+        vol_df = pd.DataFrame(sorted(week_vol.values(), key=lambda r: r["Week"]))
+
+        vol_dist = (
+            alt.Chart(vol_df)
+            .mark_bar(color="#4472CA")
             .encode(
-                x=alt.X("Strain:Q", title="Workout Strain", scale=alt.Scale(zero=True)),
-                y=alt.Y(
-                    "Next-Day Recovery:Q",
-                    title="Next-Day Recovery",
-                    scale=alt.Scale(domain=[0, 100]),
-                ),
-                color=alt.Color("Activity:N", title="Activity"),
+                x=alt.X("Week:N", title="Week", sort=None),
+                y=alt.Y("Distance (km):Q", title="Distance (km)"),
                 tooltip=[
-                    alt.Tooltip("Date:N", title="Date"),
-                    alt.Tooltip("Activity:N"),
-                    alt.Tooltip("Strain:Q", format=".1f"),
-                    alt.Tooltip("Next-Day Recovery:Q", format=".0f"),
-                    alt.Tooltip("Duration:N"),
-                    alt.Tooltip("Recovery Impact:N"),
+                    alt.Tooltip("Week:N"),
+                    alt.Tooltip("Distance (km):Q", format=".1f"),
+                    alt.Tooltip("Time (min):Q", format=".0f", title="Time (min)"),
                 ],
             )
-            .properties(height=320)
+            .properties(height=200)
         )
-        st.altair_chart(scatter, use_container_width=True)
+        vol_time = (
+            alt.Chart(vol_df)
+            .mark_bar(color="#70AD47")
+            .encode(
+                x=alt.X("Week:N", title="Week", sort=None),
+                y=alt.Y("Time (min):Q", title="Time on Foot (min)"),
+                tooltip=[
+                    alt.Tooltip("Week:N"),
+                    alt.Tooltip("Distance (km):Q", format=".1f"),
+                    alt.Tooltip("Time (min):Q", format=".0f", title="Time (min)"),
+                ],
+            )
+            .properties(height=200)
+        )
+        st.altair_chart(vol_dist | vol_time, width='stretch')
+        st.caption("Weekly totals across all runs in the selected period.")
+
+    st.divider()
+
+    # ── 6b. Running Dynamics Trends ───────────────────────────────────────────
+    st.markdown("**Running Dynamics Trends**")
+
+    dyn_metrics = {
+        "Cadence (spm)": "avg_cadence",
+        "Vertical Ratio (%)": "avg_vertical_ratio_pct",
+        "Vertical Oscillation (cm)": "avg_vertical_oscillation_cm",
+        "Ground Contact (ms)": "avg_ground_contact_time_ms",
+        "Stride Length (m)": "avg_stride_length",
+    }
+    metric_label = st.selectbox(
+        "Metric", list(dyn_metrics.keys()), key="run_dyn_metric"
+    )
+    field = dyn_metrics[metric_label]
+
+    dyn_rows = [
+        {"Date": w.date, metric_label: getattr(w, field)}
+        for w in runs
+        if getattr(w, field) is not None
+    ]
+
+    if len(dyn_rows) < 2:
+        st.info("Not enough running dynamics data in this period.")
+    else:
+        dyn_df = pd.DataFrame(dyn_rows)
+        # Reference bands for cadence
+        layers: list[alt.Chart] = []
+        if metric_label == "Cadence (spm)":
+            band_df = pd.DataFrame([{"y1": 170, "y2": 185}])
+            band = (
+                alt.Chart(band_df)
+                .mark_rect(opacity=0.10, color="#70AD47")
+                .encode(y=alt.Y("y1:Q"), y2=alt.Y2("y2:Q"))
+            )
+            layers.append(band)
+
+        line = (
+            alt.Chart(dyn_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("Date:T", title="Date"),
+                y=alt.Y(f"{metric_label}:Q", title=metric_label),
+                tooltip=[
+                    alt.Tooltip("Date:T", format="%b %d"),
+                    alt.Tooltip(f"{metric_label}:Q", format=".2f"),
+                ],
+            )
+            .properties(height=260)
+        )
+        layers.append(line)
+        st.altair_chart(alt.layer(*layers), width='stretch')
+        if metric_label == "Cadence (spm)":
+            st.caption("Green band = optimal cadence zone (170–185 spm).")
+        elif metric_label == "Vertical Ratio (%)":
+            st.caption("Lower is better — indicates less energy lost to vertical movement.")
+        elif metric_label == "Vertical Oscillation (cm)":
+            st.caption("Lower is better — less bounce means more forward propulsion.")
+        elif metric_label == "Ground Contact (ms)":
+            st.caption("Lower is better — shorter contact time indicates more elastic running.")
+
+    st.divider()
+
+    # ── 6c. Pace vs Cadence Scatter ───────────────────────────────────────────
+    st.markdown("**Pace vs Cadence**")
+
+    pc_rows = [
+        {
+            "Avg Pace (min/km)": w.avg_pace_min_per_km,
+            "Cadence (spm)": w.avg_cadence,
+            "Date": w.date,
+            "Distance": _fmt_dist(w.distance_m),
+            "Duration": _fmt_dur(w.duration_minutes),
+        }
+        for w in runs
+        if w.avg_pace_min_per_km is not None and w.avg_cadence is not None
+    ]
+
+    if len(pc_rows) < 3:
+        st.info("Not enough runs with both pace and cadence data.")
+    else:
+        pc_df = pd.DataFrame(pc_rows)
+        pc_scatter = (
+            alt.Chart(pc_df)
+            .mark_circle(size=80, opacity=0.75, color="#4472CA")
+            .encode(
+                x=alt.X(
+                    "Cadence (spm):Q",
+                    title="Avg Cadence (spm)",
+                    scale=alt.Scale(zero=False),
+                ),
+                y=alt.Y(
+                    "Avg Pace (min/km):Q",
+                    title="Avg Pace (min/km)",
+                    scale=alt.Scale(zero=False),
+                    sort="descending",
+                ),
+                tooltip=[
+                    alt.Tooltip("Date:N"),
+                    alt.Tooltip("Cadence (spm):Q", format=".0f"),
+                    alt.Tooltip("Avg Pace (min/km):Q", format=".2f"),
+                    alt.Tooltip("Distance:N"),
+                    alt.Tooltip("Duration:N"),
+                ],
+            )
+            .properties(height=280)
+        )
+        st.altair_chart(pc_scatter, width='stretch')
         st.caption(
-            "Each dot is one workout. Dots in the upper-right corner indicate high-strain "
-            "sessions your body recovers well from."
+            "Y-axis is inverted — lower = faster. Higher cadence with faster pace suggests "
+            "efficient turnover rather than overstriding."
         )
+
+    st.divider()
+
+    # ── 6d. Training Load Over Time ───────────────────────────────────────────
+    st.markdown("**Training Load Over Time**")
+
+    tl_rows = [
+        {
+            "Date": w.date,
+            "Training Load": w.training_load,
+            "Aerobic Effect": w.training_effect_aerobic,
+            "Anaerobic Effect": w.training_effect_anaerobic,
+        }
+        for w in runs
+        if w.training_load is not None
+    ]
+
+    if len(tl_rows) < 2:
+        st.info("Not enough training load data in this period.")
+    else:
+        tl_df = pd.DataFrame(tl_rows)
+        tl_bar = (
+            alt.Chart(tl_df)
+            .mark_bar(color="#4472CA", opacity=0.85)
+            .encode(
+                x=alt.X("Date:T", title="Date"),
+                y=alt.Y("Training Load:Q", title="Training Load"),
+                tooltip=[
+                    alt.Tooltip("Date:T", format="%b %d"),
+                    alt.Tooltip("Training Load:Q", format=".1f"),
+                    alt.Tooltip("Aerobic Effect:Q", format=".1f"),
+                    alt.Tooltip("Anaerobic Effect:Q", format=".1f"),
+                ],
+            )
+            .properties(height=200)
+        )
+        st.altair_chart(tl_bar, width='stretch')
+        st.caption(
+            "Garmin training load per run. Hover for aerobic/anaerobic training effect breakdown."
+        )
+
+    st.divider()
+
+    # ── 6e. VO2 Max Trend ─────────────────────────────────────────────────────
+    st.markdown("**VO2 Max Trend**")
+
+    vo2_rows = [
+        {"Date": w.date, "VO2 Max": w.vo2_max}
+        for w in runs
+        if w.vo2_max is not None
+    ]
+
+    if len(vo2_rows) < 2:
+        st.info("Not enough VO2 max readings in this period.")
+    else:
+        vo2_df = pd.DataFrame(vo2_rows)
+        vo2_line = (
+            alt.Chart(vo2_df)
+            .mark_line(point=True, color="#FFC000")
+            .encode(
+                x=alt.X("Date:T", title="Date"),
+                y=alt.Y(
+                    "VO2 Max:Q",
+                    title="VO2 Max (mL/kg/min)",
+                    scale=alt.Scale(zero=False),
+                ),
+                tooltip=[
+                    alt.Tooltip("Date:T", format="%b %d"),
+                    alt.Tooltip("VO2 Max:Q", format=".1f"),
+                ],
+            )
+            .properties(height=200)
+        )
+        st.altair_chart(vo2_line, width='stretch')
+        st.caption("Garmin estimated VO2 max from run effort. Upward trend indicates improving aerobic fitness.")
+
+    st.divider()
+
+    # ── 7. STRENGTH SECTION ───────────────────────────────────────────────────
+    strength_workouts = [
+        w for w in sorted(workouts, key=lambda x: x.date)
+        if (w.activity_type or "").lower() in _STRENGTH_TYPES
+    ]
+
+    if strength_workouts:
+        st.subheader("Strength Training")
+
+        # Exercises to track, keyed by Garmin exercise_name → display label
+        _TRACKED_EXERCISES: dict[str, str] = {
+            "BARBELL_DEADLIFT": "Deadlift",
+            "STRAIGHT_LEG_DEADLIFT": "Romanian Deadlift",
+            "BARBELL_FRONT_SQUAT": "Front Squat",
+            "BARBELL_SQUAT": "Squat",
+            "INCLINE_DUMBBELL_BENCH_PRESS": "Incline DB Press",
+            "BARBELL_BENCH_PRESS": "Barbell Bench",
+            "LAT_PULLDOWN": "Lat Pulldown",
+        }
+
+        # ── 7a. Max weight trend ──────────────────────────────────────────────
+        st.markdown("**Max Weight Per Session**")
+        weight_rows = _load_strength_max_weight(start_date.isoformat(), end_date.isoformat())
+
+        if not weight_rows:
+            st.info("No exercise set data yet — run a sync to fetch strength set details.")
+        else:
+            wdf = pd.DataFrame(weight_rows)
+            wdf = wdf[wdf["exercise_name"].isin(_TRACKED_EXERCISES)].copy()
+
+            if wdf.empty:
+                st.info("No tracked exercises found in this period.")
+            else:
+                wdf["Exercise"] = wdf["exercise_name"].map(_TRACKED_EXERCISES)
+                wdf["date"] = pd.to_datetime(wdf["date"]).dt.date.astype(str)
+                wdf["max_weight_lb"] = wdf["max_weight_kg"] * 2.20462
+
+                weight_chart = (
+                    alt.Chart(wdf)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X(
+                            "date:O",
+                            title="Date",
+                            axis=alt.Axis(labelAngle=-30),
+                        ),
+                        y=alt.Y(
+                            "max_weight_lb:Q",
+                            title="Max Weight (lb)",
+                            scale=alt.Scale(zero=False),
+                        ),
+                        color=alt.Color("Exercise:N", title="Exercise"),
+                        tooltip=[
+                            alt.Tooltip("date:O", title="Date"),
+                            alt.Tooltip("Exercise:N"),
+                            alt.Tooltip("max_weight_lb:Q", format=".1f", title="Max Weight (lb)"),
+                        ],
+                    )
+                    .properties(height=320)
+                )
+                st.altair_chart(weight_chart, width='stretch')
+                st.caption("Max weight lifted per session. New exercises appear automatically once synced.")
+
+        st.divider()
+
+        # ── 7b. Total Volume per Session ─────────────────────────────────────
+        st.markdown("**Total Volume Per Session**")
+        vol_rows = _load_strength_session_volume(start_date.isoformat(), end_date.isoformat())
+
+        if not vol_rows:
+            st.info("No volume data yet — run a sync to fetch strength set details.")
+        else:
+            vol_df = pd.DataFrame(vol_rows)
+            vol_df["total_volume_lb"] = vol_df["total_volume_kg"] * 2.20462
+            vol_df["date"] = pd.to_datetime(vol_df["date"]).dt.date.astype(str)
+
+            vol_chart = (
+                alt.Chart(vol_df)
+                .mark_bar(color="#4472CA", opacity=0.85)
+                .encode(
+                    x=alt.X("date:O", title="Date", axis=alt.Axis(labelAngle=-30)),
+                    y=alt.Y("total_volume_lb:Q", title="Total Volume (lb)"),
+                    tooltip=[
+                        alt.Tooltip("date:O", title="Date"),
+                        alt.Tooltip("total_volume_lb:Q", format=".0f", title="Volume (lb)"),
+                    ],
+                )
+                .properties(height=240)
+            )
+            st.altair_chart(vol_chart, width='stretch')
+            st.caption("Total volume = sum of (weight × reps) across all sets in the session.")
+
+        st.divider()
+
+        # ── 7c. Strain + Duration per Session ────────────────────────────────
+        st.markdown("**Strain & Duration Per Session**")
+
+        strain_rows = [
+            {
+                "date": w.date,
+                "Strain": w.strain,
+                "Duration (min)": w.duration_minutes,
+            }
+            for w in strength_workouts
+            if w.strain is not None or w.duration_minutes is not None
+        ]
+
+        if not strain_rows:
+            st.info("No strain data for strength sessions in this period.")
+        else:
+            sd_df = pd.DataFrame(strain_rows)
+            sd_df["date"] = pd.to_datetime(sd_df["date"]).dt.date.astype(str)
+
+            strain_bar = (
+                alt.Chart(sd_df[sd_df["Strain"].notna()])
+                .mark_bar(color="#FF7A00", opacity=0.8)
+                .encode(
+                    x=alt.X("date:O", title="Date", axis=alt.Axis(labelAngle=-30)),
+                    y=alt.Y("Strain:Q", title="Strain", scale=alt.Scale(zero=True)),
+                    tooltip=[
+                        alt.Tooltip("date:O", title="Date"),
+                        alt.Tooltip("Strain:Q", format=".1f"),
+                    ],
+                )
+            )
+
+            dur_line = (
+                alt.Chart(sd_df[sd_df["Duration (min)"].notna()])
+                .mark_line(color="#4472CA", strokeDash=[4, 2], point=alt.OverlayMarkDef(color="#4472CA", size=60))
+                .encode(
+                    x=alt.X("date:O", title="Date"),
+                    y=alt.Y(
+                        "Duration (min):Q",
+                        title="Duration (min)",
+                        scale=alt.Scale(zero=True),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("date:O", title="Date"),
+                        alt.Tooltip("Duration (min):Q", format=".0f"),
+                    ],
+                )
+            )
+
+            combined = (
+                alt.layer(strain_bar, dur_line)
+                .resolve_scale(y="independent")
+                .properties(height=260)
+            )
+            st.altair_chart(combined, width='stretch')
+            st.caption("Bars = Whoop strain (left axis) · Dashed line = session duration (right axis).")
+
+    st.divider()
+
+    # ── 8. WORKOUT LOG ────────────────────────────────────────────────────────
+    st.subheader("Workout Log")
+    st.caption("Click a row to expand full details, HR zone breakdown, exercise sets, and recovery impact.")
+
+    for w in sorted(workouts, key=lambda x: x.date, reverse=True):
+        badge = _source_badge(w)
+        atype = (w.activity_type or "Unknown").title()
+        label = (
+            f"{w.date}  ·  {atype}  ·  {_fmt_dur(w.duration_minutes)}  ·  "
+            f"Strain: {_fmt(w.strain, '.1f')}  ·  "
+            f"HR: {f'{w.avg_hr} bpm' if w.avg_hr else '—'}  ·  "
+            f"Dist: {_fmt_dist(w.distance_m)}  ·  "
+            f"Eff: {_fmt(w.efficiency_score, '.0f', ' m/s')}  ·  "
+            f"[{badge}]"
+        )
+        with st.expander(label, expanded=False):
+            _render_detail(w)

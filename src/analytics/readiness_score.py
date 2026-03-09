@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 READINESS_WEIGHTS: dict[str, float] = {
-    "whoop_recovery": 0.30,  # Whoop recovery score (0–100 directly)
-    "hrv_trend": 0.25,  # Today's HRV vs 7-day rolling average
-    "body_battery": 0.20,  # Garmin Body Battery peak (0–100 directly)
-    "sleep_quality": 0.15,  # Whoop sleep performance (0–100 directly)
+    "whoop_recovery": 0.25,  # Whoop recovery score (0–100 directly)
+    "hrv_trend": 0.20,  # Today's HRV vs 7-day rolling average
+    "body_battery": 0.15,  # Garmin Body Battery peak (0–100 directly)
+    "sleep_quality": 0.30,  # Whoop sleep performance (0–100 directly)
     "training_load": 0.10,  # Recent 3-day strain vs 7-day average (inverted)
 }
 

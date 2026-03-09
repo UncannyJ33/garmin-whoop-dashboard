@@ -16,6 +16,7 @@ from src.clients.garmin_client import GarminClient
 from src.database.models import (
     GarminActivity,
     GarminDailySummary,
+    GarminExerciseSet,
     GarminHRV,
     GarminSleep,
     SyncLog,
@@ -191,6 +192,53 @@ def transform_sleep(date_str: str, record: dict, fetched_at: str) -> dict:
     }
 
 
+# Garmin activity typeKey values that have exercise set data
+_STRENGTH_TYPES: frozenset[str] = frozenset(
+    {"strength_training", "weight_training", "indoor_cardio", "hiit", "pilates", "yoga"}
+)
+
+
+def transform_exercise_sets(activity_id: str, raw: dict, fetched_at: str) -> list[dict]:
+    """Map a Garmin exerciseSets response to a list of garmin_exercise_sets rows.
+
+    Only ACTIVE sets are stored; REST sets are skipped.  When an exercise set
+    contains multiple exercises (rare), only the first is used for category and
+    name.  Weight is stored in kilograms as returned by the API.
+
+    Args:
+        activity_id: Garmin activity ID string (the FK value).
+        raw: Response dict from ``get_activity_exercise_sets()``.
+        fetched_at: ISO 8601 fetch timestamp.
+
+    Returns:
+        List of dicts, one per ACTIVE set, ready for GarminExerciseSet insertion.
+    """
+    sets = raw.get("exerciseSets") or []
+    rows = []
+    for s in sets:
+        if s.get("setType") == "REST":
+            continue
+        # exercises are sorted by probability descending — take the most likely
+        exercises = s.get("exercises") or [{}]
+        ex = exercises[0]
+        weight_g = s.get("weight")
+        rows.append(
+            {
+                "activity_id": activity_id,
+                "set_order": s.get("messageIndex"),
+                "set_type": s.get("setType"),
+                "exercise_category": ex.get("category"),
+                "exercise_name": ex.get("name"),           # field is "name", not "exerciseName"
+                "repetition_count": _int(s.get("repetitionCount")),
+                "weight_kg": weight_g / 1000 if weight_g is not None else None,  # grams → kg
+                "duration_seconds": s.get("duration"),
+                "start_time": s.get("startTime"),          # already ISO string, not Unix ms
+                "fetched_at": fetched_at,
+            }
+        )
+    return rows
+
+
 def transform_hrv(date_str: str, record: dict, fetched_at: str) -> dict:
     """Map a Garmin HRV response to garmin_hrv column values.
 
@@ -295,7 +343,15 @@ class GarminPipeline:
             records_stored = 0
 
             # Activities — single batch call for the whole window
-            n_fetched, n_stored = self._sync_activities(sync_start, sync_end, fetched_at)
+            n_fetched, n_stored, strength_ids = self._sync_activities(sync_start, sync_end, fetched_at)
+            records_fetched += n_fetched
+            records_stored += n_stored
+
+            # Exercise sets — newly fetched strength activities + any existing
+            # strength activities in the window that are still missing sets
+            missing_ids = self._find_strength_activities_without_sets(sync_start, sync_end)
+            all_strength_ids = list({*strength_ids, *missing_ids})
+            n_fetched, n_stored = self._sync_strength_sets(all_strength_ids, fetched_at)
             records_fetched += n_fetched
             records_stored += n_stored
 
@@ -356,7 +412,9 @@ class GarminPipeline:
                 pass
         return today - timedelta(days=DEFAULT_LOOKBACK_DAYS), today
 
-    def _sync_activities(self, start: date, end: date, fetched_at: str) -> tuple[int, int]:
+    def _sync_activities(
+        self, start: date, end: date, fetched_at: str
+    ) -> tuple[int, int, list[str]]:
         """Fetch and upsert all activities in the date range.
 
         Args:
@@ -365,21 +423,100 @@ class GarminPipeline:
             fetched_at: ISO 8601 fetch timestamp.
 
         Returns:
-            Tuple of (records_fetched, records_stored).
+            Tuple of (records_fetched, records_stored, strength_activity_ids).
         """
         logger.info("Fetching activities %s → %s", start, end)
         activities = self._client.get_activities(start, end)
         if not activities:
             logger.info("No activities returned for %s → %s", start, end)
-            return 0, 0
+            return 0, 0, []
 
+        strength_ids: list[str] = []
         for record in activities:
             data = transform_activity(record, fetched_at)
             self._upsert(GarminActivity, "activity_id", data)
+            atype = (record.get("activityType") or {}).get("typeKey") or ""
+            if atype in _STRENGTH_TYPES:
+                strength_ids.append(data["activity_id"])
         self._db.commit()
 
-        logger.info("Stored %d activities", len(activities))
-        return len(activities), len(activities)
+        logger.info("Stored %d activities (%d strength)", len(activities), len(strength_ids))
+        return len(activities), len(activities), strength_ids
+
+    def _find_strength_activities_without_sets(
+        self, start: date, end: date
+    ) -> list[str]:
+        """Return garmin_activity IDs for strength sessions in the window with no sets stored.
+
+        This catches activities that were ingested in a previous sync before
+        exercise-set fetching was implemented.
+
+        Args:
+            start: Window start date (inclusive).
+            end: Window end date (inclusive).
+
+        Returns:
+            List of activity ID strings.
+        """
+        from sqlalchemy import text as _text
+
+        strength_type_list = ", ".join(f"'{t}'" for t in _STRENGTH_TYPES)
+        rows = self._db.execute(
+            _text(f"""
+                SELECT ga.activity_id
+                FROM garmin_activities ga
+                WHERE ga.activity_type IN ({strength_type_list})
+                  AND DATE(ga.start_time) BETWEEN :start AND :end
+                  AND NOT EXISTS (
+                      SELECT 1 FROM garmin_exercise_sets es
+                      WHERE es.activity_id = ga.activity_id
+                  )
+            """),
+            {"start": start.isoformat(), "end": end.isoformat()},
+        ).fetchall()
+        ids = [r[0] for r in rows]
+        if ids:
+            logger.info("Found %d strength activities missing exercise sets — backfilling", len(ids))
+        return ids
+
+    def _sync_strength_sets(
+        self, activity_ids: list[str], fetched_at: str
+    ) -> tuple[int, int]:
+        """Fetch and store exercise sets for the given strength activity IDs.
+
+        Existing sets for each activity are deleted before reinsertion so that
+        a re-sync always reflects the latest data from Garmin.
+
+        Args:
+            activity_ids: Garmin activity IDs to fetch sets for.
+            fetched_at: ISO 8601 fetch timestamp.
+
+        Returns:
+            Tuple of (records_fetched, records_stored).
+        """
+        if not activity_ids:
+            return 0, 0
+
+        fetched = 0
+        stored = 0
+        for aid in activity_ids:
+            raw = self._client.get_exercise_sets(aid)
+            if raw is None:
+                logger.warning("Exercise sets unavailable for activity %s — skipping", aid)
+                continue
+
+            rows = transform_exercise_sets(aid, raw, fetched_at)
+            fetched += len(rows)
+
+            # Delete stale rows before reinserting
+            self._db.query(GarminExerciseSet).filter_by(activity_id=aid).delete()
+            for row in rows:
+                self._db.add(GarminExerciseSet(**row))
+            self._db.commit()
+            stored += len(rows)
+            logger.info("Stored %d sets for activity %s", len(rows), aid)
+
+        return fetched, stored
 
     def _sync_daily(self, d: date, fetched_at: str) -> tuple[int, int]:
         """Fetch and upsert daily summary, sleep, and HRV for a single date.

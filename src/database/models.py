@@ -139,6 +139,24 @@ class GarminActivity(Base):
     raw_json = Column(Text)
 
 
+class GarminExerciseSet(Base):
+    """Individual exercise set from a Garmin strength training activity."""
+
+    __tablename__ = "garmin_exercise_sets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    activity_id = Column(String, ForeignKey("garmin_activities.activity_id"), nullable=False, index=True)
+    set_order = Column(Integer)          # 0-based position in the workout
+    set_type = Column(String)            # ACTIVE | REST | WARMUP
+    exercise_category = Column(String)   # e.g. CHEST_PRESS
+    exercise_name = Column(String)       # e.g. BENCH_PRESS
+    repetition_count = Column(Integer)
+    weight_kg = Column(Float)           # kg; None for bodyweight / timed sets
+    duration_seconds = Column(Float)    # non-None for timed/rest sets
+    start_time = Column(String)          # ISO 8601 UTC
+    fetched_at = Column(String, nullable=False)
+
+
 class GarminDailySummary(Base):
     """Daily wellness summary from the Garmin Connect API."""
 

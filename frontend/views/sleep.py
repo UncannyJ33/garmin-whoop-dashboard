@@ -9,7 +9,7 @@ Sections:
 """
 
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -72,6 +72,14 @@ def _fmt_dur(mins: float | None) -> str:
     return f"{h}h {m:02d}m"
 
 
+def _utc_to_local_hours(utc_hours: float | None) -> float | None:
+    """Convert fractional UTC hours to local system time hours (0–24)."""
+    if utc_hours is None:
+        return None
+    tz_offset_h = datetime.now().astimezone().utcoffset().total_seconds() / 3600
+    return (utc_hours + tz_offset_h) % 24
+
+
 def _rolling_avg(values: list[float | None], window: int = 7) -> list[float | None]:
     result = []
     for i in range(len(values)):
@@ -128,21 +136,25 @@ def _render_body(start_date: date, end_date: date) -> None:
     last = insights[-1]
     st.subheader(f"Last Night — {last.date}")
 
-    h1, h2, h3, h4 = st.columns(4)
+    h1, h2, h3, h4, h5 = st.columns(5)
     with h1:
-        hours = last.total_sleep_minutes / 60 if last.total_sleep_minutes is not None else None
+        net_mins = (last.total_sleep_minutes - (last.awake_minutes or 0)) if last.total_sleep_minutes is not None else None
+        hours = net_mins / 60 if net_mins is not None else None
         st.metric("Total Sleep", f"{hours:.1f} h" if hours is not None else "—")
     with h2:
+        tib = last.total_sleep_minutes / 60 if last.total_sleep_minutes is not None else None
+        st.metric("Time in Bed", f"{tib:.1f} h" if tib is not None else "—")
+    with h3:
         st.metric(
             "Performance",
             f"{last.sleep_performance:.0f}%" if last.sleep_performance is not None else "—",
         )
-    with h3:
+    with h4:
         st.metric(
             "Efficiency",
             f"{last.sleep_efficiency:.0f}%" if last.sleep_efficiency is not None else "—",
         )
-    with h4:
+    with h5:
         debt = last.sleep_debt_estimate
         if debt is not None:
             debt_h = abs(debt) / 60
@@ -172,14 +184,13 @@ def _render_body(start_date: date, end_date: date) -> None:
                 x=alt.X(
                     "sum(Hours):Q",
                     stack="zero",
-                    title="Hours",
-                    axis=alt.Axis(grid=False),
+                    axis=alt.Axis(grid=False, title=None, labels=False, ticks=False),
                 ),
                 color=alt.Color(
                     "Stage:N",
                     scale=alt.Scale(domain=_STAGE_ORDER, range=_STAGE_COLORS),
                     sort=_STAGE_ORDER,
-                    legend=alt.Legend(orient="bottom", columns=4),
+                    legend=None,
                 ),
                 order=alt.Order("order:Q"),
                 tooltip=[
@@ -189,7 +200,8 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=50)
         )
-        st.altair_chart(stage_bar, use_container_width=True)
+        st.altair_chart(stage_bar, width='stretch')
+        st.caption("🔵 Light  ·  🔷 Deep  ·  🟣 REM  ·  🔴 Awake")
 
     st.divider()
 
@@ -200,10 +212,11 @@ def _render_body(start_date: date, end_date: date) -> None:
         [
             {
                 "Date": i.date,
-                "Total Sleep (h)": i.total_sleep_minutes / 60
+                "Total Sleep (h)": (i.total_sleep_minutes - (i.awake_minutes or 0)) / 60
                 if i.total_sleep_minutes is not None
                 else None,
                 "Deep Sleep (h)": i.deep_minutes / 60 if i.deep_minutes is not None else None,
+                "REM Sleep (h)": i.rem_minutes / 60 if i.rem_minutes is not None else None,
             }
             for i in insights
         ]
@@ -251,8 +264,20 @@ def _render_body(start_date: date, end_date: date) -> None:
             ],
         )
     )
+    rem_line = (
+        alt.Chart(trend_df.dropna(subset=["REM Sleep (h)"]))
+        .mark_line(color="#7030A0", strokeDash=[2, 2])
+        .encode(
+            x=alt.X("Date:T"),
+            y=alt.Y("REM Sleep (h):Q"),
+            tooltip=[
+                alt.Tooltip("Date:T", format="%b %d"),
+                alt.Tooltip("REM Sleep (h):Q", format=".1f"),
+            ],
+        )
+    )
 
-    layers = [bars, rolling_line, deep_line]
+    layers = [bars, rolling_line, deep_line, rem_line]
 
     if anomalies:
         anom_df = pd.DataFrame(anomalies).rename(
@@ -274,8 +299,8 @@ def _render_body(start_date: date, end_date: date) -> None:
         )
         layers.append(anom_chart)
 
-    st.altair_chart(alt.layer(*layers).properties(height=260), use_container_width=True)
-    st.caption("Orange line: 7-day rolling average  ·  Blue dashed: deep sleep  ·  Red ▲: anomaly")
+    st.altair_chart(alt.layer(*layers).properties(height=260), width='stretch')
+    st.caption("Orange: 7-day rolling avg  ·  Dark blue dashed: deep sleep  ·  Purple dashed: REM  ·  Red ▲: anomaly")
 
     st.divider()
 
@@ -315,7 +340,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=260)
         )
-        st.altair_chart(area_chart, use_container_width=True)
+        st.altair_chart(area_chart, width='stretch')
     else:
         st.info("No sleep stage data available.")
 
@@ -329,20 +354,22 @@ def _render_body(start_date: date, end_date: date) -> None:
     if consistency.get("insufficient_data"):
         st.info(consistency.get("message", "Not enough data for consistency analysis."))
     else:
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.metric("Avg Bedtime", _fmt_time(consistency.get("avg_bedtime_hour")))
+            st.metric("Avg Bedtime", _fmt_time(_utc_to_local_hours(consistency.get("avg_bedtime_hour"))))
             std_bed = consistency.get("bedtime_std_hours")
             if std_bed is not None:
                 st.caption(f"±{std_bed * 60:.0f} min variability")
         with c2:
-            st.metric("Avg Wake Time", _fmt_time(consistency.get("avg_wake_hour")))
+            st.metric("Avg Wake Time", _fmt_time(_utc_to_local_hours(consistency.get("avg_wake_hour"))))
             std_wake = consistency.get("wake_time_std_hours")
             if std_wake is not None:
                 st.caption(f"±{std_wake * 60:.0f} min variability")
         with c3:
             st.metric("Avg Total Sleep", _fmt_dur(consistency.get("avg_total_sleep_minutes")))
         with c4:
+            st.metric("Avg Time in Bed", _fmt_dur(consistency.get("avg_time_in_bed_minutes")))
+        with c5:
             trend = consistency.get("sleep_debt_trend", "unknown")
             trend_label = {
                 "improving": "↑ Improving",

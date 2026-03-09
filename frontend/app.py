@@ -14,7 +14,7 @@ sys.path.insert(0, str(_root))  # config/, src/
 sys.path.insert(0, str(_root / "frontend"))  # views/
 
 import streamlit as st  # noqa: E402
-from views import activities, data_sources, readiness, sleep, trends, workouts  # noqa: E402
+from views import activities, data_sources, readiness, recovery_activities, sleep, trends, workouts  # noqa: E402
 
 from config.settings import settings  # noqa: E402
 from frontend.db import render_sync_status  # noqa: E402
@@ -33,7 +33,7 @@ st.sidebar.title("Fitness Dashboard")
 st.sidebar.caption("Whoop · Garmin")
 
 page = st.sidebar.radio(
-    "Page", ["Recovery", "Sleep", "Workouts", "Trends", "Activities", "Data Sources"]
+    "Page", ["Recovery", "Sleep", "Workouts", "Recovery Activities", "Trends", "Activities", "Data Sources"]
 )
 
 render_sync_status()
@@ -58,6 +58,8 @@ elif page == "Sleep":
     sleep.render(start_date, end_date)
 elif page == "Workouts":
     workouts.render(start_date, end_date)
+elif page == "Recovery Activities":
+    recovery_activities.render(start_date, end_date)
 elif page == "Trends":
     trends.render(start_date, end_date)
 elif page == "Activities":
