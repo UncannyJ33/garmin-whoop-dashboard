@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Phase 3 COMPLETE** — all tasks (3.1–3.8 + error handling + logging + cleanup + post-phase dashboard enhancements). Ready for Phase 4.
+**Phase 4 IN PROGRESS** — React frontend. Tasks 4.1–4.6 complete. Tasks 4.7–4.8 (Trends, Settings) remain.
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -94,6 +94,31 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
   - "Backfill historical data" expander with From/To date pickers (default: 6 months back)
 - **Recovery Activities page** (`frontend/views/recovery_activities.py`) — new dedicated page in sidebar
 - **Deprecation fixes** — `use_container_width=True` → `width='stretch'` across all frontend views (st.button excluded)
+
+## What's Built (Phase 4 — React Frontend, Tasks 4.1–4.6)
+- **Stack**: React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + Recharts
+- **Working directory**: `frontend-react/` (Vite dev server on port 5175)
+- **App shell** (`src/App.tsx`): sidebar nav, dark/light theme toggle, DateRangeProvider context, React Router
+- **DateRangeContext** (`src/context/DateRangeContext.tsx`): shared `{days, setDays, start, end}` across all pages
+- **API hooks** (`src/hooks/useApi.ts`): `useReadinessToday`, `useReadinessHistory`, `useWorkouts`, `useWorkoutSummary`, `useSleepInsights`, `useSleepCorrelations`, `useSleepConsistency`, `useMetricTrend`, `useWeeklySummary`, `useAnomalies`, `useSyncStatus`, `useTriggerSync`
+- **API client** (`src/api/client.ts`): typed `api.get/post` wrapper over fetch with `/api` base URL proxied to FastAPI on port 8000
+- **Shared components**:
+  - `MetricCard` — value + unit + delta + status badge
+  - `StatusBadge` — color-coded recommendation level (Push hard / Train normally / Go easy / Rest day)
+  - `TrendChart` — recharts LineChart with 7d/30d rolling avg, anomaly dots, UTC-safe date formatter
+  - `SleepStageBar` — stacked horizontal bar with hover legend (Deep/Light/REM/Awake)
+  - `DataSourceBadge` — W / W+G / G pill badges
+  - `WeekComparison` — week-over-week metric change cards
+  - `ErrorState`, `LoadingState` (MetricCardSkeleton, ChartSkeleton, WorkoutRowSkeleton, PageSkeleton)
+- **Pages**:
+  - `src/pages/Readiness.tsx` — hero score + gradient, 5-factor cards (horizontal scroll on mobile), 30d TrendChart, 4 key metric cards, WeekComparison
+  - `src/pages/Workouts.tsx` — 7/14/30/60d buttons, 4 summary MetricCards, activity breakdown table (clickable filter), paginated WorkoutRow list (expand/collapse), strain vs recovery ScatterChart with per-type colors + legend
+  - `src/pages/Sleep.tsx` — hero total hours + SleepStageBar + 4 MetricCards + sleep debt banner, ComposedChart (bar + 7d avg line + deep toggle + anomaly dots), stacked AreaChart (sleep stages over time), consistency grid (bedtime/wake/variability/trend), 3 correlation cards with computed group averages + Pearson r
+  - `src/pages/Trends.tsx`, `src/pages/Settings.tsx` — placeholder stubs (Tasks 4.7–4.8)
+- **WorkoutRow component** (`src/components/WorkoutRow.tsx`): expandable row showing Physiological Load, Performance, Running Dynamics (runs only), HR Zones, Recovery Impact
+- **Deduplication bug fix** (`src/normalization/deduplication.py`): added end-time fallback matching for Whoop early-detection pattern (strength training where Whoop movement detection fires 10–15 min before Garmin button press). Constants: `MATCH_END_THRESHOLD_MIN=5`, `MATCH_END_DURATION_THRESHOLD_PCT=0.25`, `_END_MATCH_CONFIDENCE_PENALTY=0.8`. 5 new tests added.
+- **UTC date display fix**: `new Date('YYYY-MM-DD')` was parsing as UTC midnight, shifting one day back in US timezones. Fixed in `WorkoutRow.tsx` and `TrendChart.tsx` by appending `'T12:00:00'` for date-only strings.
+- **Vite proxy note**: `/api` in `vite.config.ts` is a prefix match — rename any dev-only routes that start with `/api` to avoid accidental forwarding (e.g. `/dev/api-test`).
 
 ## Key Decisions
 - Whoop = source of truth for recovery, sleep quality, body vitals

@@ -8,12 +8,19 @@ Each Garmin activity can only be claimed by one Whoop workout.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from src.database.models import GarminActivity, WhoopWorkout
 
 MATCH_START_THRESHOLD_MIN: float = 5.0
 MATCH_DURATION_THRESHOLD_PCT: float = 0.20
+
+# End-time fallback: handles Whoop early-detection (e.g. strength training where
+# Whoop starts via movement detection but Garmin starts on button press).
+# End times tend to agree; start times can diverge by 10–15 minutes.
+MATCH_END_THRESHOLD_MIN: float = 5.0
+MATCH_END_DURATION_THRESHOLD_PCT: float = 0.25
+_END_MATCH_CONFIDENCE_PENALTY: float = 0.8  # fallback is slightly less certain
 
 
 @dataclass
@@ -68,6 +75,22 @@ def _compute_confidence(start_diff_min: float, dur_diff_pct: float) -> float:
     return max(0.0, (time_score + dur_score) / 2.0)
 
 
+def _compute_end_confidence(end_diff_min: float, dur_diff_pct: float) -> float:
+    """Confidence for an end-time fallback match, penalised vs a start-time match.
+
+    Args:
+        end_diff_min: Absolute end time difference in minutes.
+        dur_diff_pct: Absolute duration difference as a fraction of the longer activity.
+
+    Returns:
+        Confidence score in [0, _END_MATCH_CONFIDENCE_PENALTY].
+    """
+    time_score = 1.0 - (end_diff_min / MATCH_END_THRESHOLD_MIN)
+    dur_score = 1.0 - (dur_diff_pct / MATCH_END_DURATION_THRESHOLD_PCT)
+    raw = max(0.0, (time_score + dur_score) / 2.0)
+    return raw * _END_MATCH_CONFIDENCE_PENALTY
+
+
 def match_workouts(
     whoop_workouts: list[WhoopWorkout],
     garmin_activities: list[GarminActivity],
@@ -106,20 +129,32 @@ def match_workouts(
             if g_start is None or w_start is None:
                 continue
 
-            start_diff_min = abs((w_start - g_start).total_seconds()) / 60.0
-            if start_diff_min > MATCH_START_THRESHOLD_MIN:
-                continue
-
             g_dur_sec = garmin.duration_seconds
             if w_dur_sec is None or g_dur_sec is None or g_dur_sec == 0:
                 continue
 
             longer = max(w_dur_sec, g_dur_sec)
             dur_diff_pct = abs(w_dur_sec - g_dur_sec) / longer
-            if dur_diff_pct > MATCH_DURATION_THRESHOLD_PCT:
-                continue
 
-            confidence = _compute_confidence(start_diff_min, dur_diff_pct)
+            start_diff_min = abs((w_start - g_start).total_seconds()) / 60.0
+            if start_diff_min <= MATCH_START_THRESHOLD_MIN:
+                # Primary path: start times agree.
+                if dur_diff_pct > MATCH_DURATION_THRESHOLD_PCT:
+                    continue
+                confidence = _compute_confidence(start_diff_min, dur_diff_pct)
+            else:
+                # Fallback path: end times agree (Whoop early-detection pattern).
+                # Whoop can start tracking via movement before the Garmin button press,
+                # so start times may diverge by 10–15 min while end times are identical.
+                if w_end is None:
+                    continue
+                g_end = g_start + timedelta(seconds=g_dur_sec)
+                end_diff_min = abs((w_end - g_end).total_seconds()) / 60.0
+                if end_diff_min > MATCH_END_THRESHOLD_MIN:
+                    continue
+                if dur_diff_pct > MATCH_END_DURATION_THRESHOLD_PCT:
+                    continue
+                confidence = _compute_end_confidence(end_diff_min, dur_diff_pct)
             if confidence > best_confidence:
                 best_confidence = confidence
                 best_garmin = garmin

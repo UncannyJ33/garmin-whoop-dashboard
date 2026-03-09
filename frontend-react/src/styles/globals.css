@@ -1,0 +1,131 @@
+/* ── Theme variables — outside @layer so they always win ─────────────────── */
+
+/* Shared accent colors */
+:root {
+  --color-good: #22c55e;
+  --color-moderate: #f59e0b;
+  --color-poor: #ef4444;
+  --color-brand: #818cf8;
+}
+
+/* Dark theme (default) */
+:root,
+.dark {
+  --color-surface: #0d0f18;
+  --color-surface-raised: #161926;
+  --color-surface-overlay: #1e2235;
+  --color-surface-border: rgba(255, 255, 255, 0.07);
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+  --recharts-grid: rgba(255, 255, 255, 0.05);
+  --recharts-axis: #64748b;
+  --skeleton-base: rgba(255, 255, 255, 0.04);
+  --skeleton-shine: rgba(255, 255, 255, 0.09);
+  color-scheme: dark;
+}
+
+/* Light theme */
+html:not(.dark) {
+  --color-surface: #f1f5f9;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #e2e8f0;
+  --color-surface-border: rgba(0, 0, 0, 0.09);
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --recharts-grid: rgba(0, 0, 0, 0.06);
+  --recharts-axis: #94a3b8;
+  --skeleton-base: rgba(0, 0, 0, 0.05);
+  --skeleton-shine: rgba(0, 0, 0, 0.10);
+  color-scheme: light;
+}
+
+/* ── Tailwind ─────────────────────────────────────────────────────────────── */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Smooth theme transitions */
+  *, *::before, *::after {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-white/10 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-white/20; }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-raised rounded-2xl border border-surface-border p-4 animate-fade-in;
+  }
+
+  .card-sm {
+    @apply bg-surface-raised rounded-xl border border-surface-border p-3;
+  }
+
+  .metric-value {
+    @apply font-mono text-2xl font-semibold tabular-nums leading-none;
+  }
+
+  .metric-value-lg {
+    @apply font-mono text-4xl font-bold tabular-nums leading-none;
+  }
+
+  .metric-label {
+    @apply text-2xs font-semibold uppercase tracking-widest text-slate-500;
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--skeleton-base) 25%,
+      var(--skeleton-shine) 50%,
+      var(--skeleton-base) 75%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer rounded-lg;
+  }
+
+  .status-good     { @apply border-good/40 bg-good/5; }
+  .status-moderate { @apply border-moderate/40 bg-moderate/5; }
+  .status-poor     { @apply border-poor/40 bg-poor/5; }
+}
+
+/*
+ * Override Tailwind's build-time-baked surface colors with live CSS vars.
+ * Rules outside @layer always win over @layer utilities (CSS Cascade Layers spec).
+ */
+.bg-surface         { background-color: var(--color-surface); }
+.bg-surface-raised  { background-color: var(--color-surface-raised); }
+.bg-surface-overlay { background-color: var(--color-surface-overlay); }
+.bg-surface-border  { background-color: var(--color-surface-border); }
+.border-surface-border { border-color: var(--color-surface-border); }
+
+/* Recharts dark-mode overrides */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--recharts-grid);
+}
+.recharts-text {
+  fill: var(--recharts-axis) !important;
+  font-size: 11px;
+  font-family: 'Inter', sans-serif;
+}
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
