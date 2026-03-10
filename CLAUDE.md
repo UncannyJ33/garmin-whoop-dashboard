@@ -12,7 +12,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Phase 4 IN PROGRESS** — React frontend. Tasks 4.1–4.6 complete. Tasks 4.7–4.8 (Trends, Settings) remain.
+**Phase 4 COMPLETE** — React frontend. All pages migrated: Readiness, Workouts (+ running/strength sections), Sleep, Trends, Settings, Recovery Activities.
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -114,7 +114,9 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
   - `src/pages/Readiness.tsx` — hero score + gradient, 5-factor cards (horizontal scroll on mobile), 30d TrendChart, 4 key metric cards, WeekComparison
   - `src/pages/Workouts.tsx` — 7/14/30/60d buttons, 4 summary MetricCards, activity breakdown table (clickable filter), paginated WorkoutRow list (expand/collapse), strain vs recovery ScatterChart with per-type colors + legend
   - `src/pages/Sleep.tsx` — hero total hours + SleepStageBar + 4 MetricCards + sleep debt banner, ComposedChart (bar + 7d avg line + deep toggle + anomaly dots), stacked AreaChart (sleep stages over time), consistency grid (bedtime/wake/variability/trend), 3 correlation cards with computed group averages + Pearson r
-  - `src/pages/Trends.tsx`, `src/pages/Settings.tsx` — placeholder stubs (Tasks 4.7–4.8)
+  - `src/pages/Trends.tsx` — weekly summary, metric explorer (9 metrics, 30–180d), anomaly log, Pearson correlations
+- `src/pages/Settings.tsx` — data sources + sync status, data overview stats, preferences (theme, sleep target)
+- `src/pages/RecoveryActivities.tsx` — summary metrics, weekly stacked bar, duration scatter, with/without comparison, duration vs recovery scatter, bar charts by activity type, activity log
 - **WorkoutRow component** (`src/components/WorkoutRow.tsx`): expandable row showing Physiological Load, Performance, Running Dynamics (runs only), HR Zones, Recovery Impact
 - **Deduplication bug fix** (`src/normalization/deduplication.py`): added end-time fallback matching for Whoop early-detection pattern (strength training where Whoop movement detection fires 10–15 min before Garmin button press). Constants: `MATCH_END_THRESHOLD_MIN=5`, `MATCH_END_DURATION_THRESHOLD_PCT=0.25`, `_END_MATCH_CONFIDENCE_PENALTY=0.8`. 5 new tests added.
 - **UTC date display fix**: `new Date('YYYY-MM-DD')` was parsing as UTC midnight, shifting one day back in US timezones. Fixed in `WorkoutRow.tsx` and `TrendChart.tsx` by appending `'T12:00:00'` for date-only strings.

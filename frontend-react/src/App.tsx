@@ -6,6 +6,7 @@ import { Workouts } from './pages/Workouts'
 import { Sleep } from './pages/Sleep'
 import { Trends } from './pages/Trends'
 import { Settings } from './pages/Settings'
+import { RecoveryActivities } from './pages/RecoveryActivities'
 import { Showcase } from './pages/Showcase'
 import { ApiTest } from './pages/ApiTest'
 
@@ -29,6 +30,7 @@ export function App() {
             <Route path="/sleep" element={<Sleep />} />
             <Route path="/trends" element={<Trends />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/recovery-activities" element={<RecoveryActivities />} />
             <Route path="/showcase" element={<Showcase />} />
             <Route path="/dev/api-test" element={<ApiTest />} />
           </Route>
