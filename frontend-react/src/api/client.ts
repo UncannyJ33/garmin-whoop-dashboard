@@ -11,14 +11,26 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      'ngrok-skip-browser-warning': 'true',
-    },
-    ...options,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      ...options,
+    })
+  } catch (err) {
+    // TypeError = network failure (offline, DNS, etc.) — not an HTTP error
+    if (err instanceof TypeError) {
+      window.dispatchEvent(new Event('api-offline'))
+    }
+    throw err
+  }
+
+  // Successful network contact — device is online
+  window.dispatchEvent(new Event('api-online'))
 
   if (!res.ok) {
     let message = `HTTP ${res.status}`
