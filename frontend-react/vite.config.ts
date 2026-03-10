@@ -14,15 +14,15 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
-            // API calls — network-first, fall back to cached response
-            urlPattern: /^\/api\//,
+            // API calls — match both same-origin (/api/...) and absolute URLs
+            // (https://backend.example.com/api/...) for cross-origin deploys
+            urlPattern: /\/api\//,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
               expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
-              networkTimeoutSeconds: 10,
+              networkTimeoutSeconds: 3,
               cacheableResponse: { statuses: [0, 200] },
-              // Bypass ngrok browser-warning interstitial for SW-internal fetches
               fetchOptions: { headers: [['ngrok-skip-browser-warning', 'true']] },
             },
           },
