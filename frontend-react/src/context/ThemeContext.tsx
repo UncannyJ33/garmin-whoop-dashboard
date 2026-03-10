@@ -40,6 +40,10 @@ function applyTheme(theme: Theme) {
   } else {
     root.classList.remove('dark')
   }
+  // Keep PWA theme-color in sync with the active palette
+  const themeColor = theme === 'dark' ? '#0d0f18' : '#f1f5f9'
+  document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', themeColor)
 }
 
 const ThemeContext = createContext<ThemeContextValue>({

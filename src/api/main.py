@@ -1,8 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from config.settings import settings
 from src.api.routes.auth import router as auth_router
@@ -68,3 +71,17 @@ app.include_router(webhooks_router)
 async def health() -> dict:
     """Basic health check."""
     return {"status": "ok"}
+
+
+# Serve React frontend static files (production build)
+_DIST = Path(__file__).parent.parent.parent / "frontend-react" / "dist"
+if _DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str) -> FileResponse:
+        """Serve index.html for all non-API routes (React SPA)."""
+        file = _DIST / full_path
+        if file.is_file():
+            return FileResponse(file)
+        return FileResponse(_DIST / "index.html")

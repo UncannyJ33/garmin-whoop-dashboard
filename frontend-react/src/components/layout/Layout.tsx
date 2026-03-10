@@ -21,15 +21,15 @@ export function Layout() {
   const isOnline = useOnlineStatus()
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface">
+    <div className="flex h-screen overflow-hidden bg-surface safe-x">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden safe-top">
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <InstallPrompt />
         {!isOnline && <OfflineBanner />}
 
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 safe-bottom">
           <Outlet />
         </main>
       </div>
