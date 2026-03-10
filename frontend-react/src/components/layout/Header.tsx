@@ -24,7 +24,10 @@ export function Header({ onMenuClick }: HeaderProps) {
     : null
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b border-surface-border bg-surface-raised px-4 lg:px-6 flex-shrink-0">
+    <header
+      className="flex min-h-14 items-end gap-3 border-b border-surface-border bg-surface-raised px-4 lg:px-6 flex-shrink-0 pb-3"
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+    >
       <button
         onClick={onMenuClick}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-slate-700 dark:hover:text-slate-200 lg:hidden transition-colors"

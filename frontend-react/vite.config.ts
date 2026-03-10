@@ -22,6 +22,8 @@ export default defineConfig({
               expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
               networkTimeoutSeconds: 10,
               cacheableResponse: { statuses: [0, 200] },
+              // Bypass ngrok browser-warning interstitial for SW-internal fetches
+              fetchOptions: { headers: [['ngrok-skip-browser-warning', 'true']] },
             },
           },
           {

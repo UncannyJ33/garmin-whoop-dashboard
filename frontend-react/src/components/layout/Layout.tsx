@@ -24,7 +24,7 @@ export function Layout() {
     <div className="flex h-screen overflow-hidden bg-surface safe-x">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="flex flex-1 flex-col overflow-hidden safe-top">
+      <div className="flex flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <InstallPrompt />
         {!isOnline && <OfflineBanner />}
