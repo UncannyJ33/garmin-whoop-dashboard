@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Engine, text
 
 from src.api.dependencies import get_engine_dep
-from src.api.models import SyncStatusItem, SyncTriggerResponse
+from src.api.models import DataStatsResponse, SyncStatusItem, SyncTriggerResponse
 from src.database.connection import get_session_factory as _get_session_factory
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -50,6 +50,29 @@ async def sync_status(engine: Engine = Depends(get_engine_dep)) -> list[SyncStat
         by_source.get(src, SyncStatusItem(source=src, status="never_synced"))
         for src in _KNOWN_SOURCES
     ]
+
+
+@router.get(
+    "/stats",
+    response_model=DataStatsResponse,
+    summary="Aggregate data overview stats",
+)
+async def data_stats(engine: Engine = Depends(get_engine_dep)) -> DataStatsResponse:
+    """Return total days, workouts, matched workouts, and date range from unified tables."""
+    with engine.connect() as conn:
+        daily = conn.execute(text("SELECT COUNT(*), MIN(date), MAX(date) FROM unified_daily")).one()
+        workouts = conn.execute(
+            text(
+                "SELECT COUNT(*), SUM(CASE WHEN matched = 1 THEN 1 ELSE 0 END) FROM unified_workouts"
+            )
+        ).one()
+    return DataStatsResponse(
+        total_days=daily[0] or 0,
+        date_start=daily[1],
+        date_end=daily[2],
+        total_workouts=workouts[0] or 0,
+        matched_workouts=int(workouts[1] or 0),
+    )
 
 
 @router.post(

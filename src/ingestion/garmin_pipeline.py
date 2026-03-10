@@ -228,11 +228,11 @@ def transform_exercise_sets(activity_id: str, raw: dict, fetched_at: str) -> lis
                 "set_order": s.get("messageIndex"),
                 "set_type": s.get("setType"),
                 "exercise_category": ex.get("category"),
-                "exercise_name": ex.get("name"),           # field is "name", not "exerciseName"
+                "exercise_name": ex.get("name"),  # field is "name", not "exerciseName"
                 "repetition_count": _int(s.get("repetitionCount")),
                 "weight_kg": weight_g / 1000 if weight_g is not None else None,  # grams → kg
                 "duration_seconds": s.get("duration"),
-                "start_time": s.get("startTime"),          # already ISO string, not Unix ms
+                "start_time": s.get("startTime"),  # already ISO string, not Unix ms
                 "fetched_at": fetched_at,
             }
         )
@@ -343,7 +343,9 @@ class GarminPipeline:
             records_stored = 0
 
             # Activities — single batch call for the whole window
-            n_fetched, n_stored, strength_ids = self._sync_activities(sync_start, sync_end, fetched_at)
+            n_fetched, n_stored, strength_ids = self._sync_activities(
+                sync_start, sync_end, fetched_at
+            )
             records_fetched += n_fetched
             records_stored += n_stored
 
@@ -443,9 +445,7 @@ class GarminPipeline:
         logger.info("Stored %d activities (%d strength)", len(activities), len(strength_ids))
         return len(activities), len(activities), strength_ids
 
-    def _find_strength_activities_without_sets(
-        self, start: date, end: date
-    ) -> list[str]:
+    def _find_strength_activities_without_sets(self, start: date, end: date) -> list[str]:
         """Return garmin_activity IDs for strength sessions in the window with no sets stored.
 
         This catches activities that were ingested in a previous sync before
@@ -476,12 +476,12 @@ class GarminPipeline:
         ).fetchall()
         ids = [r[0] for r in rows]
         if ids:
-            logger.info("Found %d strength activities missing exercise sets — backfilling", len(ids))
+            logger.info(
+                "Found %d strength activities missing exercise sets — backfilling", len(ids)
+            )
         return ids
 
-    def _sync_strength_sets(
-        self, activity_ids: list[str], fetched_at: str
-    ) -> tuple[int, int]:
+    def _sync_strength_sets(self, activity_ids: list[str], fetched_at: str) -> tuple[int, int]:
         """Fetch and store exercise sets for the given strength activity IDs.
 
         Existing sets for each activity are deleted before reinsertion so that

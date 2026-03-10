@@ -138,7 +138,11 @@ def _render_body(start_date: date, end_date: date) -> None:
 
     h1, h2, h3, h4, h5 = st.columns(5)
     with h1:
-        net_mins = (last.total_sleep_minutes - (last.awake_minutes or 0)) if last.total_sleep_minutes is not None else None
+        net_mins = (
+            (last.total_sleep_minutes - (last.awake_minutes or 0))
+            if last.total_sleep_minutes is not None
+            else None
+        )
         hours = net_mins / 60 if net_mins is not None else None
         st.metric("Total Sleep", f"{hours:.1f} h" if hours is not None else "—")
     with h2:
@@ -200,7 +204,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=50)
         )
-        st.altair_chart(stage_bar, width='stretch')
+        st.altair_chart(stage_bar, width="stretch")
         st.caption("🔵 Light  ·  🔷 Deep  ·  🟣 REM  ·  🔴 Awake")
 
     st.divider()
@@ -299,8 +303,10 @@ def _render_body(start_date: date, end_date: date) -> None:
         )
         layers.append(anom_chart)
 
-    st.altair_chart(alt.layer(*layers).properties(height=260), width='stretch')
-    st.caption("Orange: 7-day rolling avg  ·  Dark blue dashed: deep sleep  ·  Purple dashed: REM  ·  Red ▲: anomaly")
+    st.altair_chart(alt.layer(*layers).properties(height=260), width="stretch")
+    st.caption(
+        "Orange: 7-day rolling avg  ·  Dark blue dashed: deep sleep  ·  Purple dashed: REM  ·  Red ▲: anomaly"
+    )
 
     st.divider()
 
@@ -340,7 +346,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=260)
         )
-        st.altair_chart(area_chart, width='stretch')
+        st.altair_chart(area_chart, width="stretch")
     else:
         st.info("No sleep stage data available.")
 
@@ -356,12 +362,16 @@ def _render_body(start_date: date, end_date: date) -> None:
     else:
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.metric("Avg Bedtime", _fmt_time(_utc_to_local_hours(consistency.get("avg_bedtime_hour"))))
+            st.metric(
+                "Avg Bedtime", _fmt_time(_utc_to_local_hours(consistency.get("avg_bedtime_hour")))
+            )
             std_bed = consistency.get("bedtime_std_hours")
             if std_bed is not None:
                 st.caption(f"±{std_bed * 60:.0f} min variability")
         with c2:
-            st.metric("Avg Wake Time", _fmt_time(_utc_to_local_hours(consistency.get("avg_wake_hour"))))
+            st.metric(
+                "Avg Wake Time", _fmt_time(_utc_to_local_hours(consistency.get("avg_wake_hour")))
+            )
             std_wake = consistency.get("wake_time_std_hours")
             if std_wake is not None:
                 st.caption(f"±{std_wake * 60:.0f} min variability")

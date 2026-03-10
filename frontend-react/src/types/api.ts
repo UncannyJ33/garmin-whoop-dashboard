@@ -202,6 +202,14 @@ export interface SyncStatusItem {
 // GET /api/sync/status returns list[SyncStatusItem]
 export type SyncStatus = SyncStatusItem[]
 
+export interface DataStats {
+  total_days: number
+  total_workouts: number
+  matched_workouts: number
+  date_start: string | null
+  date_end: string | null
+}
+
 export interface SyncTriggerResponse {
   source: string
   status: string
@@ -210,4 +218,50 @@ export interface SyncTriggerResponse {
   started_at: string
   completed_at: string | null
   error_message: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Exercise Sets / Strength
+// ---------------------------------------------------------------------------
+
+export interface ExerciseSet {
+  set_order: number | null
+  exercise_category: string | null
+  exercise_name: string | null
+  repetition_count: number | null
+  weight_kg: number | null
+  duration_seconds: number | null
+}
+
+export interface StrengthVolume {
+  date: string
+  total_volume_kg: number
+}
+
+export interface StrengthMaxWeight {
+  date: string
+  exercise_name: string
+  max_weight_kg: number
+}
+
+// ---------------------------------------------------------------------------
+// Recovery Activities
+// ---------------------------------------------------------------------------
+
+export interface RecoveryActivity {
+  date: string
+  activity: string
+  dur_min: number | null
+  same_day_recovery: number | null
+  next_day_recovery: number | null
+  next_day_hrv: number | null
+  next_day_sleep_perf: number | null
+  next_day_sleep_min: number | null
+}
+
+export interface WithWithoutResponse {
+  with_avg: number | null
+  without_avg: number | null
+  with_count: number
+  without_count: number
 }

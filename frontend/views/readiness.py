@@ -227,15 +227,24 @@ def _run_sync(start_date: date | None = None, end_date: date | None = None) -> t
     db = get_session_factory(engine)()
     now = datetime.now(UTC)
 
-    sync_end = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=UTC) if end_date else now
-    sync_start = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=UTC) if start_date else now - timedelta(days=7)
+    sync_end = (
+        datetime.combine(end_date, datetime.max.time()).replace(tzinfo=UTC) if end_date else now
+    )
+    sync_start = (
+        datetime.combine(start_date, datetime.min.time()).replace(tzinfo=UTC)
+        if start_date
+        else now - timedelta(days=7)
+    )
 
     try:
+
         def _whoop() -> object:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                return loop.run_until_complete(WhoopPipeline(db).run(start=sync_start, end=sync_end))
+                return loop.run_until_complete(
+                    WhoopPipeline(db).run(start=sync_start, end=sync_end)
+                )
             finally:
                 loop.close()
 
@@ -275,7 +284,9 @@ def render(start_date: date, end_date: date) -> None:
                 st.session_state["_sync_result"] = ("error", msg)
 
     with st.expander("Backfill historical data"):
-        st.caption("Pull data for a custom date range — useful for importing history beyond the default 7-day window.")
+        st.caption(
+            "Pull data for a custom date range — useful for importing history beyond the default 7-day window."
+        )
         today = date.today()
         bf_col1, bf_col2 = st.columns(2)
         with bf_col1:
@@ -297,7 +308,9 @@ def render(start_date: date, end_date: date) -> None:
                 st.error("Start date must be before end date.")
             else:
                 days = (bf_end - bf_start).days + 1
-                with st.spinner(f"Backfilling {days} days ({bf_start} → {bf_end})… this may take a while."):
+                with st.spinner(
+                    f"Backfilling {days} days ({bf_start} → {bf_end})… this may take a while."
+                ):
                     ok, msg = _run_sync(start_date=bf_start, end_date=bf_end)
                 if ok:
                     st.cache_data.clear()
@@ -482,7 +495,7 @@ def _render_body(start_date: date, end_date: date) -> None:
                 .encode(x="date:T", y="real_score:Q")
             )
 
-        st.altair_chart(chart, width='stretch')
+        st.altair_chart(chart, width="stretch")
         st.caption(
             "Blue = daily score · Dashed orange = 7-day rolling avg"
             " · Red dot = anomaly · Green dot = today"
@@ -507,7 +520,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             f"{hrv:.1f} ms" if hrv is not None else "—",
             label_visibility="collapsed",
         )
-        st.altair_chart(_sparkline(hrv_spark, "#4472CA"), width='stretch')
+        st.altair_chart(_sparkline(hrv_spark, "#4472CA"), width="stretch")
         st.caption("7-day trend")
 
     with k2:
@@ -518,7 +531,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             f"{rhr:.0f} bpm" if rhr is not None else "—",
             label_visibility="collapsed",
         )
-        st.altair_chart(_sparkline(rhr_spark, "#ED7D31"), width='stretch')
+        st.altair_chart(_sparkline(rhr_spark, "#ED7D31"), width="stretch")
         st.caption("7-day trend")
 
     with k3:

@@ -7,7 +7,6 @@ import pytest
 
 from src.normalization.deduplication import (
     MATCH_DURATION_THRESHOLD_PCT,
-    MATCH_END_THRESHOLD_MIN,
     MATCH_START_THRESHOLD_MIN,
     _compute_confidence,
     _compute_end_confidence,
@@ -196,6 +195,7 @@ def test_garmin_only_no_whoop():
 def test_end_confidence_perfect():
     conf = _compute_end_confidence(0.0, 0.0)
     from src.normalization.deduplication import _END_MATCH_CONFIDENCE_PENALTY
+
     assert conf == pytest.approx(_END_MATCH_CONFIDENCE_PENALTY)
 
 
@@ -218,7 +218,7 @@ def test_end_time_fallback_matches_strength_training_pattern():
     detection fired before the Garmin watch button was pressed.
     """
     garmin_dur_sec = 60.3 * 60  # 60.3 min, matching real data
-    whoop_dur_sec = 72.9 * 60   # 72.9 min (Whoop started early)
+    whoop_dur_sec = 72.9 * 60  # 72.9 min (Whoop started early)
 
     garmin_start = BASE_TIME
     # Whoop started 12.5 min before Garmin
@@ -260,8 +260,8 @@ def test_end_time_fallback_no_match_duration_too_different():
     Whoop starts 12 min early and runs 42 min vs Garmin's 30 min.
     dur_diff_pct = 12/42 = 28.6% > 25% end-path threshold.
     """
-    garmin_dur_sec = DURATION_SEC          # 30 min
-    whoop_dur_sec = DURATION_SEC * 1.40    # 42 min — diff/longer = 12/42 = 28.6%
+    garmin_dur_sec = DURATION_SEC  # 30 min
+    whoop_dur_sec = DURATION_SEC * 1.40  # 42 min — diff/longer = 12/42 = 28.6%
     garmin_start = BASE_TIME
     # Whoop starts 12 min early so that both end at the same moment
     whoop_start = BASE_TIME - timedelta(minutes=12)

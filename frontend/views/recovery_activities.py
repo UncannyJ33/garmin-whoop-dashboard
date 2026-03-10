@@ -68,8 +68,13 @@ WHERE date >= :start AND date < :end
 """
 
 _TYPE_COLORS = [
-    "#4472CA", "#70AD47", "#FFC000", "#FF7A00", "#DC143C",
-    "#9467BD", "#8C564B",
+    "#4472CA",
+    "#70AD47",
+    "#FFC000",
+    "#FF7A00",
+    "#DC143C",
+    "#9467BD",
+    "#8C564B",
 ]
 
 
@@ -86,18 +91,13 @@ def _load_with_without(start: str, end: str) -> pd.DataFrame:
     """Return all days in range with next-day recovery and a flag for whether
     the prior day had a recovery activity."""
     with get_engine().connect() as conn:
-        rec_dates = {
-            r[0]
-            for r in conn.execute(text(_ALL_RECOVERY_DATES_QUERY)).fetchall()
-        }
-        daily = pd.read_sql(
-            text(_DAILY_RECOVERY_QUERY), conn, params={"start": start, "end": end}
-        )
+        rec_dates = {r[0] for r in conn.execute(text(_ALL_RECOVERY_DATES_QUERY)).fetchall()}
+        daily = pd.read_sql(text(_DAILY_RECOVERY_QUERY), conn, params={"start": start, "end": end})
 
     # Each row is a day; we want: did the PREVIOUS day have a recovery activity?
-    daily["prev_date"] = (
-        pd.to_datetime(daily["date"]) - pd.Timedelta(days=1)
-    ).dt.strftime("%Y-%m-%d")
+    daily["prev_date"] = (pd.to_datetime(daily["date"]) - pd.Timedelta(days=1)).dt.strftime(
+        "%Y-%m-%d"
+    )
     daily["had_recovery"] = daily["prev_date"].isin(rec_dates)
     return daily
 
@@ -147,10 +147,7 @@ def _render_body(start_date: date, end_date: date) -> None:
     df["week"] = df["date_dt"].dt.strftime("%G-W%V")
 
     weekly = (
-        df.groupby(["week", "activity"])
-        .size()
-        .reset_index(name="sessions")
-        .sort_values("week")
+        df.groupby(["week", "activity"]).size().reset_index(name="sessions").sort_values("week")
     )
 
     weekly_chart = (
@@ -401,8 +398,24 @@ def _render_body(start_date: date, end_date: date) -> None:
     # ── 8. ACTIVITY LOG ───────────────────────────────────────────────────────
     st.subheader("Activity Log")
 
-    log_df = df[["date", "activity", "dur_min", "same_day_recovery", "next_day_recovery", "next_day_sleep_perf"]].copy()
-    log_df.columns = ["Date", "Activity", "Duration (min)", "Same-Day Recovery", "Next-Day Recovery", "Next-Day Sleep %"]
+    log_df = df[
+        [
+            "date",
+            "activity",
+            "dur_min",
+            "same_day_recovery",
+            "next_day_recovery",
+            "next_day_sleep_perf",
+        ]
+    ].copy()
+    log_df.columns = [
+        "Date",
+        "Activity",
+        "Duration (min)",
+        "Same-Day Recovery",
+        "Next-Day Recovery",
+        "Next-Day Sleep %",
+    ]
     log_df["Duration (min)"] = log_df["Duration (min)"].round(0).astype("Int64")
     log_df["Same-Day Recovery"] = log_df["Same-Day Recovery"].round(0)
     log_df["Next-Day Recovery"] = log_df["Next-Day Recovery"].round(0)

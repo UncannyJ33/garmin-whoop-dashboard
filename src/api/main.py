@@ -2,10 +2,12 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from src.api.routes.auth import router as auth_router
 from src.api.routes.readiness import router as readiness_router
+from src.api.routes.recovery import router as recovery_router
 from src.api.routes.sleep import router as sleep_router
 from src.api.routes.sync import router as sync_router
 from src.api.routes.trends import router as trends_router
@@ -40,9 +42,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router)
 app.include_router(readiness_router)
 app.include_router(workouts_router)
+app.include_router(recovery_router)
 app.include_router(sleep_router)
 app.include_router(trends_router)
 app.include_router(sync_router)

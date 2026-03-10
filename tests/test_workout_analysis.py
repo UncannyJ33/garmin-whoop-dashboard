@@ -225,6 +225,7 @@ class TestBuildEnriched:
             "whoop_avg_hr": 155,
             "whoop_max_hr": 178,
             "whoop_calories_kj": 1200.0,
+            "garmin_activity_id": None,
             "hr_zone1_minutes": 5.0,
             "hr_zone2_minutes": 10.0,
             "hr_zone3_minutes": 15.0,

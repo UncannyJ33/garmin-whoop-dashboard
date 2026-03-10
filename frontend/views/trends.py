@@ -246,105 +246,103 @@ def _render_body(start_date: date, end_date: date) -> None:
 
     # ── 2. METRIC EXPLORER ────────────────────────────────────────────────
     st.subheader("Metric Explorer")
-
-    sel_col, _ = st.columns([1, 3])
-    with sel_col:
-        metric_label = st.selectbox("Select metric", list(_METRIC_OPTIONS.keys()), index=0)
-
-    metric_key = _METRIC_OPTIONS[metric_label]
-    display_label, _unit, lower_is_better = _METRIC_META[metric_key]
-
-    chart_days = min(_DEFAULT_DAYS, (end_date - start_date).days + 1)
-    chart_start = end_date - timedelta(days=chart_days - 1)
-
-    trend = _load_trend(metric_key, chart_start.isoformat(), end_date.isoformat())
-
-    df = pd.DataFrame(
-        {
-            "Date": trend["dates"],
-            "Value": trend["values"],
-            "7d Avg": trend["rolling_avg_7d"],
-            "30d Avg": trend["rolling_avg_30d"],
-        }
-    )
-
-    raw_pts = (
-        alt.Chart(df.dropna(subset=["Value"]))
-        .mark_circle(size=25, opacity=0.4, color="#4472CA")
-        .encode(
-            x=alt.X("Date:T", title=None, axis=alt.Axis(format="%b %d")),
-            y=alt.Y("Value:Q", title=display_label, scale=alt.Scale(zero=False)),
-            tooltip=[
-                alt.Tooltip("Date:T", title="Date", format="%b %d"),
-                alt.Tooltip("Value:Q", title=display_label, format=".1f"),
-            ],
-        )
-    )
-    line_7d = (
-        alt.Chart(df.dropna(subset=["7d Avg"]))
-        .mark_line(color="#ED7D31", strokeWidth=2.5)
-        .encode(
-            x="Date:T",
-            y=alt.Y("7d Avg:Q", scale=alt.Scale(zero=False)),
-            tooltip=[
-                alt.Tooltip("Date:T", format="%b %d"),
-                alt.Tooltip("7d Avg:Q", title="7d Avg", format=".1f"),
-            ],
-        )
-    )
-    line_30d = (
-        alt.Chart(df.dropna(subset=["30d Avg"]))
-        .mark_line(color="#9DC3E6", strokeWidth=1.5, strokeDash=[4, 2])
-        .encode(
-            x="Date:T",
-            y=alt.Y("30d Avg:Q", scale=alt.Scale(zero=False)),
-            tooltip=[
-                alt.Tooltip("Date:T", format="%b %d"),
-                alt.Tooltip("30d Avg:Q", title="30d Avg", format=".1f"),
-            ],
-        )
-    )
-
-    layers = [raw_pts, line_7d, line_30d]
-
-    if trend["anomalies"]:
-        adf = pd.DataFrame(trend["anomalies"]).rename(columns={"date": "Date", "value": "Value"})
-        layers.append(
-            alt.Chart(adf)
-            .mark_circle(size=80, color="#DC143C", opacity=0.9)
-            .encode(
-                x="Date:T",
-                y=alt.Y("Value:Q", scale=alt.Scale(zero=False)),
-                tooltip=[
-                    alt.Tooltip("Date:T", format="%b %d"),
-                    alt.Tooltip("Value:Q", title=display_label, format=".1f"),
-                    alt.Tooltip("direction:N", title="Direction"),
-                    alt.Tooltip("severity:Q", title="Severity (σ)", format=".2f"),
-                ],
-            )
-        )
-
-    st.altair_chart(alt.layer(*layers).properties(height=280), width='stretch')
     st.caption(
         "Blue dots: daily values  ·  Orange: 7d rolling avg  ·  "
         "Dashed blue: 30d rolling avg  ·  Red dots: anomalies (≥ 2σ)"
     )
 
-    # Trend direction sentence
-    raw_dir = trend["trend_direction"]
-    if lower_is_better and raw_dir != "stable":
-        display_dir = "improving" if raw_dir == "declining" else "declining"
-    else:
-        display_dir = raw_dir
+    chart_days = min(_DEFAULT_DAYS, (end_date - start_date).days + 1)
+    chart_start = end_date - timedelta(days=chart_days - 1)
 
-    arrow = {"improving": "↑", "declining": "↓", "stable": "→"}.get(display_dir, "→")
-    dcolor = {"improving": "green", "declining": "red", "stable": "gray"}.get(display_dir, "gray")
-    st.markdown(
-        f"**{display_label}** is "
-        f"<span style='color:{dcolor};font-weight:600'>{arrow} {display_dir}</span> "
-        f"over the past 7 days.",
-        unsafe_allow_html=True,
-    )
+    for metric_label, metric_key in _METRIC_OPTIONS.items():
+        display_label, _unit, lower_is_better = _METRIC_META[metric_key]
+
+        trend = _load_trend(metric_key, chart_start.isoformat(), end_date.isoformat())
+
+        df = pd.DataFrame(
+            {
+                "Date": trend["dates"],
+                "Value": trend["values"],
+                "7d Avg": trend["rolling_avg_7d"],
+                "30d Avg": trend["rolling_avg_30d"],
+            }
+        )
+
+        raw_pts = (
+            alt.Chart(df.dropna(subset=["Value"]))
+            .mark_circle(size=25, opacity=0.4, color="#4472CA")
+            .encode(
+                x=alt.X("Date:T", title=None, axis=alt.Axis(format="%b %d")),
+                y=alt.Y("Value:Q", title=display_label, scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("Date:T", title="Date", format="%b %d"),
+                    alt.Tooltip("Value:Q", title=display_label, format=".1f"),
+                ],
+            )
+        )
+        line_7d = (
+            alt.Chart(df.dropna(subset=["7d Avg"]))
+            .mark_line(color="#ED7D31", strokeWidth=2.5)
+            .encode(
+                x="Date:T",
+                y=alt.Y("7d Avg:Q", scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("Date:T", format="%b %d"),
+                    alt.Tooltip("7d Avg:Q", title="7d Avg", format=".1f"),
+                ],
+            )
+        )
+        line_30d = (
+            alt.Chart(df.dropna(subset=["30d Avg"]))
+            .mark_line(color="#9DC3E6", strokeWidth=1.5, strokeDash=[4, 2])
+            .encode(
+                x="Date:T",
+                y=alt.Y("30d Avg:Q", scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("Date:T", format="%b %d"),
+                    alt.Tooltip("30d Avg:Q", title="30d Avg", format=".1f"),
+                ],
+            )
+        )
+
+        layers = [raw_pts, line_7d, line_30d]
+
+        if trend["anomalies"]:
+            adf = pd.DataFrame(trend["anomalies"]).rename(
+                columns={"date": "Date", "value": "Value"}
+            )
+            layers.append(
+                alt.Chart(adf)
+                .mark_circle(size=80, color="#DC143C", opacity=0.9)
+                .encode(
+                    x="Date:T",
+                    y=alt.Y("Value:Q", scale=alt.Scale(zero=False)),
+                    tooltip=[
+                        alt.Tooltip("Date:T", format="%b %d"),
+                        alt.Tooltip("Value:Q", title=display_label, format=".1f"),
+                        alt.Tooltip("direction:N", title="Direction"),
+                        alt.Tooltip("severity:Q", title="Severity (σ)", format=".2f"),
+                    ],
+                )
+            )
+
+        raw_dir = trend["trend_direction"]
+        arrow = {"improving": "↑", "declining": "↓", "stable": "→"}.get(raw_dir, "→")
+        if lower_is_better:
+            dcolor = {"improving": "red", "declining": "green", "stable": "gray"}.get(
+                raw_dir, "gray"
+            )
+        else:
+            dcolor = {"improving": "green", "declining": "red", "stable": "gray"}.get(
+                raw_dir, "gray"
+            )
+
+        st.markdown(
+            f"**{display_label}** — "
+            f"<span style='color:{dcolor};font-weight:600'>{arrow} {raw_dir}</span>",
+            unsafe_allow_html=True,
+        )
+        st.altair_chart(alt.layer(*layers).properties(height=220), width="stretch")
 
     st.divider()
 
@@ -361,7 +359,7 @@ def _render_body(start_date: date, end_date: date) -> None:
     if not anomaly_rows:
         st.info("No anomalies detected in the selected period.")
     else:
-        st.dataframe(pd.DataFrame(anomaly_rows), width='stretch', hide_index=True)
+        st.dataframe(pd.DataFrame(anomaly_rows), width="stretch", hide_index=True)
 
     st.divider()
 
@@ -430,4 +428,4 @@ def _render_body(start_date: date, end_date: date) -> None:
                 text=alt.Text("Label:N"),
             )
         )
-        st.altair_chart((heatmap + text_marks).properties(height=300), width='stretch')
+        st.altair_chart((heatmap + text_marks).properties(height=300), width="stretch")

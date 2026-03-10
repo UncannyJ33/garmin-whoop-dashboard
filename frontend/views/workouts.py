@@ -25,7 +25,14 @@ from src.analytics.workout_analysis import (  # noqa: E402
     get_workout_type_summary,
 )
 
-_STRENGTH_TYPES = {"strength_training", "weight_training", "indoor_cardio", "hiit", "pilates", "yoga"}
+_STRENGTH_TYPES = {
+    "strength_training",
+    "weight_training",
+    "indoor_cardio",
+    "hiit",
+    "pilates",
+    "yoga",
+}
 
 # HR zone colour scale (Z1 easy → Z5 max)
 _ZONE_COLORS = ["#4472CA", "#70AD47", "#FFC000", "#FF7A00", "#DC143C"]
@@ -52,16 +59,20 @@ def _load_type_summary(start: str, end: str) -> dict:
 def _load_exercise_sets(garmin_activity_id: str) -> list[dict]:
     """Load exercise sets for a single Garmin strength activity."""
     with get_engine().connect() as conn:
-        rows = conn.execute(
-            text("""
+        rows = (
+            conn.execute(
+                text("""
                 SELECT set_order, set_type, exercise_category, exercise_name,
                        repetition_count, weight_kg, duration_seconds
                 FROM garmin_exercise_sets
                 WHERE activity_id = :aid
                 ORDER BY set_order
             """),
-            {"aid": garmin_activity_id},
-        ).mappings().all()
+                {"aid": garmin_activity_id},
+            )
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
@@ -70,8 +81,9 @@ def _load_exercise_sets(garmin_activity_id: str) -> list[dict]:
 def _load_strength_session_volume(start: str, end: str) -> list[dict]:
     """Load total volume (kg × reps) per strength session for the date range."""
     with get_engine().connect() as conn:
-        rows = conn.execute(
-            text("""
+        rows = (
+            conn.execute(
+                text("""
                 SELECT
                     uw.date,
                     SUM(es.repetition_count * es.weight_kg) AS total_volume_kg
@@ -85,8 +97,11 @@ def _load_strength_session_volume(start: str, end: str) -> list[dict]:
                 GROUP BY uw.date
                 ORDER BY uw.date
             """),
-            {"start": start, "end": end},
-        ).mappings().all()
+                {"start": start, "end": end},
+            )
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
@@ -94,8 +109,9 @@ def _load_strength_session_volume(start: str, end: str) -> list[dict]:
 def _load_strength_max_weight(start: str, end: str) -> list[dict]:
     """Load max weight per tracked exercise per session for the date range."""
     with get_engine().connect() as conn:
-        rows = conn.execute(
-            text("""
+        rows = (
+            conn.execute(
+                text("""
                 SELECT
                     uw.date,
                     es.exercise_name,
@@ -109,8 +125,11 @@ def _load_strength_max_weight(start: str, end: str) -> list[dict]:
                 GROUP BY uw.date, es.exercise_name
                 ORDER BY uw.date, es.exercise_name
             """),
-            {"start": start, "end": end},
-        ).mappings().all()
+                {"start": start, "end": end},
+            )
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
@@ -232,7 +251,11 @@ def _render_detail(w: EnrichedWorkout) -> None:
             # Group by exercise name
             by_exercise: dict[str, list[dict]] = {}
             for s in active_sets:
-                name = (s["exercise_name"] or s["exercise_category"] or "Unknown").replace("_", " ").title()
+                name = (
+                    (s["exercise_name"] or s["exercise_category"] or "Unknown")
+                    .replace("_", " ")
+                    .title()
+                )
                 by_exercise.setdefault(name, []).append(s)
             for ex_name, ex_sets in by_exercise.items():
                 set_rows = []
@@ -242,21 +265,23 @@ def _render_detail(w: EnrichedWorkout) -> None:
                     kg = s["weight_kg"]
                     vol = (reps or 0) * (kg or 0)
                     total_volume += vol
-                    set_rows.append({
-                        "Set": i,
-                        "Reps": reps if reps is not None else "—",
-                        "Weight (kg)": f"{kg:.1f}" if kg is not None else "BW",
-                        "Volume (kg)": f"{vol:.0f}" if (reps and kg) else "—",
-                    })
+                    set_rows.append(
+                        {
+                            "Set": i,
+                            "Reps": reps if reps is not None else "—",
+                            "Weight (kg)": f"{kg:.1f}" if kg is not None else "BW",
+                            "Volume (kg)": f"{vol:.0f}" if (reps and kg) else "—",
+                        }
+                    )
                 vol_str = f"  ·  {total_volume:.0f} kg total volume" if total_volume > 0 else ""
                 st.markdown(f"*{ex_name}* — {len(ex_sets)} sets{vol_str}")
-                st.dataframe(pd.DataFrame(set_rows), width='stretch', hide_index=True)
+                st.dataframe(pd.DataFrame(set_rows), width="stretch", hide_index=True)
 
     # HR zone distribution
     zone_chart = _hr_zone_chart(w)
     if zone_chart is not None:
         st.markdown("**HR Zone Distribution**")
-        st.altair_chart(zone_chart, width='stretch')
+        st.altair_chart(zone_chart, width="stretch")
 
     # Recovery impact
     if w.next_day_recovery is not None:
@@ -342,7 +367,7 @@ def _render_body(start_date: date, end_date: date) -> None:
                     "Efficiency (m/strain)": _fmt(stats["avg_efficiency_score"], ".0f"),
                 }
             )
-        st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     st.divider()
 
@@ -399,7 +424,7 @@ def _render_body(start_date: date, end_date: date) -> None:
                 )
                 .properties(height=320)
             )
-            st.altair_chart(scatter, width='stretch')
+            st.altair_chart(scatter, width="stretch")
             st.caption(
                 "Each dot is one workout. Dots in the upper-right corner indicate high-strain "
                 "sessions your body recovers well from."
@@ -468,7 +493,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=200)
         )
-        st.altair_chart(vol_dist | vol_time, width='stretch')
+        st.altair_chart(vol_dist | vol_time, width="stretch")
         st.caption("Weekly totals across all runs in the selected period.")
 
     st.divider()
@@ -483,9 +508,7 @@ def _render_body(start_date: date, end_date: date) -> None:
         "Ground Contact (ms)": "avg_ground_contact_time_ms",
         "Stride Length (m)": "avg_stride_length",
     }
-    metric_label = st.selectbox(
-        "Metric", list(dyn_metrics.keys()), key="run_dyn_metric"
-    )
+    metric_label = st.selectbox("Metric", list(dyn_metrics.keys()), key="run_dyn_metric")
     field = dyn_metrics[metric_label]
 
     dyn_rows = [
@@ -523,7 +546,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             .properties(height=260)
         )
         layers.append(line)
-        st.altair_chart(alt.layer(*layers), width='stretch')
+        st.altair_chart(alt.layer(*layers), width="stretch")
         if metric_label == "Cadence (spm)":
             st.caption("Green band = optimal cadence zone (170–185 spm).")
         elif metric_label == "Vertical Ratio (%)":
@@ -579,7 +602,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=280)
         )
-        st.altair_chart(pc_scatter, width='stretch')
+        st.altair_chart(pc_scatter, width="stretch")
         st.caption(
             "Y-axis is inverted — lower = faster. Higher cadence with faster pace suggests "
             "efficient turnover rather than overstriding."
@@ -620,7 +643,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=200)
         )
-        st.altair_chart(tl_bar, width='stretch')
+        st.altair_chart(tl_bar, width="stretch")
         st.caption(
             "Garmin training load per run. Hover for aerobic/anaerobic training effect breakdown."
         )
@@ -630,11 +653,7 @@ def _render_body(start_date: date, end_date: date) -> None:
     # ── 6e. VO2 Max Trend ─────────────────────────────────────────────────────
     st.markdown("**VO2 Max Trend**")
 
-    vo2_rows = [
-        {"Date": w.date, "VO2 Max": w.vo2_max}
-        for w in runs
-        if w.vo2_max is not None
-    ]
+    vo2_rows = [{"Date": w.date, "VO2 Max": w.vo2_max} for w in runs if w.vo2_max is not None]
 
     if len(vo2_rows) < 2:
         st.info("Not enough VO2 max readings in this period.")
@@ -657,14 +676,17 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=200)
         )
-        st.altair_chart(vo2_line, width='stretch')
-        st.caption("Garmin estimated VO2 max from run effort. Upward trend indicates improving aerobic fitness.")
+        st.altair_chart(vo2_line, width="stretch")
+        st.caption(
+            "Garmin estimated VO2 max from run effort. Upward trend indicates improving aerobic fitness."
+        )
 
     st.divider()
 
     # ── 7. STRENGTH SECTION ───────────────────────────────────────────────────
     strength_workouts = [
-        w for w in sorted(workouts, key=lambda x: x.date)
+        w
+        for w in sorted(workouts, key=lambda x: x.date)
         if (w.activity_type or "").lower() in _STRENGTH_TYPES
     ]
 
@@ -722,8 +744,10 @@ def _render_body(start_date: date, end_date: date) -> None:
                     )
                     .properties(height=320)
                 )
-                st.altair_chart(weight_chart, width='stretch')
-                st.caption("Max weight lifted per session. New exercises appear automatically once synced.")
+                st.altair_chart(weight_chart, width="stretch")
+                st.caption(
+                    "Max weight lifted per session. New exercises appear automatically once synced."
+                )
 
         st.divider()
 
@@ -751,7 +775,7 @@ def _render_body(start_date: date, end_date: date) -> None:
                 )
                 .properties(height=240)
             )
-            st.altair_chart(vol_chart, width='stretch')
+            st.altair_chart(vol_chart, width="stretch")
             st.caption("Total volume = sum of (weight × reps) across all sets in the session.")
 
         st.divider()
@@ -790,7 +814,11 @@ def _render_body(start_date: date, end_date: date) -> None:
 
             dur_line = (
                 alt.Chart(sd_df[sd_df["Duration (min)"].notna()])
-                .mark_line(color="#4472CA", strokeDash=[4, 2], point=alt.OverlayMarkDef(color="#4472CA", size=60))
+                .mark_line(
+                    color="#4472CA",
+                    strokeDash=[4, 2],
+                    point=alt.OverlayMarkDef(color="#4472CA", size=60),
+                )
                 .encode(
                     x=alt.X("date:O", title="Date"),
                     y=alt.Y(
@@ -810,14 +838,18 @@ def _render_body(start_date: date, end_date: date) -> None:
                 .resolve_scale(y="independent")
                 .properties(height=260)
             )
-            st.altair_chart(combined, width='stretch')
-            st.caption("Bars = Whoop strain (left axis) · Dashed line = session duration (right axis).")
+            st.altair_chart(combined, width="stretch")
+            st.caption(
+                "Bars = Whoop strain (left axis) · Dashed line = session duration (right axis)."
+            )
 
     st.divider()
 
     # ── 8. WORKOUT LOG ────────────────────────────────────────────────────────
     st.subheader("Workout Log")
-    st.caption("Click a row to expand full details, HR zone breakdown, exercise sets, and recovery impact.")
+    st.caption(
+        "Click a row to expand full details, HR zone breakdown, exercise sets, and recovery impact."
+    )
 
     for w in sorted(workouts, key=lambda x: x.date, reverse=True):
         badge = _source_badge(w)

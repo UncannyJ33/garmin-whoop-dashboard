@@ -304,8 +304,8 @@ class TestComputeFromData:
         result = _compute_from_data(self.TARGET, daily, sleep)
         # body_battery should have effective_weight 0
         assert result.contributing_factors["body_battery"]["effective_weight"] == 0.0
-        # confidence = sum of available weights = 1 - 0.20
-        assert result.confidence == pytest.approx(0.80, abs=0.001)
+        # confidence = sum of available weights = 1 - 0.15
+        assert result.confidence == pytest.approx(0.85, abs=0.001)
         # remaining effective weights should sum to 1
         total_eff = sum(v["effective_weight"] for v in result.contributing_factors.values())
         assert total_eff == pytest.approx(1.0, abs=0.001)
@@ -315,7 +315,7 @@ class TestComputeFromData:
         sleep = {self.TARGET.isoformat(): _sleep_row(80.0)}
         result = _compute_from_data(self.TARGET, daily, sleep)
         assert result.contributing_factors["whoop_recovery"]["effective_weight"] == 0.0
-        assert result.confidence == pytest.approx(0.70, abs=0.001)
+        assert result.confidence == pytest.approx(0.75, abs=0.001)
 
     def test_only_whoop_recovery_present(self):
         # All other fields None — only recovery contributes
@@ -487,7 +487,7 @@ class TestComputeReadiness:
             s.commit()
         result = compute_readiness(target, engine)
         # body_battery weight redistributed; confidence < 1
-        assert result.confidence == pytest.approx(0.80, abs=0.001)
+        assert result.confidence == pytest.approx(0.85, abs=0.001)
         assert result.contributing_factors["body_battery"]["effective_weight"] == 0.0
 
     def test_date_with_no_data_returns_default(self, engine):

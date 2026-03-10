@@ -521,8 +521,8 @@ export function Sleep() {
                   />
                   <Tooltip content={<StageTooltip />} labelFormatter={fmtDate} />
                   <Area type="monotone" dataKey="Deep"  stackId="a" fill="#4f46e5" stroke="none" fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="REM"   stackId="a" fill="#c084fc" stroke="none" fillOpacity={0.85} />
                   <Area type="monotone" dataKey="Light" stackId="a" fill="#60a5fa" stroke="none" fillOpacity={0.85} />
+                  <Area type="monotone" dataKey="REM"   stackId="a" fill="#c084fc" stroke="none" fillOpacity={0.85} />
                   <Area type="monotone" dataKey="Awake" stackId="a" fill="#94a3b8" stroke="none" fillOpacity={0.85} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -530,8 +530,8 @@ export function Sleep() {
               <div className="flex flex-wrap gap-3 mt-2">
                 {[
                   { label: 'Deep',  color: '#4f46e5' },
-                  { label: 'REM',   color: '#c084fc' },
                   { label: 'Light', color: '#60a5fa' },
+                  { label: 'REM',   color: '#c084fc' },
                   { label: 'Awake', color: '#94a3b8' },
                 ].map(({ label, color }) => (
                   <span key={label} className="flex items-center gap-1.5 text-2xs text-slate-500">

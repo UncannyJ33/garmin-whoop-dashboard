@@ -122,21 +122,29 @@ def _render_body(start_date: date, end_date: date) -> None:
         st.info("No strain activities in range.")
     else:
         strain_sorted = wdf.sort_values("date")
-        daily_peak = strain_sorted.groupby("date")["whoop_strain"].max().reset_index()
+        # Exclude trivially-low strain rows (< 1.0) — e.g. walks, drives logged with near-zero strain
+        strain_with_data = strain_sorted[
+            strain_sorted["whoop_strain"].notna() & (strain_sorted["whoop_strain"] >= 1.0)
+        ]
+        if strain_with_data.empty:
+            st.info("No non-zero strain activities in range.")
+            return
 
-        top_activity = strain_sorted.loc[
-            strain_sorted.groupby("date")["whoop_strain"].idxmax(), ["date", "activity_type"]
+        daily_peak = strain_with_data.groupby("date")["whoop_strain"].max().reset_index()
+
+        top_activity = strain_with_data.loc[
+            strain_with_data.groupby("date")["whoop_strain"].idxmax(), ["date", "activity_type"]
         ].reset_index(drop=True)
 
         def _day_summary(g: pd.DataFrame) -> str:
             return ", ".join(
                 f"{row['activity_type']} ({row['whoop_strain']:.1f})"
                 for _, row in g.sort_values("whoop_strain", ascending=False).iterrows()
-                if pd.notna(row["whoop_strain"])
+                if pd.notna(row["whoop_strain"]) and row["whoop_strain"] >= 1.0
             )
 
         all_activities = (
-            strain_sorted.groupby("date")[["activity_type", "whoop_strain"]]
+            strain_with_data.groupby("date")[["activity_type", "whoop_strain"]]
             .apply(_day_summary)
             .reset_index(name="all_activities")
         )
@@ -158,7 +166,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .properties(height=220)
         )
-        st.altair_chart(strain_chart, width='stretch')
+        st.altair_chart(strain_chart, width="stretch")
 
     # ── Strain Activity Categories ─────────────────────────────────────────
     st.subheader("Strain Activity Categories")
@@ -171,7 +179,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             .rename_axis("activity_type")
             .reset_index(name="count")
         )
-        st.altair_chart(_category_bar(strain_counts, "activity_type"), width='stretch')
+        st.altair_chart(_category_bar(strain_counts, "activity_type"), width="stretch")
 
     # ── Recent Workouts table ──────────────────────────────────────────────
     st.subheader("Recent Workouts")
@@ -190,7 +198,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             .rename(columns=display_cols)
             .reset_index(drop=True)
         )
-        st.dataframe(workouts_display, width='stretch')
+        st.dataframe(workouts_display, width="stretch")
 
     # ── Running Data ───────────────────────────────────────────────────────
     st.subheader("Running Data (Garmin)")
@@ -218,7 +226,7 @@ def _render_body(start_date: date, end_date: date) -> None:
             rd_df[[c for c in rd_cols if c in rd_df.columns]]
             .rename(columns=rd_cols)
             .reset_index(drop=True),
-            width='stretch',
+            width="stretch",
         )
 
     # ── Recovery Activity Categories ───────────────────────────────────────
@@ -229,7 +237,7 @@ def _render_body(start_date: date, end_date: date) -> None:
         recovery_counts = (
             rdf["sport_name"].value_counts().rename_axis("sport_name").reset_index(name="count")
         )
-        st.altair_chart(_category_bar(recovery_counts, "sport_name"), width='stretch')
+        st.altair_chart(_category_bar(recovery_counts, "sport_name"), width="stretch")
 
     # ── Recent recoveries table ────────────────────────────────────────────
     st.subheader("Recent Recoveries")
@@ -245,4 +253,4 @@ def _render_body(start_date: date, end_date: date) -> None:
             )
             .reset_index(drop=True)
         )
-        st.dataframe(recoveries_display, width='stretch')
+        st.dataframe(recoveries_display, width="stretch")

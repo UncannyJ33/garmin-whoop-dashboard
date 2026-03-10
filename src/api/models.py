@@ -196,3 +196,59 @@ class SyncTriggerResponse(BaseModel):
     started_at: str
     completed_at: str | None = None
     error_message: str | None = None
+
+
+class DataStatsResponse(BaseModel):
+    total_days: int
+    total_workouts: int
+    matched_workouts: int
+    date_start: str | None = None
+    date_end: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Exercise Sets / Strength
+# ---------------------------------------------------------------------------
+
+
+class ExerciseSetItem(BaseModel):
+    set_order: int | None = None
+    exercise_category: str | None = None
+    exercise_name: str | None = None
+    repetition_count: int | None = None
+    weight_kg: float | None = None
+    duration_seconds: float | None = None
+
+
+class StrengthVolumeItem(BaseModel):
+    date: str
+    total_volume_kg: float
+
+
+class StrengthMaxWeightItem(BaseModel):
+    date: str
+    exercise_name: str
+    max_weight_kg: float
+
+
+# ---------------------------------------------------------------------------
+# Recovery Activities
+# ---------------------------------------------------------------------------
+
+
+class RecoveryActivityItem(BaseModel):
+    date: str
+    activity: str
+    dur_min: float | None = None
+    same_day_recovery: float | None = None
+    next_day_recovery: float | None = None
+    next_day_hrv: float | None = None
+    next_day_sleep_perf: float | None = None
+    next_day_sleep_min: float | None = None
+
+
+class WithWithoutResponse(BaseModel):
+    with_avg: float | None = None
+    without_avg: float | None = None
+    with_count: int
+    without_count: int

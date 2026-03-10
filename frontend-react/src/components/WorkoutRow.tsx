@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import type { EnrichedWorkout } from '../types/api'
 import { DataSourceBadge } from './DataSourceBadge'
+import { useExerciseSets } from '../hooks/useApi'
+
+const STRENGTH_TYPES = new Set([
+  'strength_training', 'weight_training', 'indoor_cardio', 'hiit', 'pilates', 'yoga',
+])
+
+const KG_TO_LB = 2.20462
 
 function fmtDur(min: number | null): string {
   if (min === null) return '—'
@@ -59,6 +66,85 @@ function HRZoneBar({ zones }: { zones: EnrichedWorkout['hr_zone_minutes'] }) {
   )
 }
 
+function ExerciseSets({ workoutId }: { workoutId: string }) {
+  const setsQ = useExerciseSets(workoutId, true)
+
+  if (setsQ.isLoading) {
+    return <div className="skeleton h-16 rounded-lg" />
+  }
+  if (!setsQ.data?.length) {
+    return <p className="text-xs text-slate-500">No exercise set data — run a sync to fetch strength set details.</p>
+  }
+
+  // Group by exercise name (fall back to category or 'Unknown')
+  const grouped: Record<string, typeof setsQ.data> = {}
+  for (const s of setsQ.data) {
+    const key = (s.exercise_name || s.exercise_category || 'Unknown')
+      .replace(/_/g, ' ')
+      .split(' ')
+      .map(w => w[0].toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ')
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(s)
+  }
+
+  return (
+    <div className="space-y-3">
+      {Object.entries(grouped).map(([exName, sets]) => {
+        const totalVolumeLb = sets.reduce((sum, s) => {
+          const reps = s.repetition_count ?? 0
+          const kg = s.weight_kg ?? 0
+          return sum + reps * kg * KG_TO_LB
+        }, 0)
+        return (
+          <div key={exName}>
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {exName}
+              {totalVolumeLb > 0 && (
+                <span className="ml-2 font-normal text-slate-500">
+                  · {totalVolumeLb.toFixed(0)} lb total
+                </span>
+              )}
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left border-b border-surface-border">
+                    {['Set', 'Reps', 'Weight (lb)', 'Volume (lb)'].map(h => (
+                      <th key={h} className="pb-1 pr-4 text-slate-500 font-medium last:pr-0">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sets.map((s, i) => {
+                    const lb = s.weight_kg !== null ? s.weight_kg * KG_TO_LB : null
+                    const vol = s.repetition_count !== null && lb !== null
+                      ? s.repetition_count * lb : null
+                    return (
+                      <tr key={i} className="border-b border-surface-border last:border-0">
+                        <td className="py-1.5 pr-4 font-mono text-slate-500">{i + 1}</td>
+                        <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
+                          {s.repetition_count ?? '—'}
+                        </td>
+                        <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
+                          {lb !== null ? lb.toFixed(1) : 'BW'}
+                        </td>
+                        <td className="py-1.5 font-mono text-slate-700 dark:text-slate-300">
+                          {vol !== null ? vol.toFixed(0) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 interface WorkoutRowProps {
   workout: EnrichedWorkout
 }
@@ -70,6 +156,7 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
   const activityLabel = (w.activity_type ?? 'Unknown')
     .split('_').map(s => s[0].toUpperCase() + s.slice(1)).join(' ')
   const isRun = (w.activity_type ?? '').toLowerCase().includes('run')
+  const isStrength = STRENGTH_TYPES.has((w.activity_type ?? '').toLowerCase())
 
   return (
     <div className="card-sm border border-surface-border overflow-hidden">
@@ -167,6 +254,14 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Exercise Sets — only for strength */}
+          {isStrength && (
+            <div>
+              <p className="metric-label mb-2">Exercise Sets</p>
+              <ExerciseSets workoutId={w.id} />
             </div>
           )}
 

@@ -291,10 +291,7 @@ def _build_insight(
     today_daily = daily_by_date.get(wake_date, {})
 
     # 7-day rolling average (ending at wake_date, inclusive) — awake time excluded
-    last_7 = [
-        _net_sleep(sleep_history_by_date.get(_add_days(wake_date, -i), {}))
-        for i in range(7)
-    ]
+    last_7 = [_net_sleep(sleep_history_by_date.get(_add_days(wake_date, -i), {})) for i in range(7)]
     rolling_avg = _avg_nonull(last_7)
     debt = (rolling_avg - target_sleep_minutes) if rolling_avg is not None else None
 

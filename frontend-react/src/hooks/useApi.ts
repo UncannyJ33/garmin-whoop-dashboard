@@ -1,16 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type {
+  DataStats,
   EnrichedWorkout,
+  ExerciseSet,
   MetricTrend,
   ReadinessHistoryPoint,
   ReadinessResult,
+  RecoveryActivity,
   SleepConsistency,
   SleepCorrelations,
   SleepInsight,
+  StrengthMaxWeight,
+  StrengthVolume,
   SyncStatus,
   SyncTriggerResponse,
   WeeklySummary,
+  WithWithoutResponse,
   WorkoutTypeSummary,
 } from '../types/api'
 
@@ -58,6 +64,34 @@ export function useWorkoutDetail(id: string) {
     staleTime: 30 * 60 * 1000, // workout details don't change
     retry: 1,
     enabled: !!id,
+  })
+}
+
+export function useExerciseSets(workoutId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['workouts', 'exercise-sets', workoutId],
+    queryFn: () => api.get<ExerciseSet[]>(`/api/workouts/${workoutId}/exercise-sets`),
+    staleTime: 30 * 60 * 1000,
+    retry: 1,
+    enabled: !!workoutId && enabled,
+  })
+}
+
+export function useStrengthVolume(start: string, end: string) {
+  return useQuery({
+    queryKey: ['workouts', 'strength-volume', start, end],
+    queryFn: () => api.get<StrengthVolume[]>(`/api/workouts/strength-volume?start=${start}&end=${end}`),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+export function useStrengthMaxWeight(start: string, end: string) {
+  return useQuery({
+    queryKey: ['workouts', 'strength-max-weight', start, end],
+    queryFn: () => api.get<StrengthMaxWeight[]>(`/api/workouts/strength-max-weight?start=${start}&end=${end}`),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
   })
 }
 
@@ -143,10 +177,41 @@ export function useAnomalies(start: string, end: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Recovery Activities
+// ---------------------------------------------------------------------------
+
+export function useRecovery(start: string, end: string) {
+  return useQuery({
+    queryKey: ['recovery', start, end],
+    queryFn: () => api.get<RecoveryActivity[]>(`/api/recovery?start=${start}&end=${end}`),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+export function useRecoveryWithWithout(start: string, end: string) {
+  return useQuery({
+    queryKey: ['recovery', 'with-without', start, end],
+    queryFn: () => api.get<WithWithoutResponse>(`/api/recovery/with-without?start=${start}&end=${end}`),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Sync / Settings
 // ---------------------------------------------------------------------------
 
 // Backend returns list[SyncStatusItem] for whoop + garmin
+export function useDataStats() {
+  return useQuery({
+    queryKey: ['sync', 'stats'],
+    queryFn: () => api.get<DataStats>('/api/sync/stats'),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+}
+
 export function useSyncStatus() {
   return useQuery({
     queryKey: ['sync', 'status'],

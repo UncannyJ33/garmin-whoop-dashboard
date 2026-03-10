@@ -376,7 +376,7 @@ def test_sync_activities_skips_on_empty_list(db):
     mock_client.get_activities.return_value = []
 
     pipeline = GarminPipeline(db, client=mock_client)
-    fetched, stored = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
+    fetched, stored, _ = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
 
     assert fetched == 0
     assert stored == 0
@@ -388,7 +388,7 @@ def test_sync_activities_stores_multiple(db):
     mock_client.get_activities.return_value = [SAMPLE_ACTIVITY, second_activity]
 
     pipeline = GarminPipeline(db, client=mock_client)
-    fetched, stored = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
+    fetched, stored, _ = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
 
     assert fetched == 2
     assert stored == 2
