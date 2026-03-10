@@ -41,9 +41,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         `}
       >
         {/* Logo */}
-        <div className="flex h-14 items-center px-4 border-b border-white/5">
+        <div
+          className="flex items-center px-4 border-b border-white/5"
+          style={{ minHeight: '56px', paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        >
           <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 tracking-wide">
-            Fitness<span className="text-brand"> Dashboard</span>
+            Pulse<span className="text-brand">Engine</span>
           </span>
         </div>
 

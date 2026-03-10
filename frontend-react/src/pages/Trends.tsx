@@ -107,6 +107,9 @@ const ANOMALY_COLORS: Record<string, string> = {
   'Deep Sleep':     '#4f46e5',
 }
 
+// Metrics where higher = worse (a high anomaly is bad, a low anomaly is good)
+const LOWER_IS_BETTER_ANOMALY = new Set(['Resting HR'])
+
 // ── severity classification ────────────────────────────────────────────────────
 
 function severityLabel(s: number): { label: string; color: string } {
@@ -442,6 +445,8 @@ export function Trends() {
                 {anomaliesQ.data.map((a, i) => {
                   const { label: sLabel, color: sColor } = severityLabel(a.severity)
                   const dotColor = ANOMALY_COLORS[a.metric] ?? '#94a3b8'
+                  const isLowerBetter = LOWER_IS_BETTER_ANOMALY.has(a.metric)
+                  const isGoodDirection = isLowerBetter ? a.direction === 'low' : a.direction === 'high'
                   return (
                     <tr key={i} className="border-b border-surface-border last:border-0 text-slate-600 dark:text-slate-400">
                       <td className="py-2 pr-4 font-mono text-slate-500 whitespace-nowrap">
@@ -459,7 +464,7 @@ export function Trends() {
                       <td className="py-2 pr-4 font-mono text-right text-slate-700 dark:text-slate-300">
                         {a.value.toFixed(1)}
                       </td>
-                      <td className={`py-2 pr-4 font-medium ${a.direction === 'high' ? 'text-good' : 'text-poor'}`}>
+                      <td className={`py-2 pr-4 font-medium ${isGoodDirection ? 'text-good' : 'text-poor'}`}>
                         {a.direction === 'high' ? '↑ High' : '↓ Low'}
                       </td>
                       <td className={`py-2 font-medium ${sColor}`}>{sLabel}</td>

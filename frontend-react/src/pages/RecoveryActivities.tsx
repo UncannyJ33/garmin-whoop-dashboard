@@ -27,6 +27,15 @@ const TYPE_COLORS = [
   '#4472CA', '#70AD47', '#FFC000', '#FF7A00', '#DC143C', '#9467BD', '#8C564B',
 ]
 
+/** Stable color for an activity name — same name always gets the same color. */
+function colorForActivity(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0
+  }
+  return TYPE_COLORS[Math.abs(hash) % TYPE_COLORS.length]
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string): string {
@@ -249,7 +258,7 @@ export function RecoveryActivities() {
                       key={act}
                       dataKey={act}
                       stackId="a"
-                      fill={TYPE_COLORS[i % TYPE_COLORS.length]}
+                      fill={colorForActivity(act)}
                       radius={i === allActivityTypes.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
                     />
                   ))}
@@ -263,7 +272,7 @@ export function RecoveryActivities() {
                   <span key={act} className="flex items-center gap-1.5 text-2xs text-slate-500">
                     <span
                       className="inline-block h-2 w-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: TYPE_COLORS[i % TYPE_COLORS.length] }}
+                      style={{ backgroundColor: colorForActivity(act) }}
                     />
                     {act}
                   </span>
@@ -284,10 +293,9 @@ export function RecoveryActivities() {
                   <XAxis
                     dataKey="date"
                     type="category"
-                    tick={{ fontSize: 10 }}
+                    tick={false}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={fmtDate}
                   />
                   <YAxis
                     dataKey="dur"
@@ -319,9 +327,9 @@ export function RecoveryActivities() {
                         key={act}
                         name={act}
                         data={pts}
-                        fill={TYPE_COLORS[i % TYPE_COLORS.length]}
+                        fill={colorForActivity(act)}
                         fillOpacity={0.8}
-                        r={5}
+                        r={8}
                       />
                     ) : null
                   })}
@@ -434,9 +442,9 @@ export function RecoveryActivities() {
                         key={act}
                         name={act}
                         data={pts}
-                        fill={TYPE_COLORS[i % TYPE_COLORS.length]}
+                        fill={colorForActivity(act)}
                         fillOpacity={0.8}
-                        r={5}
+                        r={8}
                       />
                     ) : null
                   })}
@@ -449,7 +457,7 @@ export function RecoveryActivities() {
                     <span key={act} className="flex items-center gap-1.5 text-2xs text-slate-500">
                       <span
                         className="inline-block h-2 w-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: TYPE_COLORS[i % TYPE_COLORS.length] }}
+                        style={{ backgroundColor: colorForActivity(act) }}
                       />
                       {act}
                     </span>

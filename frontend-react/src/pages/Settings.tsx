@@ -193,7 +193,7 @@ export function Settings() {
                 <button
                   onClick={() => handleSync(source.source)}
                   disabled={isSyncing || trigger.isPending}
-                  className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60 transition-opacity"
+                  className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-500 disabled:text-white/60 disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
                 >
                   {isSyncing ? <><Spinner /> Syncing…</> : 'Sync Now'}
                 </button>

@@ -30,12 +30,18 @@ import type { CorrelationResult, SleepInsight } from '../types/api'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-/** Decimal hour (e.g. 22.75) → "10:45 PM". Handles post-midnight values > 24. */
-function fmtHour(h: number | null): string {
-  if (h === null) return '—'
-  const norm = ((h % 24) + 24) % 24
-  const hh = Math.floor(norm)
-  const mm = Math.round((norm - hh) * 60)
+/**
+ * UTC decimal hour (e.g. 22.75) → local time string (e.g. "6:45 PM" in ET).
+ * avg_bedtime_hour / avg_wake_hour from the API are computed from UTC timestamps.
+ */
+function fmtHour(utcHour: number | null): string {
+  if (utcHour === null) return '—'
+  const norm = ((utcHour % 24) + 24) % 24
+  // Build a Date at that UTC hour so JS can apply the local timezone offset
+  const d = new Date()
+  d.setUTCHours(Math.floor(norm), Math.round((norm % 1) * 60), 0, 0)
+  const hh = d.getHours()
+  const mm = d.getMinutes()
   const period = hh >= 12 ? 'PM' : 'AM'
   const h12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh
   return `${h12}:${mm.toString().padStart(2, '0')} ${period}`
@@ -172,12 +178,9 @@ function CorrelationCard({
         <>
           {children}
           {corrResult && corrResult.r !== null && (
-            <div className="flex items-center gap-1.5 pt-1 border-t border-surface-border">
+            <div className="pt-1 border-t border-surface-border">
               <span className={`text-2xs font-semibold ${corrColor(corrResult.r)}`}>
                 {corrStrength(corrResult.r)} correlation
-              </span>
-              <span className="text-2xs text-slate-500 font-mono">
-                r={corrResult.r.toFixed(2)}, n={corrResult.n}
               </span>
             </div>
           )}
@@ -266,6 +269,16 @@ export function Sleep() {
   const corr = correlationsQ.data
   const cons = consistencyQ.data
 
+  // Time in bed = all stages (includes awake periods)
+  const timeInBedMinutes = useMemo(() => {
+    if (!lastNight) return null
+    const total = (lastNight.deep_minutes ?? 0)
+      + (lastNight.light_minutes ?? 0)
+      + (lastNight.rem_minutes ?? 0)
+      + (lastNight.awake_minutes ?? 0)
+    return total > 0 ? total : null
+  }, [lastNight])
+
   if (insightsQ.isError) {
     return (
       <div className="space-y-4">
@@ -330,7 +343,12 @@ export function Sleep() {
             />
 
             {/* Metric grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <MetricCard
+                label="Time in Bed"
+                value={timeInBedMinutes !== null ? fmtHours(timeInBedMinutes) : null}
+                status="neutral"
+              />
               <MetricCard
                 label="Sleep Performance"
                 value={lastNight.sleep_performance !== null ? Math.round(lastNight.sleep_performance) : null}
@@ -442,7 +460,7 @@ export function Sleep() {
                     type="monotone"
                     dataKey="deep"
                     name="Deep"
-                    stroke="#4f46e5"
+                    stroke="#f97316"
                     strokeWidth={1.5}
                     strokeDasharray="3 2"
                     dot={false}
@@ -470,7 +488,7 @@ export function Sleep() {
               {[
                 { label: 'Sleep', color: '#60a5fa' },
                 { label: '7d avg', color: '#fb923c' },
-                ...(showDeep ? [{ label: 'Deep', color: '#4f46e5' }] : []),
+                ...(showDeep ? [{ label: 'Deep', color: '#f97316' }] : []),
                 { label: 'Short night', color: '#ef4444' },
               ].map(({ label, color }) => (
                 <span key={label} className="flex items-center gap-1.5 text-2xs text-slate-500">
@@ -534,7 +552,7 @@ export function Sleep() {
                   { label: 'REM',   color: '#c084fc' },
                   { label: 'Awake', color: '#94a3b8' },
                 ].map(({ label, color }) => (
-                  <span key={label} className="flex items-center gap-1.5 text-2xs text-slate-500">
+                  <span key={label} className="flex items-center gap-1.5 text-2xs text-slate-500 whitespace-nowrap">
                     <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
                     {label}
                   </span>

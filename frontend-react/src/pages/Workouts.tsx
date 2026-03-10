@@ -258,11 +258,11 @@ export function Workouts() {
     }
   }, [workouts])
 
-  // Filtered + paginated list
-  const filtered = useMemo(
-    () => filterType ? workouts.filter(w => w.activity_type === filterType) : workouts,
-    [workouts, filterType],
-  )
+  // Filtered + paginated list (newest first)
+  const filtered = useMemo(() => {
+    const list = filterType ? workouts.filter(w => w.activity_type === filterType) : workouts
+    return [...list].sort((a, b) => (b.date > a.date ? 1 : -1))
+  }, [workouts, filterType])
   const visible = filtered.slice(0, visibleCount)
 
   // Scatter data grouped by type
@@ -272,6 +272,7 @@ export function Workouts() {
     for (const w of workouts) {
       if (w.strain === null || w.next_day_recovery === null) continue
       const type = w.activity_type ?? 'unknown'
+      if (type === 'unknown') continue
       if (!result[type]) result[type] = []
       result[type].push({ x: w.strain, y: w.next_day_recovery, type })
     }
@@ -307,7 +308,12 @@ export function Workouts() {
   const selectedDyn = DYN_METRICS[dynMetricIdx]
   const dynData = useMemo(() =>
     runs
-      .map(w => ({ date: w.date, value: w[selectedDyn.field as keyof EnrichedWorkout] as number | null }))
+      .map(w => {
+        const raw = w[selectedDyn.field as keyof EnrichedWorkout] as number | null
+        // avg_stride_length is stored in cm — convert to metres for display
+        const value = raw !== null && selectedDyn.field === 'avg_stride_length' ? raw / 100 : raw
+        return { date: w.date, value }
+      })
       .filter((r): r is { date: string; value: number } => r.value !== null),
     [runs, selectedDyn.field],
   )
@@ -545,13 +551,13 @@ export function Workouts() {
           ) : (
             <>
               <ResponsiveContainer width="100%" height={220}>
-                <ScatterChart margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
+                <ScatterChart margin={{ top: 4, right: 8, bottom: 20, left: -8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="x"
                     type="number"
                     name="Strain"
-                    label={{ value: 'Strain', position: 'insideBottom', offset: -2, fontSize: 10, fill: '#64748b' }}
+                    label={{ value: 'Strain', position: 'insideBottom', offset: -8, fontSize: 10, fill: '#64748b' }}
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
@@ -574,7 +580,7 @@ export function Workouts() {
                       data={scatterByType[type]}
                       fill={colorForType(type, allTypes)}
                       fillOpacity={0.75}
-                      r={5}
+                      r={8}
                     />
                   ))}
                 </ScatterChart>
@@ -760,7 +766,7 @@ export function Workouts() {
                     }}
                     cursor={{ strokeDasharray: '3 3' }}
                   />
-                  <Scatter data={paceCadenceData} fill="#4472CA" fillOpacity={0.75} r={5} />
+                  <Scatter data={paceCadenceData} fill="#4472CA" fillOpacity={0.75} r={8} />
                 </ScatterChart>
               </ResponsiveContainer>
               <ChartCaption text="Higher cadence + lower pace value = faster, more efficient running." />
