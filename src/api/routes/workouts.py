@@ -12,6 +12,8 @@ from src.analytics.workout_analysis import (
     get_workout_type_summary,
 )
 from src.api.dependencies import get_engine_dep
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 from src.api.models import (
     EnrichedWorkoutResponse,
     ExerciseSetItem,
@@ -32,6 +34,7 @@ async def workout_summary(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> list[WorkoutTypeSummaryItem]:
     """Aggregate stats grouped by activity type for the given date range."""
     if start > end:
@@ -55,6 +58,7 @@ async def strength_volume(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    current_user: User = Depends(get_current_user),
 ) -> list[StrengthVolumeItem]:
     """Return total volume (kg × reps) per strength session date in range."""
     if start > end:
@@ -69,6 +73,7 @@ async def strength_volume(
                 FROM unified_workouts uw
                 JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
                 WHERE uw.date BETWEEN :start AND :end
+                  AND uw.user_id = :uid
                   AND es.set_type = 'ACTIVE'
                   AND es.repetition_count IS NOT NULL
                   AND es.weight_kg IS NOT NULL
@@ -76,7 +81,7 @@ async def strength_volume(
                 GROUP BY uw.date
                 ORDER BY uw.date
             """),
-                {"start": str(start), "end": str(end)},
+                {"start": str(start), "end": str(end), "uid": current_user.id},
             )
             .mappings()
             .all()
@@ -93,6 +98,7 @@ async def strength_max_weight(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    current_user: User = Depends(get_current_user),
 ) -> list[StrengthMaxWeightItem]:
     """Return max weight (kg) per tracked exercise per session date in range."""
     if start > end:
@@ -108,6 +114,7 @@ async def strength_max_weight(
                 FROM unified_workouts uw
                 JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
                 WHERE uw.date BETWEEN :start AND :end
+                  AND uw.user_id = :uid
                   AND es.set_type = 'ACTIVE'
                   AND es.weight_kg IS NOT NULL
                   AND es.weight_kg > 0
@@ -115,7 +122,7 @@ async def strength_max_weight(
                 GROUP BY uw.date, es.exercise_name
                 ORDER BY uw.date, es.exercise_name
             """),
-                {"start": str(start), "end": str(end)},
+                {"start": str(start), "end": str(end), "uid": current_user.id},
             )
             .mappings()
             .all()
@@ -139,6 +146,7 @@ async def list_workouts(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> list[EnrichedWorkoutResponse]:
     """Return all enriched workouts in the date range, sorted by date ascending."""
     if start > end:
@@ -158,6 +166,7 @@ async def list_workouts(
 async def get_exercise_sets(
     workout_id: str,
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> list[ExerciseSetItem]:
     """Return active exercise sets for a unified workout (strength only)."""
     with engine.connect() as conn:
@@ -194,6 +203,7 @@ async def get_exercise_sets(
 async def get_workout(
     workout_id: str,
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> EnrichedWorkoutResponse:
     """Return a single enriched workout by its unified_workouts ID."""
     try:

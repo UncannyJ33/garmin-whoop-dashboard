@@ -1,4 +1,9 @@
-"""Recovery Activities API routes."""
+"""Recovery Activities API routes.
+
+SQL uses only portable constructs (SUBSTR for date extraction) so it runs
+on both SQLite and PostgreSQL.  Duration and next-day date arithmetic is
+done in Python to avoid dialect-specific functions (strftime, interval).
+"""
 
 from datetime import date, timedelta
 
@@ -7,28 +12,18 @@ from sqlalchemy import Engine, text
 
 from src.api.dependencies import get_engine_dep
 from src.api.models import RecoveryActivityItem, WithWithoutResponse
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 
 router = APIRouter(prefix="/api/recovery", tags=["recovery"])
 
+# Fetch raw activity rows — portable SQL (SUBSTR works on SQLite + PostgreSQL)
 _ACTIVITY_QUERY = """
 SELECT
-    DATE(ww.start_time)                                                   AS date,
-    COALESCE(ww.sport_name, 'Unknown')                                    AS activity,
-    ROUND(
-        (strftime('%s', ww.end_time) - strftime('%s', ww.start_time))
-        / 60.0, 1)                                                        AS dur_min,
-    ud.whoop_recovery_score                                               AS same_day_recovery,
-    ud_next.whoop_recovery_score                                          AS next_day_recovery,
-    ud_next.whoop_hrv_rmssd                                               AS next_day_hrv,
-    us.whoop_performance                                                  AS next_day_sleep_perf,
-    us.total_sleep_minutes                                                AS next_day_sleep_min
+    ww.start_time,
+    ww.end_time,
+    COALESCE(ww.sport_name, 'Unknown') AS activity
 FROM whoop_workouts ww
-LEFT JOIN unified_daily ud
-       ON ud.date = DATE(ww.start_time)
-LEFT JOIN unified_daily ud_next
-       ON ud_next.date = DATE(ww.start_time, '+1 day')
-LEFT JOIN unified_sleep us
-       ON us.date = DATE(ww.start_time, '+1 day')
 WHERE ww.strain IS NULL
   AND ww.end_time IS NOT NULL
   AND ww.start_time >= :start
@@ -36,8 +31,20 @@ WHERE ww.strain IS NULL
 ORDER BY ww.start_time DESC
 """
 
+_UNIFIED_DAILY_QUERY = """
+SELECT date, whoop_recovery_score, whoop_hrv_rmssd
+FROM unified_daily
+WHERE date BETWEEN :start AND :end
+"""
+
+_UNIFIED_SLEEP_QUERY = """
+SELECT date, whoop_performance, total_sleep_minutes
+FROM unified_sleep
+WHERE date BETWEEN :start AND :end
+"""
+
 _ALL_RECOVERY_DATES_QUERY = """
-SELECT DISTINCT DATE(start_time) AS date
+SELECT DISTINCT SUBSTR(start_time, 1, 10) AS date
 FROM whoop_workouts
 WHERE strain IS NULL AND end_time IS NOT NULL
 """
@@ -50,6 +57,17 @@ WHERE date >= :start AND date <= :end
 """
 
 
+def _duration_minutes(start_str: str, end_str: str) -> float | None:
+    """Compute duration in minutes from two ISO 8601 strings."""
+    try:
+        from datetime import datetime as dt
+        fmt = lambda s: dt.fromisoformat(s.replace("Z", "+00:00"))  # noqa: E731
+        delta = fmt(end_str) - fmt(start_str)
+        return round(delta.total_seconds() / 60, 1)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @router.get(
     "",
     response_model=list[RecoveryActivityItem],
@@ -59,34 +77,54 @@ async def list_recovery(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> list[RecoveryActivityItem]:
     """Return Whoop recovery activities (strain IS NULL) for the date range."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
-    end_exclusive = (end + timedelta(days=1)).isoformat()
-    with engine.connect() as conn:
-        rows = (
-            conn.execute(
-                text(_ACTIVITY_QUERY),
-                {"start": str(start), "end": end_exclusive},
-            )
-            .mappings()
-            .all()
-        )
 
-    return [
-        RecoveryActivityItem(
-            date=r["date"],
-            activity=(r["activity"] or "Unknown").replace("-", " ").replace("_", " ").title(),
-            dur_min=r["dur_min"],
-            same_day_recovery=r["same_day_recovery"],
-            next_day_recovery=r["next_day_recovery"],
-            next_day_hrv=r["next_day_hrv"],
-            next_day_sleep_perf=r["next_day_sleep_perf"],
-            next_day_sleep_min=r["next_day_sleep_min"],
+    end_exclusive = (end + timedelta(days=1)).isoformat()
+    # Fetch window: start – (end + 1 day) for activities; need next-day data too
+    lookup_end = (end + timedelta(days=1)).isoformat()
+
+    with engine.connect() as conn:
+        act_rows = conn.execute(
+            text(_ACTIVITY_QUERY), {"start": str(start), "end": end_exclusive}
+        ).mappings().all()
+
+        daily_rows = conn.execute(
+            text(_UNIFIED_DAILY_QUERY), {"start": str(start), "end": lookup_end}
+        ).mappings().all()
+
+        sleep_rows = conn.execute(
+            text(_UNIFIED_SLEEP_QUERY), {"start": str(start), "end": lookup_end}
+        ).mappings().all()
+
+    daily_by_date = {r["date"]: r for r in daily_rows}
+    sleep_by_date = {r["date"]: r for r in sleep_rows}
+
+    results = []
+    for row in act_rows:
+        act_date = row["start_time"][:10]
+        next_date = (date.fromisoformat(act_date) + timedelta(days=1)).isoformat()
+
+        same_day = daily_by_date.get(act_date, {})
+        next_day_daily = daily_by_date.get(next_date, {})
+        next_day_sleep = sleep_by_date.get(next_date, {})
+
+        results.append(
+            RecoveryActivityItem(
+                date=act_date,
+                activity=(row["activity"] or "Unknown").replace("-", " ").replace("_", " ").title(),
+                dur_min=_duration_minutes(row["start_time"], row["end_time"]),
+                same_day_recovery=same_day.get("whoop_recovery_score"),
+                next_day_recovery=next_day_daily.get("whoop_recovery_score"),
+                next_day_hrv=next_day_daily.get("whoop_hrv_rmssd"),
+                next_day_sleep_perf=next_day_sleep.get("whoop_performance"),
+                next_day_sleep_min=next_day_sleep.get("total_sleep_minutes"),
+            )
         )
-        for r in rows
-    ]
+    return results
 
 
 @router.get(
@@ -98,14 +136,16 @@ async def with_without(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> WithWithoutResponse:
     """Compare avg next-day recovery on days where previous day had a recovery activity vs not."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     with engine.connect() as conn:
-        # All historical recovery dates (not date-filtered)
-        rec_dates = {r[0] for r in conn.execute(text(_ALL_RECOVERY_DATES_QUERY)).fetchall()}
-        # Daily rows in the requested range with recovery scores
+        rec_dates = {
+            r[0]
+            for r in conn.execute(text(_ALL_RECOVERY_DATES_QUERY)).fetchall()
+        }
         daily_rows = (
             conn.execute(
                 text(_DAILY_RECOVERY_QUERY),
@@ -118,11 +158,8 @@ async def with_without(
     with_vals: list[float] = []
     without_vals: list[float] = []
     for row in daily_rows:
-        d = row["date"]  # YYYY-MM-DD
-        # Check if PREVIOUS day had a recovery activity
-        from datetime import date as _date
-
-        prev = (_date.fromisoformat(d) - timedelta(days=1)).isoformat()
+        d = row["date"]
+        prev = (date.fromisoformat(d) - timedelta(days=1)).isoformat()
         if prev in rec_dates:
             with_vals.append(row["next_day_recovery"])
         else:

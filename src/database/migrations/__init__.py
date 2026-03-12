@@ -31,3 +31,5 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
     _load("002_garmin_tables.py").run(database_url, engine)
     _load("003_unified_tables.py").run(database_url, engine)
     _load("004_exercise_sets.py").run(database_url, engine)
+    _load("005_postgresql.py").run(database_url, engine)
+    _load("006_users_table.py").run(database_url, engine)

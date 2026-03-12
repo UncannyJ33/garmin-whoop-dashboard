@@ -10,20 +10,33 @@ export class ApiError extends Error {
   }
 }
 
+// Module-level token store — set by AuthContext after login.
+let _authToken: string | null = null
+
+export function setAuthToken(token: string | null) {
+  _authToken = token
+}
+
 // Only mark offline after 2 consecutive network-level failures to avoid
 // false positives from a single slow/dropped request (e.g. during sync).
 let consecutiveFailures = 0
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+    ...(options?.headers as Record<string, string>),
+  }
+  if (_authToken) {
+    headers['Authorization'] = `Bearer ${_authToken}`
+  }
+
   let res: Response
   try {
     res = await fetch(`${BASE_URL}${path}`, {
       credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-      },
       ...options,
+      headers,
     })
   } catch (err) {
     // TypeError = network failure (offline, DNS, etc.) — not an HTTP error
@@ -39,6 +52,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   // Successful network contact — device is online
   consecutiveFailures = 0
   window.dispatchEvent(new Event('api-online'))
+
+  if (res.status === 401) {
+    // Notify AuthContext to log out and redirect to /login
+    window.dispatchEvent(new Event('auth-error'))
+    throw new ApiError(401, 'Session expired. Please sign in again.')
+  }
 
   if (!res.ok) {
     let message = `HTTP ${res.status}`

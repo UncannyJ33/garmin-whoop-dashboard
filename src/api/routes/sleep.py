@@ -12,6 +12,8 @@ from src.analytics.sleep_analysis import (
     get_strain_sleep_correlation,
 )
 from src.api.dependencies import get_engine_dep
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 from src.api.models import (
     CorrelationResult,
     SleepConsistencyResponse,
@@ -31,6 +33,7 @@ async def sleep_insights(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> list[SleepInsightResponse]:
     """Return per-night sleep insights linking sleep quality, prior training, and recovery."""
     if start > end:
@@ -50,6 +53,7 @@ async def sleep_insights(
 async def sleep_correlations(
     days: int = Query(default=30, ge=7, le=365, description="Number of days to analyse"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> SleepCorrelationResponse:
     """Pearson correlations between prior-day strain and sleep/recovery outcomes."""
     try:
@@ -72,6 +76,7 @@ async def sleep_correlations(
 async def sleep_consistency(
     days: int = Query(default=30, ge=7, le=365, description="Number of days to analyse"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> SleepConsistencyResponse:
     """Bedtime variance, average total sleep, and sleep debt trend."""
     try:

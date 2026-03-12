@@ -8,6 +8,8 @@ from sqlalchemy import Engine
 from src.analytics.trends import get_metric_trend, get_weekly_summary
 from src.api.dependencies import get_engine_dep
 from src.api.models import AnomalyItem, MetricTrendResponse, WeeklySummaryResponse
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 
 router = APIRouter(prefix="/api/trends", tags=["trends"])
 
@@ -56,6 +58,7 @@ def _trend_to_response(t) -> MetricTrendResponse:
 async def weekly_summary(
     end: date = Query(default=None, description="End date (YYYY-MM-DD); defaults to today"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> WeeklySummaryResponse:
     """Return current-week averages and % change vs the prior week."""
     target = end or date.today()
@@ -75,6 +78,7 @@ async def anomaly_log(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> list[AnomalyItem]:
     """Return all anomalous days (≥ 2σ from 7-day prior mean) across key metrics."""
     if start > end:
@@ -108,6 +112,7 @@ async def metric_trend(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> MetricTrendResponse:
     """Return daily values, 7d/30d rolling averages, anomalies, and trend direction.
 

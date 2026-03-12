@@ -8,6 +8,8 @@ from sqlalchemy import Engine, text
 
 from src.api.dependencies import get_engine_dep
 from src.api.models import DataStatsResponse, SyncStatusItem, SyncTriggerResponse
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 from src.database.connection import get_session_factory as _get_session_factory
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -20,7 +22,10 @@ _KNOWN_SOURCES = ("whoop", "garmin")
     response_model=list[SyncStatusItem],
     summary="Last sync status for each data source",
 )
-async def sync_status(engine: Engine = Depends(get_engine_dep)) -> list[SyncStatusItem]:
+async def sync_status(
+    engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
+) -> list[SyncStatusItem]:
     """Return the most recent completed sync record for Whoop and Garmin."""
     with engine.connect() as conn:
         rows = (
@@ -57,13 +62,16 @@ async def sync_status(engine: Engine = Depends(get_engine_dep)) -> list[SyncStat
     response_model=DataStatsResponse,
     summary="Aggregate data overview stats",
 )
-async def data_stats(engine: Engine = Depends(get_engine_dep)) -> DataStatsResponse:
+async def data_stats(
+    engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
+) -> DataStatsResponse:
     """Return total days, workouts, matched workouts, and date range from unified tables."""
     with engine.connect() as conn:
         daily = conn.execute(text("SELECT COUNT(*), MIN(date), MAX(date) FROM unified_daily")).one()
         workouts = conn.execute(
             text(
-                "SELECT COUNT(*), SUM(CASE WHEN matched = 1 THEN 1 ELSE 0 END) FROM unified_workouts"
+                "SELECT COUNT(*), SUM(CASE WHEN matched THEN 1 ELSE 0 END) FROM unified_workouts"
             )
         ).one()
     return DataStatsResponse(
@@ -83,6 +91,7 @@ async def data_stats(engine: Engine = Depends(get_engine_dep)) -> DataStatsRespo
 async def trigger_sync(
     source: str,
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> SyncTriggerResponse:
     """Trigger a 30-day incremental sync for the specified source.
 

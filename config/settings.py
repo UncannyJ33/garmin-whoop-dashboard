@@ -28,6 +28,10 @@ class Settings:
     # Scheduler
     garmin_poll_interval_minutes: int
 
+    # JWT auth
+    jwt_secret: str
+    jwt_algorithm: str
+
     # Logging
     log_level: str
 
@@ -45,5 +49,7 @@ settings = Settings(
     app_port=int(os.getenv("APP_PORT", "8000")),
     streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
     garmin_poll_interval_minutes=int(os.getenv("GARMIN_POLL_INTERVAL_MINUTES", "15")),
+    jwt_secret=os.getenv("JWT_SECRET", ""),
+    jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
 )

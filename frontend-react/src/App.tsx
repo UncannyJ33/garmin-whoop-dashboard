@@ -1,5 +1,6 @@
+import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/layout/Layout'
 import { Readiness } from './pages/Readiness'
 import { Workouts } from './pages/Workouts'
@@ -7,8 +8,11 @@ import { Sleep } from './pages/Sleep'
 import { Trends } from './pages/Trends'
 import { Settings } from './pages/Settings'
 import { RecoveryActivities } from './pages/RecoveryActivities'
+import { Login } from './pages/Login'
 import { Showcase } from './pages/Showcase'
 import { ApiTest } from './pages/ApiTest'
+import { AuthProvider, useAuth } from './context/AuthContext'
+import { setAuthToken } from './api/client'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,22 +25,42 @@ const queryClient = new QueryClient({
   },
 })
 
+/** Keeps the module-level auth token in client.ts in sync with AuthContext. */
+function TokenSync() {
+  const { token } = useAuth()
+  useEffect(() => {
+    setAuthToken(token)
+  }, [token])
+  return null
+}
+
+/** Redirect unauthenticated users to /login. */
+function ProtectedLayout() {
+  const { isAuthenticated } = useAuth()
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <Layout />
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<Readiness />} />
-            <Route path="/workouts" element={<Workouts />} />
-            <Route path="/sleep" element={<Sleep />} />
-            <Route path="/trends" element={<Trends />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/recovery-activities" element={<RecoveryActivities />} />
-            <Route path="/showcase" element={<Showcase />} />
-            <Route path="/dev/api-test" element={<ApiTest />} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <TokenSync />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route element={<ProtectedLayout />}>
+              <Route path="/" element={<Readiness />} />
+              <Route path="/workouts" element={<Workouts />} />
+              <Route path="/sleep" element={<Sleep />} />
+              <Route path="/trends" element={<Trends />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/recovery-activities" element={<RecoveryActivities />} />
+              <Route path="/showcase" element={<Showcase />} />
+              <Route path="/dev/api-test" element={<ApiTest />} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   )

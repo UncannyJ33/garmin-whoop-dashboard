@@ -12,6 +12,8 @@ from src.analytics.readiness_score import (
 )
 from src.api.dependencies import get_engine_dep
 from src.api.models import ContributingFactor, ReadinessHistoryItem, ReadinessResponse
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 
 router = APIRouter(prefix="/api/readiness", tags=["readiness"])
 
@@ -33,7 +35,10 @@ def _to_response(r: ReadinessResult) -> ReadinessResponse:
     response_model=ReadinessResponse,
     summary="Today's readiness score",
 )
-async def readiness_today(engine: Engine = Depends(get_engine_dep)) -> ReadinessResponse:
+async def readiness_today(
+    engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
+) -> ReadinessResponse:
     """Compute the composite training readiness score for today."""
     try:
         return _to_response(compute_readiness(date.today(), engine))
@@ -50,6 +55,7 @@ async def readiness_history(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
+    _user: User = Depends(get_current_user),
 ) -> list[ReadinessHistoryItem]:
     """Return daily readiness scores for a date range."""
     if start > end:

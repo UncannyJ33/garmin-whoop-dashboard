@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 
 interface NavItem {
   path: string
@@ -21,6 +22,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ open, onClose }: SidebarProps) {
+  const { logout } = useAuth()
   return (
     <>
       {/* Mobile overlay */}
@@ -72,8 +74,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-white/5">
+        <div className="p-4 border-t border-white/5 space-y-2">
           <p className="text-xs text-slate-500">Garmin + Whoop</p>
+          <button
+            onClick={logout}
+            className="w-full text-left text-xs text-slate-500 hover:text-slate-300 transition-colors py-1"
+          >
+            Sign out
+          </button>
         </div>
       </aside>
     </>

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -12,8 +12,8 @@ class WhoopCycle(Base):
     __tablename__ = "whoop_cycles"
 
     id = Column(String, primary_key=True)  # Whoop cycle UUID
-    user_id = Column(Integer, nullable=False)
-    start_time = Column(String, nullable=False)  # ISO 8601
+    user_id = Column(Integer, nullable=False)  # Whoop platform user ID (NOT our app user_id)
+    start_time = Column(String, nullable=False, index=True)  # ISO 8601
     end_time = Column(String)
     timezone_offset = Column(String)
     score_state = Column(String)  # SCORED, PENDING, etc.
@@ -45,6 +45,7 @@ class WhoopRecovery(Base):
     skin_temp_celsius = Column(Float)
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
     cycle = relationship("WhoopCycle", back_populates="recovery")
 
@@ -57,9 +58,9 @@ class WhoopSleep(Base):
     id = Column(String, primary_key=True)  # Whoop sleep UUID
     cycle_id = Column(String, ForeignKey("whoop_cycles.id"))
     start_time = Column(String, nullable=False)
-    end_time = Column(String)
+    end_time = Column(String, index=True)
     timezone_offset = Column(String)
-    nap = Column(Integer)  # boolean: 0 or 1
+    nap = Column(Boolean, default=False)  # was Integer (0/1)
     score_state = Column(String)
     total_in_bed_ms = Column(Integer)
     total_awake_ms = Column(Integer)
@@ -73,6 +74,7 @@ class WhoopSleep(Base):
     respiratory_rate = Column(Float)
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
     cycle = relationship("WhoopCycle", back_populates="sleep")
 
@@ -84,7 +86,7 @@ class WhoopWorkout(Base):
 
     id = Column(String, primary_key=True)  # Whoop workout UUID
     cycle_id = Column(String, ForeignKey("whoop_cycles.id"))
-    start_time = Column(String, nullable=False)
+    start_time = Column(String, nullable=False, index=True)
     end_time = Column(String)
     timezone_offset = Column(String)
     sport_id = Column(Integer)
@@ -100,6 +102,7 @@ class WhoopWorkout(Base):
     zone_durations_json = Column(Text)  # HR zone times as JSON array
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
     cycle = relationship("WhoopCycle", back_populates="workouts")
 
@@ -113,7 +116,7 @@ class GarminActivity(Base):
     activity_type = Column(String)
     activity_name = Column(String)
     start_time = Column(String)  # ISO 8601 local time
-    start_time_gmt = Column(String)  # ISO 8601 UTC
+    start_time_gmt = Column(String, index=True)  # ISO 8601 UTC
     duration_seconds = Column(Float)
     elapsed_seconds = Column(Float)
     distance_meters = Column(Float)
@@ -137,6 +140,7 @@ class GarminActivity(Base):
     avg_ground_contact_balance = Column(Float)
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class GarminExerciseSet(Base):
@@ -157,6 +161,7 @@ class GarminExerciseSet(Base):
     duration_seconds = Column(Float)  # non-None for timed/rest sets
     start_time = Column(String)  # ISO 8601 UTC
     fetched_at = Column(String, nullable=False)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class GarminDailySummary(Base):
@@ -180,6 +185,7 @@ class GarminDailySummary(Base):
     lowest_spo2 = Column(Float)
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class GarminSleep(Base):
@@ -202,6 +208,7 @@ class GarminSleep(Base):
     avg_stress_sleep = Column(Float)
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class GarminHRV(Base):
@@ -219,6 +226,7 @@ class GarminHRV(Base):
     status = Column(String)  # BALANCED, UNBALANCED, POOR, etc.
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class UnifiedDaily(Base):
@@ -243,6 +251,7 @@ class UnifiedDaily(Base):
     readiness_score = Column(Float)  # reserved for future algorithm
     data_sources = Column(Text)  # JSON array: ["whoop","garmin"]
     last_updated = Column(String, nullable=False)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class UnifiedSleep(Base):
@@ -264,6 +273,7 @@ class UnifiedSleep(Base):
     garmin_avg_spo2_sleep = Column(Float)
     primary_source = Column(String)  # "whoop" | "garmin" | "both"
     last_updated = Column(String, nullable=False)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class UnifiedWorkout(Base):
@@ -272,8 +282,8 @@ class UnifiedWorkout(Base):
     __tablename__ = "unified_workouts"
 
     id = Column(String, primary_key=True)  # "w_{whoop_id}" or "g_{garmin_id}"
-    date = Column(String, nullable=False)
-    start_time = Column(String, nullable=False)  # ISO 8601 UTC
+    date = Column(String, nullable=False, index=True)
+    start_time = Column(String, nullable=False, index=True)  # ISO 8601 UTC
     end_time = Column(String)
     activity_type = Column(String)  # canonical sport name
     duration_minutes = Column(Float)
@@ -296,10 +306,11 @@ class UnifiedWorkout(Base):
     hr_zone3_minutes = Column(Float)
     hr_zone4_minutes = Column(Float)
     hr_zone5_minutes = Column(Float)
-    matched = Column(Integer, default=0)  # 1 if matched across sources
+    matched = Column(Boolean, default=False)  # was Integer (0/1)
     match_confidence = Column(Float)  # 0–1
     primary_source = Column(String)  # "whoop" | "garmin" | "both"
     last_updated = Column(String, nullable=False)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class SyncLog(Base):
@@ -317,6 +328,7 @@ class SyncLog(Base):
     status = Column(String, default="running")  # running, success, error
     error_message = Column(Text)
     metadata_json = Column(Text)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
 class TokenStore(Base):
@@ -330,3 +342,4 @@ class TokenStore(Base):
     expires_at = Column(String)
     token_data_json = Column(Text)  # full token blob
     updated_at = Column(String, nullable=False)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
