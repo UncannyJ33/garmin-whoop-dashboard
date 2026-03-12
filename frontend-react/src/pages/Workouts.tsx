@@ -7,7 +7,6 @@ import {
   BarChart,
   CartesianGrid,
   ComposedChart,
-  Legend,
   Line,
   LineChart,
   ReferenceArea,
@@ -52,16 +51,19 @@ const STRENGTH_TYPES = new Set([
 ])
 
 const TRACKED_EXERCISES: Record<string, string> = {
-  BARBELL_DEADLIFT:             'Deadlift',
-  STRAIGHT_LEG_DEADLIFT:        'Romanian DL',
+  BARBELL_BACK_SQUAT:           'Back Squat',
+  WEIGHTED_SQUAT:               'Back Squat',
   BARBELL_FRONT_SQUAT:          'Front Squat',
-  BARBELL_SQUAT:                'Squat',
-  INCLINE_DUMBBELL_BENCH_PRESS: 'Incline DB Press',
+  OVERHEAD_BARBELL_PRESS:       'OHP',
   BARBELL_BENCH_PRESS:          'Bench Press',
-  LAT_PULLDOWN:                 'Lat Pulldown',
+  INCLINE_DUMBBELL_BENCH_PRESS: 'Incline Press',
+  BARBELL_DEADLIFT:             'Deadlift',
+  ROMANIAN_DEADLIFT:            'Romanian DL',
 }
 
-const EXERCISE_COLORS = ['#60a5fa', '#c084fc', '#34d399', '#fb923c', '#f87171', '#facc15', '#2dd4bf']
+// Display order for the progression table
+const EXERCISE_ORDER = ['Back Squat', 'Front Squat', 'OHP', 'Bench Press', 'Incline Press', 'Deadlift', 'Romanian DL']
+
 
 type DynField =
   | 'avg_cadence'
@@ -121,7 +123,7 @@ function DayButton({
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
         active
           ? 'bg-brand text-white'
           : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -343,22 +345,22 @@ export function Workouts() {
     [workouts],
   )
 
-  const maxWeightPivot = useMemo(() => {
+  // Per-exercise last-4-sessions progression for the table
+  const strengthProgression = useMemo(() => {
     const raw = maxWeightQ.data ?? []
-    if (!raw.length) return { rows: [], exercises: [] as string[] }
-    const pivot = new Map<string, Record<string, unknown>>()
-    const exercises = new Set<string>()
+    const byExercise = new Map<string, { date: string; weight_lb: number }[]>()
     for (const r of raw) {
       const label = TRACKED_EXERCISES[r.exercise_name]
       if (!label) continue
-      exercises.add(label)
-      if (!pivot.has(r.date)) pivot.set(r.date, { date: r.date })
-      pivot.get(r.date)![label] = r.max_weight_kg * KG_TO_LB
+      if (!byExercise.has(label)) byExercise.set(label, [])
+      byExercise.get(label)!.push({ date: r.date, weight_lb: r.max_weight_kg * KG_TO_LB })
     }
-    return {
-      rows: Array.from(pivot.values()).sort((a, b) => (a.date as string) < (b.date as string) ? -1 : 1),
-      exercises: Array.from(exercises),
-    }
+    return EXERCISE_ORDER
+      .filter(ex => byExercise.has(ex))
+      .map(ex => {
+        const entries = (byExercise.get(ex)!).sort((a, b) => a.date < b.date ? -1 : 1)
+        return { exercise: ex, entries: entries.slice(-4) }
+      })
   }, [maxWeightQ.data])
 
   const volumeData = useMemo(() =>
@@ -470,7 +472,7 @@ export function Workouts() {
                       setFilterType(prev => prev === row.activity_type ? null : row.activity_type)
                       setVisibleCount(PAGE_SIZE)
                     }}
-                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_56px] gap-2 items-center px-2 py-1.5 rounded-lg transition-colors text-right ${
+                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_56px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right ${
                       isActive ? 'bg-brand/10' : 'hover:bg-surface-overlay'
                     }`}
                   >
@@ -527,7 +529,7 @@ export function Workouts() {
             {visibleCount < filtered.length && (
               <button
                 onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
-                className="w-full py-2.5 rounded-xl border border-surface-border text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-surface-overlay transition-colors"
+                className="w-full py-3 rounded-xl border border-surface-border text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-surface-overlay transition-colors"
               >
                 Load more ({filtered.length - visibleCount} remaining)
               </button>
@@ -551,13 +553,13 @@ export function Workouts() {
           ) : (
             <>
               <ResponsiveContainer width="100%" height={220}>
-                <ScatterChart margin={{ top: 4, right: 8, bottom: 20, left: -8 }}>
+                <ScatterChart margin={{ top: 4, right: 8, bottom: 28, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="x"
                     type="number"
                     name="Strain"
-                    label={{ value: 'Strain', position: 'insideBottom', offset: -8, fontSize: 10, fill: '#64748b' }}
+                    label={{ value: 'Strain', position: 'insideBottom', offset: -12, fontSize: 10, fill: '#64748b' }}
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
@@ -589,7 +591,7 @@ export function Workouts() {
               {scatterTypes.length > 1 && (
                 <div className="flex flex-wrap gap-3 mt-2">
                   {scatterTypes.map(type => (
-                    <span key={type} className="flex items-center gap-1.5 text-2xs text-slate-500">
+                    <span key={type} className="flex items-center gap-1.5 text-2xs text-slate-500 whitespace-nowrap">
                       <span
                         className="inline-block h-2 w-2 rounded-full flex-shrink-0"
                         style={{ backgroundColor: colorForType(type, allTypes) }}
@@ -729,7 +731,7 @@ export function Workouts() {
             <div className="card">
               <SectionHeader title="Pace vs Cadence" />
               <ResponsiveContainer width="100%" height={240}>
-                <ScatterChart margin={{ top: 4, right: 8, bottom: 12, left: -8 }}>
+                <ScatterChart margin={{ top: 4, right: 8, bottom: 12, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="cadence"
@@ -766,7 +768,7 @@ export function Workouts() {
                     }}
                     cursor={{ strokeDasharray: '3 3' }}
                   />
-                  <Scatter data={paceCadenceData} fill="#4472CA" fillOpacity={0.75} r={8} />
+                  <Scatter data={paceCadenceData} fill="#4472CA" fillOpacity={0.75} r={12} />
                 </ScatterChart>
               </ResponsiveContainer>
               <ChartCaption text="Higher cadence + lower pace value = faster, more efficient running." />
@@ -822,56 +824,50 @@ export function Workouts() {
         <div className="space-y-3">
           <p className="text-base font-bold text-slate-800 dark:text-slate-100 px-0.5">Strength Training</p>
 
-          {/* 6a. Max Weight Per Session */}
+          {/* 6a. Max Weight Progressions */}
           <div className="card">
-            <SectionHeader title="Max Weight Per Session" />
+            <SectionHeader title="Max Weight Progressions" />
             {maxWeightQ.isLoading ? (
-              <div className="skeleton rounded-xl" style={{ height: 200 }} />
-            ) : maxWeightPivot.exercises.length === 0 ? (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-8 rounded-lg" />)}
+              </div>
+            ) : strengthProgression.length === 0 ? (
               <EmptyChart message="No tracked exercise data — run a sync to fetch strength set details." />
             ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={maxWeightPivot.rows as Record<string, unknown>[]} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={v => fmtDate(v as string)}
-                  />
-                  <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={42} domain={['auto', 'auto']} />
-                  <Tooltip
-                    content={({ active, payload, label }) => (
-                      active && payload?.length ? (
-                        <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
-                          <p className="font-medium text-slate-500">{fmtDate(label as string)}</p>
-                          {payload.map((p, i) => (
-                            <p key={i} className="text-slate-400" style={{ color: p.color }}>
-                              {p.name}: <span className="font-mono font-semibold">{(p.value as number).toFixed(1)} lb</span>
-                            </p>
-                          ))}
-                        </div>
-                      ) : null
-                    )}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                  {maxWeightPivot.exercises.map((ex, i) => (
-                    <Line
-                      key={ex}
-                      type="monotone"
-                      dataKey={ex}
-                      stroke={EXERCISE_COLORS[i % EXERCISE_COLORS.length]}
-                      dot={{ r: 3 }}
-                      activeDot={{ r: 5 }}
-                      strokeWidth={2}
-                      connectNulls
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              <table className="w-full text-xs">
+                <tbody>
+                  {strengthProgression.map(({ exercise, entries }) => {
+                    const latest = entries[entries.length - 1]
+                    const prev   = entries[entries.length - 2]
+                    const delta  = latest && prev ? latest.weight_lb - prev.weight_lb : null
+                    return (
+                      <tr key={exercise} className="border-b border-surface-border last:border-0">
+                        <td className="py-2.5 pr-4 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-28">
+                          {exercise}
+                        </td>
+                        <td className="py-2.5">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {entries.map((e, i) => (
+                              <span key={i} className="flex flex-col items-center gap-0.5">
+                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-100">
+                                  {e.weight_lb.toFixed(0)} lb
+                                </span>
+                                <span className="text-2xs text-slate-400">{fmtDate(e.date)}</span>
+                              </span>
+                            ))}
+                            {delta !== null && (
+                              <span className={`text-2xs font-semibold ml-1 ${delta > 0 ? 'text-good' : delta < 0 ? 'text-poor' : 'text-slate-400'}`}>
+                                {delta > 0 ? `+${delta.toFixed(0)}` : delta.toFixed(0)} lb
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             )}
-            <ChartCaption text="Max weight per session in lbs. Tracked exercises only." />
           </div>
 
           {/* 6b. Total Volume Per Session */}

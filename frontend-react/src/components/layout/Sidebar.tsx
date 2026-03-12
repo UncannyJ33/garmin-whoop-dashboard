@@ -42,8 +42,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       >
         {/* Logo */}
         <div
-          className="flex items-center px-4 border-b border-white/5"
-          style={{ minHeight: '56px', paddingTop: 'env(safe-area-inset-top, 0px)' }}
+          className="flex items-end px-4 pb-3 border-b border-white/5"
+          style={{ minHeight: '56px', paddingTop: 'max(env(safe-area-inset-top, 0px), 16px)' }}
         >
           <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 tracking-wide">
             Pulse<span className="text-brand">Engine</span>

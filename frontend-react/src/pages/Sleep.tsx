@@ -26,7 +26,7 @@ import { MetricCardSkeleton } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { MetricCard } from '../components/MetricCard'
 import { SleepStageBar } from '../components/SleepStageBar'
-import type { CorrelationResult, SleepInsight } from '../types/api'
+import type { SleepInsight } from '../types/api'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -77,29 +77,13 @@ function perfStatus(v: number | null): 'good' | 'moderate' | 'poor' | 'neutral' 
   return 'poor'
 }
 
-function corrStrength(r: number | null): string {
-  if (r === null) return ''
-  const abs = Math.abs(r)
-  if (abs >= 0.5) return 'Strong'
-  if (abs >= 0.3) return 'Moderate'
-  return 'Weak'
-}
-
-function corrColor(r: number | null): string {
-  if (r === null) return 'text-slate-500'
-  const abs = Math.abs(r)
-  if (abs >= 0.5) return 'text-good'
-  if (abs >= 0.3) return 'text-moderate'
-  return 'text-slate-400'
-}
-
 // ── sub-components ────────────────────────────────────────────────────────────
 
 function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
         active
           ? 'bg-brand text-white'
           : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -156,13 +140,11 @@ function StageTooltip({
 function CorrelationCard({
   title,
   children,
-  corrResult,
   nSamples,
   minSamples = 7,
 }: {
   title: string
   children: ReactNode
-  corrResult: CorrelationResult | null | undefined
   nSamples: number
   minSamples?: number
 }) {
@@ -175,16 +157,7 @@ function CorrelationCard({
           Need {minSamples - nSamples} more day{minSamples - nSamples !== 1 ? 's' : ''} to reveal this pattern
         </p>
       ) : (
-        <>
-          {children}
-          {corrResult && corrResult.r !== null && (
-            <div className="pt-1 border-t border-surface-border">
-              <span className={`text-2xs font-semibold ${corrColor(corrResult.r)}`}>
-                {corrStrength(corrResult.r)} correlation
-              </span>
-            </div>
-          )}
-        </>
+        children
       )}
     </div>
   )
@@ -266,7 +239,6 @@ export function Sleep() {
     }
   }, [insights])
 
-  const corr = correlationsQ.data
   const cons = consistencyQ.data
 
   // Time in bed = all stages (includes awake periods)
@@ -345,6 +317,11 @@ export function Sleep() {
             {/* Metric grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <MetricCard
+                label="Sleep"
+                value={lastNight.total_sleep_minutes !== null ? fmtHours(lastNight.total_sleep_minutes) : null}
+                status="neutral"
+              />
+              <MetricCard
                 label="Time in Bed"
                 value={timeInBedMinutes !== null ? fmtHours(timeInBedMinutes) : null}
                 status="neutral"
@@ -411,7 +388,7 @@ export function Sleep() {
             </div>
             <button
               onClick={() => setShowDeep(v => !v)}
-              className={`text-2xs font-semibold px-2.5 py-1 rounded-md transition-colors ${
+              className={`text-2xs font-semibold px-3 py-2 rounded-md transition-colors ${
                 showDeep
                   ? 'bg-indigo-500/20 text-indigo-400'
                   : 'bg-surface-overlay text-slate-500 hover:text-slate-400'
@@ -460,9 +437,9 @@ export function Sleep() {
                     type="monotone"
                     dataKey="deep"
                     name="Deep"
-                    stroke="#f97316"
-                    strokeWidth={1.5}
-                    strokeDasharray="3 2"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
                     dot={false}
                     connectNulls
                   />
@@ -488,7 +465,7 @@ export function Sleep() {
               {[
                 { label: 'Sleep', color: '#60a5fa' },
                 { label: '7d avg', color: '#fb923c' },
-                ...(showDeep ? [{ label: 'Deep', color: '#f97316' }] : []),
+                ...(showDeep ? [{ label: 'Deep', color: '#22d3ee' }] : []),
                 { label: 'Short night', color: '#ef4444' },
               ].map(({ label, color }) => (
                 <span key={label} className="flex items-center gap-1.5 text-2xs text-slate-500">
@@ -650,7 +627,6 @@ export function Sleep() {
             {/* Card 1: Strain → Sleep Duration */}
             <CorrelationCard
               title="High Strain → Sleep Duration"
-              corrResult={corr?.strain_vs_total_sleep}
               nSamples={corrStats.hsCount}
               minSamples={5}
             >
@@ -679,7 +655,6 @@ export function Sleep() {
             {/* Card 2: Sleep Duration → Recovery */}
             <CorrelationCard
               title="7.5h+ Sleep → Next-Day Recovery"
-              corrResult={corr?.strain_vs_next_day_recovery}
               nSamples={corrStats.goodCount}
               minSamples={5}
             >
@@ -708,7 +683,6 @@ export function Sleep() {
             {/* Card 3: High Strain → Deep Sleep */}
             <CorrelationCard
               title="High Strain → Deep Sleep"
-              corrResult={corr?.strain_vs_deep_sleep}
               nSamples={corrStats.hsCount}
               minSamples={5}
             >

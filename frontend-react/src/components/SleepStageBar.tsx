@@ -65,7 +65,7 @@ export function SleepStageBar({
         {stages.map(stage => (
           <div
             key={stage.key}
-            className="flex items-center gap-1.5 cursor-default"
+            className="flex items-center gap-1.5 cursor-default whitespace-nowrap"
             onMouseEnter={() => setHoveredKey(stage.key)}
             onMouseLeave={() => setHoveredKey(null)}
           >

@@ -193,7 +193,11 @@ export function Settings() {
                 <button
                   onClick={() => handleSync(source.source)}
                   disabled={isSyncing || trigger.isPending}
-                  className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-500 disabled:text-white/60 disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    isSyncing || trigger.isPending
+                      ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
+                      : 'bg-brand text-white'
+                  }`}
                 >
                   {isSyncing ? <><Spinner /> Syncing…</> : 'Sync Now'}
                 </button>
@@ -309,7 +313,7 @@ export function Settings() {
               <button
                 onClick={() => setSleepTarget(sleepTarget - 0.5)}
                 disabled={sleepTarget <= 4}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
                 aria-label="Decrease sleep target"
               >
                 −
@@ -320,7 +324,7 @@ export function Settings() {
               <button
                 onClick={() => setSleepTarget(sleepTarget + 0.5)}
                 disabled={sleepTarget >= 12}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
                 aria-label="Increase sleep target"
               >
                 +

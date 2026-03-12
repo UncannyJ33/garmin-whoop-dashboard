@@ -30,7 +30,7 @@ export function Header({ onMenuClick }: HeaderProps) {
     >
       <button
         onClick={onMenuClick}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-slate-700 dark:hover:text-slate-200 lg:hidden transition-colors"
+        className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-slate-700 dark:hover:text-slate-200 lg:hidden transition-colors"
         aria-label="Open menu"
       >
         <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -51,7 +51,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           {/* Theme toggle */}
           <button
             onClick={toggle}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
             aria-label="Toggle theme"
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >

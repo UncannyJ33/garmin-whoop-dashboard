@@ -23,6 +23,11 @@ __pycache__/
 *.swp
 *.swo
 
+# React — node_modules are installed inside the Docker build stage, not from host
+frontend-react/node_modules/
+# Built output is produced by the Docker build stage, not copied from host
+frontend-react/dist/
+
 # Planning docs (not needed at runtime)
 opus_plan_src_files/
 Phase_Task_Breakdowns.md

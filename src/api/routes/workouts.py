@@ -111,6 +111,7 @@ async def strength_max_weight(
                   AND es.set_type = 'ACTIVE'
                   AND es.weight_kg IS NOT NULL
                   AND es.weight_kg > 0
+                  AND es.exercise_name IS NOT NULL
                 GROUP BY uw.date, es.exercise_name
                 ORDER BY uw.date, es.exercise_name
             """),

@@ -124,7 +124,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
   return (
     <button
       onClick={onClick}
-      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
         active
           ? 'bg-brand text-white'
           : 'bg-surface-overlay text-slate-500 hover:text-slate-400'
@@ -186,10 +186,8 @@ function CorrRow({ label, result }: { label: string; result: CorrResult | null }
             : 'Weak'
           return (
             <div className="flex items-center gap-2">
-              <span className={`font-mono font-semibold text-sm ${color}`}>
-                {result.r.toFixed(2)}
-              </span>
-              <span className={`text-2xs ${color}`}>{strength}</span>
+              <span className={`text-xs font-semibold ${color}`}>{strength}</span>
+              <span className={`font-mono text-xs ${color}`}>{result.r.toFixed(2)}</span>
               <span className="text-2xs text-slate-500 font-mono">n={result.n}</span>
             </div>
           )
@@ -430,50 +428,50 @@ export function Trends() {
             No anomalies detected in the last {explorerDays} days — your metrics are consistent.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left border-b border-surface-border">
-                  {['Date', 'Metric', 'Value', 'Direction', 'Severity'].map(h => (
-                    <th key={h} className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap last:pr-0">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {anomaliesQ.data.map((a, i) => {
-                  const { label: sLabel, color: sColor } = severityLabel(a.severity)
-                  const dotColor = ANOMALY_COLORS[a.metric] ?? '#94a3b8'
-                  const isLowerBetter = LOWER_IS_BETTER_ANOMALY.has(a.metric)
-                  const isGoodDirection = isLowerBetter ? a.direction === 'low' : a.direction === 'high'
-                  return (
-                    <tr key={i} className="border-b border-surface-border last:border-0 text-slate-600 dark:text-slate-400">
-                      <td className="py-2 pr-4 font-mono text-slate-500 whitespace-nowrap">
-                        {fmtDate(a.date)}
-                      </td>
-                      <td className="py-2 pr-4 whitespace-nowrap">
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className="h-1.5 w-1.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: dotColor }}
-                          />
-                          {a.metric}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4 font-mono text-right text-slate-700 dark:text-slate-300">
-                        {a.value.toFixed(1)}
-                      </td>
-                      <td className={`py-2 pr-4 font-medium ${isGoodDirection ? 'text-good' : 'text-poor'}`}>
-                        {a.direction === 'high' ? '↑ High' : '↓ Low'}
-                      </td>
-                      <td className={`py-2 font-medium ${sColor}`}>{sLabel}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left border-b border-surface-border">
+                <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap">Date</th>
+                <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap">Metric</th>
+                <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap">Value</th>
+                <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap hidden sm:table-cell">Direction</th>
+                <th className="pb-2 text-slate-500 font-medium whitespace-nowrap">Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {anomaliesQ.data.map((a, i) => {
+                const { label: sLabel, color: sColor } = severityLabel(a.severity)
+                const dotColor = ANOMALY_COLORS[a.metric] ?? '#94a3b8'
+                const isLowerBetter = LOWER_IS_BETTER_ANOMALY.has(a.metric)
+                const isGoodDirection = isLowerBetter ? a.direction === 'low' : a.direction === 'high'
+                const dirArrow = a.direction === 'high' ? '↑' : '↓'
+                return (
+                  <tr key={i} className="border-b border-surface-border last:border-0 text-slate-600 dark:text-slate-400">
+                    <td className="py-2.5 pr-4 font-mono text-slate-500 whitespace-nowrap">
+                      {fmtDate(a.date)}
+                    </td>
+                    <td className="py-2.5 pr-4 whitespace-nowrap">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="h-1.5 w-1.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: dotColor }}
+                        />
+                        {a.metric}
+                      </span>
+                    </td>
+                    <td className={`py-2.5 pr-4 font-mono text-right ${isGoodDirection ? 'text-good' : 'text-poor'}`}>
+                      <span className="sm:hidden mr-0.5">{dirArrow}</span>
+                      {a.value.toFixed(1)}
+                    </td>
+                    <td className={`py-2.5 pr-4 font-medium hidden sm:table-cell ${isGoodDirection ? 'text-good' : 'text-poor'}`}>
+                      {a.direction === 'high' ? '↑ High' : '↓ Low'}
+                    </td>
+                    <td className={`py-2.5 font-medium ${sColor}`}>{sLabel}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         )}
       </div>
 

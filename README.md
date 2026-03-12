@@ -11,8 +11,9 @@ Personal fitness dashboard that pulls data from Garmin and Whoop into a single u
 | Scheduler | APScheduler (Garmin polling) |
 | Garmin API | python-garminconnect |
 | Whoop API | Official REST API + OAuth 2.0 |
-| Frontend | Streamlit (React in a later phase) |
-| Package manager | uv |
+| Frontend | React 18 + TypeScript + Vite + TailwindCSS + Recharts |
+| Package manager (Python) | uv |
+| Package manager (JS) | npm |
 
 ## Setup
 
@@ -51,11 +52,35 @@ cached in `data/garmin_tokens/` and re-used on subsequent syncs — your passwor
 stored.
 
 **6. Run the dashboard**
+
+Two options:
+
+*Option A — React dev server (hot reload, recommended for development):*
 ```bash
-make run-frontend
+# Terminal 1
+make run-api                      # FastAPI on port 8000
+
+# Terminal 2
+cd frontend-react && npm run dev  # Vite dev server on port 5173
+# Open http://localhost:5173
+```
+
+*Option B — Serve built React from FastAPI (production-like):*
+```bash
+cd frontend-react && npm run build
+make run-api
+# Open http://localhost:8000
 ```
 
 Common commands: `make test`, `make lint`, `make fmt`
+
+```bash
+# Frontend-specific
+cd frontend-react
+npm run dev        # start dev server
+npm run build      # production build → dist/
+npm run typecheck  # TypeScript check only
+```
 
 ---
 
@@ -87,13 +112,16 @@ expected. A 429 response triggers a 60-second back-off and one retry.
 cp .env.example .env
 ```
 
-**2. Build and start both services**
+**2. Build and start**
+
+The multi-stage Docker build compiles the React frontend and serves it from FastAPI — single container, single port.
+
 ```bash
 docker compose up --build
 ```
 
-- FastAPI backend: http://localhost:8000
-- Streamlit frontend: http://localhost:8501
+- Dashboard + API: http://localhost:8000
+- API docs: http://localhost:8000/docs
 
 **3. Authenticate with Whoop** (first run only)
 
@@ -107,9 +135,8 @@ docker compose exec backend python scripts/initial_sync.py
 For Garmin 2FA, run the above interactively — the prompt will appear in your terminal.
 
 **Garmin token persistence in Docker**: Garmin tokens are stored in `GARMIN_TOKEN_DIR`
-(default `data/garmin_tokens/`). Since `./data` is already mounted into both containers,
-tokens persist across restarts with no extra configuration. If you prefer to use tokens
-from a host path outside `data/`, edit the volume comment in `docker-compose.yml`.
+(default `data/garmin_tokens/`). Since `./data` is mounted as a volume, tokens persist
+across restarts with no extra configuration.
 
 **Volumes:** `data/` persists the SQLite database and Garmin tokens. `config/` allows
 live config edits without rebuilding.
@@ -179,15 +206,21 @@ CSVs are saved to `data/review/` (gitignored — contains personal health data).
 
 ```
 src/
-  api/            # FastAPI routes
+  api/            # FastAPI routes + SPA static file serving
   clients/        # Garmin and Whoop API clients
   ingestion/      # Fetch → transform → store pipelines + CSV importer
   normalization/  # Unified data models (normalizer, mappers, deduplication)
-  database/       # SQLAlchemy models and migrations (001, 002, 003)
+  database/       # SQLAlchemy models and migrations (001–004)
   analytics/      # readiness_score, workout_analysis, sleep_analysis, trends
+frontend-react/   # React 18 + TypeScript + Vite frontend
+  src/
+    pages/        # Readiness, Workouts, Sleep, Trends, Settings, RecoveryActivities
+    components/   # MetricCard, WorkoutRow, SleepStageBar, TrendChart, …
+    hooks/        # TanStack Query hooks (useApi.ts)
+    api/          # Typed fetch wrapper (client.ts)
+  dist/           # Production build output (served by FastAPI at /)
 frontend/
-  app.py          # Streamlit entry point (Recovery, Sleep, Activities, Data Sources)
-  views/          # Streamlit page modules
+  app.py          # Legacy Streamlit dashboard (kept for reference)
 config/
   settings.py     # All env vars loaded via python-dotenv
   field_mappings.yaml  # Whoop↔Garmin field alignment decisions
@@ -195,7 +228,7 @@ scripts/
   initial_sync.py      # Full sync: Whoop (async) then Garmin (sync)
   import_data.py       # Bulk CSV/ZIP import with auto-format detection
   schema_review.py     # Side-by-side data comparison tool
-tests/            # pytest (unit + integration)
+tests/            # pytest (503 tests, unit + integration)
 ```
 
 ---
@@ -221,6 +254,14 @@ tests/            # pytest (unit + integration)
 - REST API: 16 endpoints, Pydantic models, auto-docs at `/docs`
 - Whoop webhook receiver (`POST /api/webhooks/whoop`) with BackgroundTask processing
 - Structured logging via `LOG_LEVEL` env var; sidebar sync-age indicator; per-view error handling
+
+**Phase 4 complete** — React frontend:
+- React 18 + TypeScript + Vite + TailwindCSS + TanStack Query + Recharts
+- Pages: Readiness, Workouts (running + strength sections), Sleep, Trends, Settings, Recovery Activities
+- PWA: installable on iOS/Android, offline banner, service worker caching
+- Mobile-optimised: thumb-friendly nav, responsive charts, no horizontal scroll
+- Production build served directly from FastAPI (single container, single port)
+- Multi-stage Docker build: Node.js compiles React, Python image copies `dist/`
 
 ---
 

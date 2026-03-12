@@ -106,38 +106,37 @@ function ExerciseSets({ workoutId }: { workoutId: string }) {
                 </span>
               )}
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left border-b border-surface-border">
-                    {['Set', 'Reps', 'Weight (lb)', 'Volume (lb)'].map(h => (
-                      <th key={h} className="pb-1 pr-4 text-slate-500 font-medium last:pr-0">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sets.map((s, i) => {
-                    const lb = s.weight_kg !== null ? s.weight_kg * KG_TO_LB : null
-                    const vol = s.repetition_count !== null && lb !== null
-                      ? s.repetition_count * lb : null
-                    return (
-                      <tr key={i} className="border-b border-surface-border last:border-0">
-                        <td className="py-1.5 pr-4 font-mono text-slate-500">{i + 1}</td>
-                        <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
-                          {s.repetition_count ?? '—'}
-                        </td>
-                        <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
-                          {lb !== null ? lb.toFixed(1) : 'BW'}
-                        </td>
-                        <td className="py-1.5 font-mono text-slate-700 dark:text-slate-300">
-                          {vol !== null ? vol.toFixed(0) : '—'}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left border-b border-surface-border">
+                  <th className="pb-1 pr-4 text-slate-500 font-medium">Set</th>
+                  <th className="pb-1 pr-4 text-slate-500 font-medium">Reps</th>
+                  <th className="pb-1 pr-4 text-slate-500 font-medium">Weight (lb)</th>
+                  <th className="pb-1 text-slate-500 font-medium hidden sm:table-cell">Volume (lb)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sets.map((s, i) => {
+                  const lb = s.weight_kg !== null ? s.weight_kg * KG_TO_LB : null
+                  const vol = s.repetition_count !== null && lb !== null
+                    ? s.repetition_count * lb : null
+                  return (
+                    <tr key={i} className="border-b border-surface-border last:border-0">
+                      <td className="py-1.5 pr-4 font-mono text-slate-500">{i + 1}</td>
+                      <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
+                        {s.repetition_count ?? '—'}
+                      </td>
+                      <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
+                        {lb !== null ? lb.toFixed(1) : 'BW'}
+                      </td>
+                      <td className="py-1.5 font-mono text-slate-700 dark:text-slate-300 hidden sm:table-cell">
+                        {vol !== null ? vol.toFixed(0) : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )
       })}

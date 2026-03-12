@@ -14,15 +14,3 @@ services:
     # If you set GARMIN_TOKEN_DIR to an absolute host path (e.g. ~/.garminconnect),
     # uncomment and adjust the line below:
     # - ~/.garminconnect:/app/data/garmin_tokens
-
-  frontend:
-    build: .
-    command: streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0
-    ports:
-      - "8501:8501"
-    env_file: .env
-    volumes:
-      - ./data:/app/data
-    depends_on:
-      - backend
-    restart: unless-stopped

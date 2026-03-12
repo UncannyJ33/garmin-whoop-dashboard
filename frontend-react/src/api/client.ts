@@ -10,6 +10,10 @@ export class ApiError extends Error {
   }
 }
 
+// Only mark offline after 2 consecutive network-level failures to avoid
+// false positives from a single slow/dropped request (e.g. during sync).
+let consecutiveFailures = 0
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let res: Response
   try {
@@ -24,12 +28,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   } catch (err) {
     // TypeError = network failure (offline, DNS, etc.) — not an HTTP error
     if (err instanceof TypeError) {
-      window.dispatchEvent(new Event('api-offline'))
+      consecutiveFailures++
+      if (consecutiveFailures >= 2) {
+        window.dispatchEvent(new Event('api-offline'))
+      }
     }
     throw err
   }
 
   // Successful network contact — device is online
+  consecutiveFailures = 0
   window.dispatchEvent(new Event('api-online'))
 
   if (!res.ok) {

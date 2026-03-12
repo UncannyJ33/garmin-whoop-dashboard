@@ -2,7 +2,7 @@
 
 ## Project
 Personal training dashboard integrating Garmin + Whoop data into a single view.
-Python + FastAPI + SQLite + Streamlit (migrating to React later).
+Python + FastAPI + SQLite + React 18 (TypeScript + Vite + TailwindCSS + Recharts).
 
 ## Reference Docs
 Full project planning docs are in opus_plan_src_files/. Read these when you need:
@@ -21,7 +21,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Ingestion pipeline: WhoopPipeline fetch → transform → upsert (src/ingestion/whoop_pipeline.py)
 - FastAPI app entry point: src/api/main.py
 - Streamlit dashboard: frontend/app.py (Recovery, Sleep, Activities, Data Sources pages)
-- Docker: Dockerfile + docker-compose.yml (backend port 8000, frontend port 8501, data/ volume)
+- Docker: multi-stage Dockerfile + docker-compose.yml (single container, port 8000, data/ volume)
 
 ## What's Built (Phase 2 — COMPLETE)
 - Garmin auth: GarminAuth class with token persistence via garth (src/clients/garmin_auth.py)
@@ -169,13 +169,27 @@ These decisions were made during the schema review phase (comparison_tool.py) an
 - `timezone.utc` → use `datetime.UTC` (Python 3.11+, enforced by ruff UP017)
 - Frontend `sys.path` manipulation requires `# noqa: E402` on the imports that follow it
 
+## Local Dev Server Startup (3 terminals)
+1. **Backend**: `source .venv/bin/activate && make run-api` (port 8000)
+2. **React dev**: `cd frontend-react && npm run dev` (port 5173, hot-reload)
+3. **ngrok**: `ngrok http 8000` — static domain, already set as `VITE_API_URL` in Vercel; Vercel frontend uses this for mobile PWA
+
+## Docker / Production Build
+- **Multi-stage Dockerfile**: Stage 1 (node:20-slim) builds React → Stage 2 (python:3.11-slim) runs FastAPI + serves `dist/`
+- **Single container, single port**: `docker compose up --build` → everything on port 8000
+- **FastAPI serves React**: `src/api/main.py` mounts `/assets` as StaticFiles and has a `spa_fallback` catch-all for client-side routing; only active when `frontend-react/dist/` exists
+- **Vercel deploy**: `cd frontend-react && vercel --prod` (static hosting); needs `VITE_API_URL` pointing to ngrok/backend
+- **Same-origin Docker deploy**: `VITE_API_URL` not needed — empty string default means `/api/...` goes to same host
+
 ## Common Commands (see Makefile)
 - `make run-api` — start FastAPI on port 8000 with hot-reload
-- `make run-frontend` — start Streamlit on port 8501
+- `make run-frontend` — start Streamlit on port 8501 (legacy)
 - `make run-sync` — run a Whoop data sync (30-day default)
 - `make test` — run pytest with verbose output
 - `make lint` — ruff check (no auto-fix)
 - `make fmt` — ruff format + fix in place
+- `cd frontend-react && npm run build` — production React build → `dist/`
+- `cd frontend-react && npm run typecheck` — TypeScript check only
 
 ## Whoop API — Actual Field Names
 The v2 API field names differ from our DB column names. Key mappings:

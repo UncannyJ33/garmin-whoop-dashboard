@@ -56,7 +56,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
         active
           ? 'bg-brand text-white'
           : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -268,7 +268,7 @@ export function RecoveryActivities() {
             {/* Legend */}
             {allActivityTypes.length > 0 && (
               <div className="flex flex-wrap gap-3 mt-2">
-                {allActivityTypes.map((act, i) => (
+                {allActivityTypes.map((act) => (
                   <span key={act} className="flex items-center gap-1.5 text-2xs text-slate-500">
                     <span
                       className="inline-block h-2 w-2 rounded-full flex-shrink-0"
@@ -288,7 +288,7 @@ export function RecoveryActivities() {
               <EmptyState message="Not enough data" />
             ) : (
               <ResponsiveContainer width="100%" height={200}>
-                <ScatterChart margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
+                <ScatterChart margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="date"
@@ -320,7 +320,7 @@ export function RecoveryActivities() {
                     }}
                     cursor={{ strokeDasharray: '3 3' }}
                   />
-                  {allActivityTypes.map((act, i) => {
+                  {allActivityTypes.map((act) => {
                     const pts = durScatterData.filter(d => d.activity === act)
                     return pts.length > 0 ? (
                       <Scatter
@@ -399,7 +399,7 @@ export function RecoveryActivities() {
                 subtitle="Each dot is one session. Look for an upward trend."
               />
               <ResponsiveContainer width="100%" height={240}>
-                <ScatterChart margin={{ top: 4, right: 8, bottom: 12, left: -8 }}>
+                <ScatterChart margin={{ top: 4, right: 8, bottom: 12, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="dur"
@@ -435,7 +435,7 @@ export function RecoveryActivities() {
                     }}
                     cursor={{ strokeDasharray: '3 3' }}
                   />
-                  {allActivityTypes.map((act, i) => {
+                  {allActivityTypes.map((act) => {
                     const pts = durRecoveryData.filter(d => d.activity === act)
                     return pts.length > 0 ? (
                       <Scatter
@@ -453,7 +453,7 @@ export function RecoveryActivities() {
               {/* Legend */}
               {allActivityTypes.length > 1 && (
                 <div className="flex flex-wrap gap-3 mt-2">
-                  {allActivityTypes.map((act, i) => (
+                  {allActivityTypes.map((act) => (
                     <span key={act} className="flex items-center gap-1.5 text-2xs text-slate-500">
                       <span
                         className="inline-block h-2 w-2 rounded-full flex-shrink-0"
@@ -568,33 +568,34 @@ export function RecoveryActivities() {
           {/* ── SECTION 8: Activity Log ─────────────────────────────────────── */}
           <div className="card space-y-3">
             <SectionHeader title="Activity Log" />
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left border-b border-surface-border">
-                    {['Date', 'Activity', 'Duration', 'Same-Day Recovery', 'Next-Day Recovery', 'Sleep %'].map(h => (
-                      <th key={h} className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap last:pr-0">{h}</th>
-                    ))}
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left border-b border-surface-border">
+                  <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap">Date</th>
+                  <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap">Activity</th>
+                  <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap">Dur</th>
+                  <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap hidden sm:table-cell">Same-Day</th>
+                  <th className="pb-2 pr-4 text-slate-500 font-medium whitespace-nowrap">Next-Day</th>
+                  <th className="pb-2 text-slate-500 font-medium whitespace-nowrap hidden sm:table-cell">Sleep %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activities.map((a: RecoveryActivity, i) => (
+                  <tr key={i} className="border-b border-surface-border last:border-0 text-slate-600 dark:text-slate-400">
+                    <td className="py-2.5 pr-4 font-mono text-slate-500 whitespace-nowrap">{fmtDate(a.date)}</td>
+                    <td className="py-2.5 pr-4 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">{a.activity}</td>
+                    <td className="py-2.5 pr-4 font-mono">{a.dur_min !== null ? `${a.dur_min.toFixed(0)}m` : '—'}</td>
+                    <td className="py-2.5 pr-4 font-mono hidden sm:table-cell">{a.same_day_recovery !== null ? a.same_day_recovery.toFixed(0) : '—'}</td>
+                    <td className="py-2.5 pr-4 font-mono font-semibold text-slate-700 dark:text-slate-300">
+                      {a.next_day_recovery !== null ? a.next_day_recovery.toFixed(0) : '—'}
+                    </td>
+                    <td className="py-2.5 font-mono hidden sm:table-cell">
+                      {a.next_day_sleep_perf !== null ? `${a.next_day_sleep_perf.toFixed(0)}%` : '—'}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {activities.map((a: RecoveryActivity, i) => (
-                    <tr key={i} className="border-b border-surface-border last:border-0 text-slate-600 dark:text-slate-400">
-                      <td className="py-2 pr-4 font-mono text-slate-500 whitespace-nowrap">{fmtDate(a.date)}</td>
-                      <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">{a.activity}</td>
-                      <td className="py-2 pr-4 font-mono">{a.dur_min !== null ? `${a.dur_min.toFixed(0)} min` : '—'}</td>
-                      <td className="py-2 pr-4 font-mono">{a.same_day_recovery !== null ? a.same_day_recovery.toFixed(0) : '—'}</td>
-                      <td className="py-2 pr-4 font-mono font-semibold text-slate-700 dark:text-slate-300">
-                        {a.next_day_recovery !== null ? a.next_day_recovery.toFixed(0) : '—'}
-                      </td>
-                      <td className="py-2 font-mono">
-                        {a.next_day_sleep_perf !== null ? `${a.next_day_sleep_perf.toFixed(0)}%` : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}
