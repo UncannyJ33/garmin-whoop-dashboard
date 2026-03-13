@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -69,16 +69,6 @@ app.include_router(webhooks_router)
 async def health() -> dict:
     """Basic health check."""
     return {"status": "ok"}
-
-
-@app.get("/api/debug/headers", tags=["debug"])
-async def debug_headers(request: Request) -> dict:
-    """Temporary: echo all request headers to diagnose auth issues."""
-    return {
-        "headers": dict(request.headers),
-        "has_authorization": "authorization" in request.headers,
-        "authorization_preview": request.headers.get("authorization", "")[:30] or "(none)",
-    }
 
 
 # Serve React frontend static files (production build)
