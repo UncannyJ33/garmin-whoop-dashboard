@@ -297,11 +297,16 @@ class WhoopPipeline:
             logger.info("Normalization complete: %s", norm_counts)
 
         except Exception as exc:
-            log.status = "error"
-            log.error_message = str(exc)
-            log.completed_at = datetime.now(tz=UTC).isoformat()
-            self._db.commit()
             logger.error("Whoop sync failed: %s", exc)
+            try:
+                self._db.rollback()
+                log.status = "error"
+                log.error_message = str(exc)
+                log.completed_at = datetime.now(tz=UTC).isoformat()
+                self._db.merge(log)
+                self._db.commit()
+            except Exception as log_exc:
+                logger.error("Failed to update sync_log after error: %s", log_exc)
             raise
 
         return log
