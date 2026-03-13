@@ -15,6 +15,7 @@ import {
   useState,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { setAuthToken } from '../api/client'
 
 const SESSION_KEY = 'pd_auth'
 
@@ -55,18 +56,24 @@ function loadFromSession(): AuthTokens | null {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [tokens, setTokens] = useState<AuthTokens | null>(loadFromSession)
+  const [tokens, setTokens] = useState<AuthTokens | null>(() => {
+    const t = loadFromSession()
+    setAuthToken(t?.access_token ?? null)
+    return t
+  })
   const navigate = useNavigate()
   const navigateRef = useRef(navigate)
   navigateRef.current = navigate
 
   const login = useCallback((t: AuthTokens) => {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(t))
+    setAuthToken(t.access_token)
     setTokens(t)
   }, [])
 
   const logout = useCallback(() => {
     sessionStorage.removeItem(SESSION_KEY)
+    setAuthToken(null)
     setTokens(null)
     navigateRef.current('/login')
   }, [])
