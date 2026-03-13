@@ -7,11 +7,13 @@ Personal fitness dashboard that pulls data from Garmin and Whoop into a single u
 | Layer | Technology |
 |---|---|
 | Backend | FastAPI |
-| Database | SQLite (PostgreSQL upgrade path) |
-| Scheduler | APScheduler (Garmin polling) |
+| Database | PostgreSQL (Supabase) — SQLite for local dev |
+| Auth | JWT (HS256, bcrypt passwords) |
+| Scheduler | APScheduler (Garmin every 15 min, Whoop every 30 min) |
 | Garmin API | python-garminconnect |
 | Whoop API | Official REST API + OAuth 2.0 |
 | Frontend | React 18 + TypeScript + Vite + TailwindCSS + Recharts |
+| Hosting | Railway (backend + React) |
 | Package manager (Python) | uv |
 | Package manager (JS) | npm |
 
@@ -26,7 +28,8 @@ cd garmin-whoop-dashboard
 **2. Create your `.env`**
 ```bash
 cp .env.example .env
-# Fill in WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, GARMIN_EMAIL, GARMIN_PASSWORD
+# Required: WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, GARMIN_EMAIL, GARMIN_PASSWORD, JWT_SECRET
+# Optional: DATABASE_URL (defaults to SQLite; set to PostgreSQL URL for prod-parity)
 ```
 
 **3. Create the virtual environment and install dependencies**
@@ -207,10 +210,11 @@ CSVs are saved to `data/review/` (gitignored — contains personal health data).
 ```
 src/
   api/            # FastAPI routes + SPA static file serving
+  auth/           # JWT auth: models, schemas, security, dependencies
   clients/        # Garmin and Whoop API clients
   ingestion/      # Fetch → transform → store pipelines + CSV importer
   normalization/  # Unified data models (normalizer, mappers, deduplication)
-  database/       # SQLAlchemy models and migrations (001–004)
+  database/       # SQLAlchemy models and migrations (001–006)
   analytics/      # readiness_score, workout_analysis, sleep_analysis, trends
 frontend-react/   # React 18 + TypeScript + Vite frontend
   src/
@@ -263,6 +267,13 @@ tests/            # pytest (503 tests, unit + integration)
 - Production build served directly from FastAPI (single container, single port)
 - Multi-stage Docker build: Node.js compiles React, Python image copies `dist/`
 
+**Phase 5 in progress** — Production infrastructure (tasks 5.1–5.9 complete):
+- PostgreSQL on Supabase; SQLite retained for local dev
+- JWT authentication (bcrypt + HS256); all routes protected; user-scoped data
+- Deployed to Railway — auto-deploys on push to `main`; always-on 24/7
+- Background sync: Garmin every 15 min, Whoop every 30 min via APScheduler
+- Whoop OAuth redirect URI updated for production URL
+
 ---
 
 ## REST API
@@ -271,6 +282,10 @@ The FastAPI backend exposes a complete REST API. Visit `http://localhost:8000/do
 
 | Method | Path | Description |
 |---|---|---|
+| `POST` | `/api/auth/register` | Create a user account |
+| `POST` | `/api/auth/login` | Login — returns JWT access + refresh tokens |
+| `POST` | `/api/auth/refresh` | Exchange refresh token for new access token |
+| `GET` | `/api/auth/me` | Current user info (protected) |
 | `GET` | `/api/readiness/today` | Today's composite readiness score |
 | `GET` | `/api/readiness/history?start&end` | Daily readiness history for a date range |
 | `GET` | `/api/workouts?start&end` | Enriched workout list |
