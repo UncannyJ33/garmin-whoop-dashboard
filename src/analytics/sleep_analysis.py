@@ -257,7 +257,7 @@ def _fetch_whoop_sleep_times(engine: Engine, start: str, end: str) -> list[dict]
                     """
                 SELECT start_time, end_time
                 FROM whoop_sleep
-                WHERE nap = 0
+                WHERE nap = false
                   AND SUBSTR(end_time, 1, 10) >= :start
                   AND SUBSTR(end_time, 1, 10) <= :end
                 ORDER BY end_time

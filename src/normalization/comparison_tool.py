@@ -114,7 +114,7 @@ def _load_sleep(engine: Engine, start: date, end: date) -> pd.DataFrame:
             ROUND(total_awake_ms / 60000.0, 1)      AS whoop_awake_min,
             ROUND(sleep_performance, 1)             AS whoop_perf_pct
         FROM whoop_sleep
-        WHERE nap = 0
+        WHERE nap = false
           AND DATE(end_time) >= :start
           AND DATE(end_time) <= :end
         ORDER BY date

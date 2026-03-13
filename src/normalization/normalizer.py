@@ -156,7 +156,7 @@ class Normalizer:
             self._db.query(WhoopSleep)
             .filter(
                 func.substr(WhoopSleep.end_time, 1, 10) == date_str,
-                WhoopSleep.nap == 0,
+                WhoopSleep.nap.is_(False),
             )
             .first()
         )

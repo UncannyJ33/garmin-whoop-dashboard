@@ -101,7 +101,7 @@ def transform_sleep(record: dict, fetched_at: str) -> dict:
         "start_time": record["start"],
         "end_time": record.get("end"),
         "timezone_offset": record.get("timezone_offset"),
-        "nap": int(record.get("nap") or False),
+        "nap": bool(record.get("nap") or False),
         "score_state": record.get("score_state"),
         "total_in_bed_ms": stages.get("total_in_bed_time_milli"),
         "total_awake_ms": stages.get("total_awake_time_milli"),
