@@ -116,15 +116,18 @@ export function Settings() {
   const statsQ  = useDataStats()
   const trigger = useTriggerSync()
 
-  // Track which source is currently being synced + which last succeeded
+  // Track which source is currently being synced + which last succeeded/failed
   const [syncingSource, setSyncingSource] = useState<string | null>(null)
   const [lastSyncedSource, setLastSyncedSource] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<{ source: string; message: string } | null>(null)
 
   function handleSync(source: string) {
     setSyncingSource(source)
     setLastSyncedSource(null)
+    setSyncError(null)
     trigger.mutate(source, {
       onSuccess: () => setLastSyncedSource(source),
+      onError: (err) => setSyncError({ source, message: err instanceof Error ? err.message : 'Sync failed' }),
       onSettled: () => setSyncingSource(null),
     })
   }
@@ -231,6 +234,14 @@ export function Settings() {
               {lastSyncedSource === source.source && !isSyncing && trigger.data && (
                 <div className="rounded-lg bg-good/5 border border-good/20 px-3 py-2 text-xs text-good">
                   Sync complete — {trigger.data.records_stored} records stored
+                </div>
+              )}
+
+              {/* Sync trigger error */}
+              {syncError?.source === source.source && !isSyncing && (
+                <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+                  <span className="font-semibold">Sync failed: </span>
+                  {syncError.message}
                 </div>
               )}
             </div>
