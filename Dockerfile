@@ -43,4 +43,11 @@ COPY --from=frontend-builder /app/frontend-react/dist ./frontend-react/dist
 # Ensure the data directory exists; in practice it's overridden by the volume mount
 RUN mkdir -p data
 
+RUN chmod +x scripts/start.sh
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request, os; urllib.request.urlopen(f\"http://localhost:{os.getenv('PORT', '8000')}/api/health\")" || exit 1
+
+CMD ["scripts/start.sh"]

@@ -45,9 +45,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = settings.cors_origins if settings.cors_origins != ["*"] else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,6 +65,7 @@ app.include_router(webhooks_router)
 
 
 @app.get("/health", tags=["health"])
+@app.get("/api/health", tags=["health"])
 async def health() -> dict:
     """Basic health check."""
     return {"status": "ok"}

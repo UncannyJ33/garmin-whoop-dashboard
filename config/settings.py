@@ -24,6 +24,7 @@ class Settings:
     # Server
     app_port: int
     streamlit_port: int
+    cors_origins: list
 
     # Scheduler
     garmin_poll_interval_minutes: int
@@ -46,8 +47,13 @@ settings = Settings(
     garmin_password=os.getenv("GARMIN_PASSWORD", ""),
     garmin_token_dir=os.getenv("GARMIN_TOKEN_DIR", "data/garmin_tokens"),
     database_url=os.getenv("DATABASE_URL", "sqlite:///data/fitness_dashboard.db"),
-    app_port=int(os.getenv("APP_PORT", "8000")),
+    app_port=int(os.getenv("PORT") or os.getenv("APP_PORT", "8000")),
     streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
+    cors_origins=[
+        o.strip()
+        for o in os.getenv("CORS_ORIGINS", "*").split(",")
+        if o.strip()
+    ],
     garmin_poll_interval_minutes=int(os.getenv("GARMIN_POLL_INTERVAL_MINUTES", "15")),
     jwt_secret=os.getenv("JWT_SECRET", ""),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),

@@ -28,6 +28,9 @@ frontend-react/node_modules/
 # Built output is produced by the Docker build stage, not copied from host
 frontend-react/dist/
 
+# Tests — not needed at runtime
+tests/
+
 # Planning docs (not needed at runtime)
 opus_plan_src_files/
 Phase_Task_Breakdowns.md
