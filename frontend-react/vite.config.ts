@@ -23,7 +23,6 @@ export default defineConfig({
               expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
               networkTimeoutSeconds: 3,
               cacheableResponse: { statuses: [0, 200] },
-              fetchOptions: { headers: [['ngrok-skip-browser-warning', 'true']] },
             },
           },
           {
