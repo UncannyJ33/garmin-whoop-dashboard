@@ -197,7 +197,7 @@ def map_whoop_workout(workout: WhoopWorkout, mapping: dict) -> dict:
         "hr_zone3_minutes": zones["zone_3"],
         "hr_zone4_minutes": zones["zone_4"],
         "hr_zone5_minutes": zones["zone_5"],
-        "matched": 0,
+        "matched": False,
         "match_confidence": None,
         "primary_source": "whoop",
     }

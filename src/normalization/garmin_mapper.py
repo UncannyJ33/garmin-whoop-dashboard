@@ -135,7 +135,7 @@ def map_garmin_workout(activity: GarminActivity, mapping: dict) -> dict:
         "hr_zone3_minutes": None,
         "hr_zone4_minutes": None,
         "hr_zone5_minutes": None,
-        "matched": 0,
+        "matched": False,
         "match_confidence": None,
         "primary_source": "garmin",
     }

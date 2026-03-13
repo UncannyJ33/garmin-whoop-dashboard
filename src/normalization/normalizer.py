@@ -256,7 +256,7 @@ class Normalizer:
                 if garmin_dur is not None:
                     data["duration_minutes"] = garmin_dur
 
-                data["matched"] = 1
+                data["matched"] = True
                 data["match_confidence"] = result.confidence
                 data["primary_source"] = "both"
 
