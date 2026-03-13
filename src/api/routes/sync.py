@@ -121,17 +121,19 @@ async def trigger_sync(
             log = await asyncio.to_thread(
                 lambda: GarminPipeline(db).run(start=start.date(), end=now.date())
             )
+        # Read all log fields while session is still open to avoid DetachedInstanceError
+        response = SyncTriggerResponse(
+            source=source,
+            status=log.status,
+            records_fetched=log.records_fetched,
+            records_stored=log.records_stored,
+            started_at=str(log.started_at),
+            completed_at=str(log.completed_at) if log.completed_at else None,
+            error_message=log.error_message,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         db.close()
 
-    return SyncTriggerResponse(
-        source=source,
-        status=log.status,
-        records_fetched=log.records_fetched,
-        records_stored=log.records_stored,
-        started_at=str(log.started_at),
-        completed_at=str(log.completed_at) if log.completed_at else None,
-        error_message=log.error_message,
-    )
+    return response
