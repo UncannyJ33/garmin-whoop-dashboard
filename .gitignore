@@ -32,8 +32,12 @@ env/
 .DS_Store
 Thumbs.db
 
-# uv
-uv.lock
 
 # Planning artifacts
 opus_plan_src_files/
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Screenshots dumped to repo root
+*.png
