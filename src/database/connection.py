@@ -42,6 +42,7 @@ def get_engine(database_url: str | None = None) -> Engine:
             echo=False,
             connect_args={"check_same_thread": False},
         )
+
         # WAL mode: better concurrent read/write — SQLite only
         @event.listens_for(engine, "connect")
         def _set_wal_mode(dbapi_connection, connection_record) -> None:

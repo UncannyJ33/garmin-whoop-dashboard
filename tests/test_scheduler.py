@@ -1,14 +1,16 @@
-"""Tests for the Garmin background scheduler.
+"""Tests for the Garmin + Whoop background scheduler.
 
 Covers:
 - Scheduler is not started when TESTING env var is set
 - start_scheduler / stop_scheduler lifecycle (idempotency)
 - _run_garmin_sync error handling (exceptions don't propagate)
-- create_scheduler respects interval_minutes
+- _run_whoop_sync error handling (exceptions don't propagate)
+- create_scheduler respects interval_minutes for both sources
+- get_scheduler_status returns correct running/stopped state
 - FastAPI lifespan wires start/stop correctly
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -58,7 +60,12 @@ def test_start_scheduler_creates_and_starts(monkeypatch):
     mock_scheduler = MagicMock()
     mock_scheduler.running = False
 
-    with patch.object(sched_mod, "create_scheduler", return_value=mock_scheduler):
+    with (
+        patch.object(sched_mod, "get_engine"),
+        patch.object(sched_mod, "load_garmin_tokens_from_db", return_value=False),
+        patch.object(sched_mod, "create_scheduler", return_value=mock_scheduler),
+        patch.object(sched_mod, "_schedule_catchup_if_stale"),
+    ):
         sched_mod.start_scheduler()
 
     mock_scheduler.start.assert_called_once()
@@ -123,17 +130,17 @@ def test_stop_scheduler_idempotent_when_not_running():
 # ---------------------------------------------------------------------------
 
 
-def test_create_scheduler_uses_default_interval(monkeypatch):
+def test_create_scheduler_uses_default_garmin_interval(monkeypatch):
     """create_scheduler uses settings.garmin_poll_interval_minutes by default."""
     import src.ingestion.scheduler as sched_mod
 
     mock_settings = MagicMock()
     mock_settings.garmin_poll_interval_minutes = 30
 
-    captured = {}
+    captured = []
 
     def fake_add_job(func, trigger, minutes, **kwargs):
-        captured["minutes"] = minutes
+        captured.append({"func": func, "minutes": minutes, "id": kwargs.get("id")})
 
     mock_bs = MagicMock()
     mock_bs.add_job.side_effect = fake_add_job
@@ -144,25 +151,48 @@ def test_create_scheduler_uses_default_interval(monkeypatch):
     ):
         sched_mod.create_scheduler()
 
-    assert captured["minutes"] == 30
+    garmin_job = next(c for c in captured if c["id"] == "garmin_incremental_sync")
+    assert garmin_job["minutes"] == 30
 
 
-def test_create_scheduler_respects_explicit_interval():
-    """create_scheduler honours an explicit interval_minutes argument."""
+def test_create_scheduler_respects_explicit_intervals():
+    """create_scheduler honours explicit garmin_interval_minutes / whoop_interval_minutes."""
     import src.ingestion.scheduler as sched_mod
 
-    captured = {}
+    captured = []
 
     def fake_add_job(func, trigger, minutes, **kwargs):
-        captured["minutes"] = minutes
+        captured.append({"minutes": minutes, "id": kwargs.get("id")})
 
     mock_bs = MagicMock()
     mock_bs.add_job.side_effect = fake_add_job
 
     with patch("src.ingestion.scheduler.BackgroundScheduler", return_value=mock_bs):
-        sched_mod.create_scheduler(interval_minutes=5)
+        sched_mod.create_scheduler(garmin_interval_minutes=5, whoop_interval_minutes=10)
 
-    assert captured["minutes"] == 5
+    garmin_job = next(c for c in captured if c["id"] == "garmin_incremental_sync")
+    whoop_job = next(c for c in captured if c["id"] == "whoop_incremental_sync")
+    assert garmin_job["minutes"] == 5
+    assert whoop_job["minutes"] == 10
+
+
+def test_create_scheduler_default_whoop_interval():
+    """create_scheduler uses 30-minute default for Whoop interval."""
+    import src.ingestion.scheduler as sched_mod
+
+    captured = []
+
+    def fake_add_job(func, trigger, minutes, **kwargs):
+        captured.append({"minutes": minutes, "id": kwargs.get("id")})
+
+    mock_bs = MagicMock()
+    mock_bs.add_job.side_effect = fake_add_job
+
+    with patch("src.ingestion.scheduler.BackgroundScheduler", return_value=mock_bs):
+        sched_mod.create_scheduler()
+
+    whoop_job = next(c for c in captured if c["id"] == "whoop_incremental_sync")
+    assert whoop_job["minutes"] == 30
 
 
 # ---------------------------------------------------------------------------
@@ -206,15 +236,107 @@ def test_run_garmin_sync_logs_completion_on_success():
         patch("src.ingestion.scheduler.run_migrations"),
         patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
         patch("src.ingestion.scheduler.GarminPipeline", return_value=mock_pipeline),
+        patch("src.ingestion.scheduler.save_garmin_tokens_to_db"),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
         sched_mod._run_garmin_sync()
 
     mock_pipeline.run.assert_called_once()
     mock_logger.info.assert_called()
-    # The completion log should mention records_stored
     completion_calls = [str(c) for c in mock_logger.info.call_args_list]
     assert any("7" in c for c in completion_calls)
+
+
+# ---------------------------------------------------------------------------
+# _run_whoop_sync error handling
+# ---------------------------------------------------------------------------
+
+
+def test_run_whoop_sync_logs_and_suppresses_exceptions():
+    """_run_whoop_sync must catch all exceptions and not propagate them."""
+    import src.ingestion.scheduler as sched_mod
+
+    with (
+        patch("src.ingestion.scheduler.get_engine", side_effect=RuntimeError("DB down")),
+        patch("src.ingestion.scheduler.logger") as mock_logger,
+    ):
+        sched_mod._run_whoop_sync()  # must NOT raise
+
+    mock_logger.exception.assert_called_once()
+    assert "failed" in mock_logger.exception.call_args[0][0]
+
+
+def test_run_whoop_sync_logs_completion_on_success():
+    """_run_whoop_sync logs completion when the pipeline succeeds."""
+    import src.ingestion.scheduler as sched_mod
+
+    mock_log = MagicMock()
+    mock_log.records_stored = 3
+    mock_log.status = "success"
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.run = AsyncMock(return_value=mock_log)
+
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_session_factory = MagicMock(return_value=mock_session)
+
+    with (
+        patch("src.ingestion.scheduler.get_engine"),
+        patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
+        patch("src.ingestion.scheduler.logger") as mock_logger,
+    ):
+        # Patch WhoopPipeline inside the function's import scope
+        import src.ingestion.whoop_pipeline as wp_mod
+
+        with patch.object(wp_mod, "WhoopPipeline", return_value=mock_pipeline):
+            sched_mod._run_whoop_sync()
+
+    mock_logger.info.assert_called()
+    completion_calls = [str(c) for c in mock_logger.info.call_args_list]
+    assert any("3" in c for c in completion_calls)
+
+
+# ---------------------------------------------------------------------------
+# get_scheduler_status
+# ---------------------------------------------------------------------------
+
+
+def test_get_scheduler_status_when_not_running():
+    """get_scheduler_status returns running=False when scheduler is None."""
+    _reset_scheduler_module()
+
+    import src.ingestion.scheduler as sched_mod
+
+    status = sched_mod.get_scheduler_status()
+    assert status == {"running": False, "jobs": {}}
+
+
+def test_get_scheduler_status_when_running():
+    """get_scheduler_status returns running=True and job info when active."""
+    _reset_scheduler_module()
+
+    from datetime import UTC, datetime
+
+    import src.ingestion.scheduler as sched_mod
+
+    mock_job = MagicMock()
+    mock_job.id = "garmin_incremental_sync"
+    mock_job.name = "Garmin incremental sync"
+    mock_job.next_run_time = datetime(2030, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    mock_scheduler = MagicMock()
+    mock_scheduler.running = True
+    mock_scheduler.get_jobs.return_value = [mock_job]
+    sched_mod._scheduler = mock_scheduler
+
+    status = sched_mod.get_scheduler_status()
+
+    assert status["running"] is True
+    assert "garmin_incremental_sync" in status["jobs"]
+    assert status["jobs"]["garmin_incremental_sync"]["next_run_at"] is not None
+    _reset_scheduler_module()
 
 
 # ---------------------------------------------------------------------------

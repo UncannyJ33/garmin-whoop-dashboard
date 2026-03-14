@@ -186,6 +186,8 @@ class SyncStatusItem(BaseModel):
     status: str | None = None
     records_stored: int | None = None
     error_message: str | None = None
+    next_sync_at: str | None = None
+    scheduler_running: bool | None = None
 
 
 class SyncTriggerResponse(BaseModel):

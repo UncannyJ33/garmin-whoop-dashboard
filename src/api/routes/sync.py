@@ -11,10 +11,17 @@ from src.api.models import DataStatsResponse, SyncStatusItem, SyncTriggerRespons
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.database.connection import get_session_factory as _get_session_factory
+from src.ingestion.scheduler import get_scheduler_status
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 _KNOWN_SOURCES = ("whoop", "garmin")
+
+# Maps source name → APScheduler job ID for next-run-time lookup
+_SCHEDULER_JOB_IDS = {
+    "garmin": "garmin_incremental_sync",
+    "whoop": "whoop_incremental_sync",
+}
 
 
 @router.get(
@@ -50,11 +57,17 @@ async def sync_status(
         )
 
     by_source = {r["source"]: SyncStatusItem(**dict(r)) for r in rows}
-    # Ensure all known sources appear in the response
-    return [
-        by_source.get(src, SyncStatusItem(source=src, status="never_synced"))
-        for src in _KNOWN_SOURCES
-    ]
+
+    # Enrich with scheduler metadata (next run time + running state)
+    scheduler_status = get_scheduler_status()
+    result = []
+    for src in _KNOWN_SOURCES:
+        item = by_source.get(src, SyncStatusItem(source=src, status="never_synced"))
+        job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
+        item.next_sync_at = job_info.get("next_run_at")
+        item.scheduler_running = scheduler_status["running"]
+        result.append(item)
+    return result
 
 
 @router.get(
@@ -70,9 +83,7 @@ async def data_stats(
     with engine.connect() as conn:
         daily = conn.execute(text("SELECT COUNT(*), MIN(date), MAX(date) FROM unified_daily")).one()
         workouts = conn.execute(
-            text(
-                "SELECT COUNT(*), SUM(CASE WHEN matched THEN 1 ELSE 0 END) FROM unified_workouts"
-            )
+            text("SELECT COUNT(*), SUM(CASE WHEN matched THEN 1 ELSE 0 END) FROM unified_workouts")
         ).one()
     return DataStatsResponse(
         total_days=daily[0] or 0,

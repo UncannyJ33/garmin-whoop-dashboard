@@ -51,7 +51,7 @@ TABLE_ORDER = [
 
 # Columns that SQLite stores as 0/1 but PostgreSQL expects bool
 BOOL_COLUMNS: dict[str, set[str]] = {
-    "whoop_sleep":      {"nap"},
+    "whoop_sleep": {"nap"},
     "unified_workouts": {"matched"},
 }
 
@@ -64,7 +64,9 @@ def _confirm(prompt: str) -> bool:
     return answer == "y"
 
 
-def migrate(src_url: str, dst_url: str, force: bool = False, user_id: str = DEFAULT_USER_ID) -> None:
+def migrate(
+    src_url: str, dst_url: str, force: bool = False, user_id: str = DEFAULT_USER_ID
+) -> None:
     print(f"\nSource : {src_url}")
     dst_display = dst_url.split("@")[-1] if "@" in dst_url else dst_url
     print(f"Dest   : {dst_display}")
@@ -137,9 +139,7 @@ def migrate(src_url: str, dst_url: str, force: bool = False, user_id: str = DEFA
 
             placeholders = ", ".join(f":{c}" for c in col_names)
             col_list = ", ".join(f'"{c}"' for c in col_names)
-            insert_sql = text(
-                f'INSERT INTO "{table}" ({col_list}) VALUES ({placeholders})'
-            )
+            insert_sql = text(f'INSERT INTO "{table}" ({col_list}) VALUES ({placeholders})')
 
             for batch_start in range(0, src_count, BATCH_SIZE):
                 batch = rows[batch_start : batch_start + BATCH_SIZE]
@@ -159,9 +159,7 @@ def migrate(src_url: str, dst_url: str, force: bool = False, user_id: str = DEFA
 
         # Verify count
         with dst_engine.connect() as dst_conn:
-            dst_count = dst_conn.execute(
-                text(f'SELECT COUNT(*) FROM "{table}"')
-            ).scalar()
+            dst_count = dst_conn.execute(text(f'SELECT COUNT(*) FROM "{table}"')).scalar()
 
         ok = dst_count == src_count
         status = "✓" if ok else "✗ MISMATCH"
@@ -169,16 +167,16 @@ def migrate(src_url: str, dst_url: str, force: bool = False, user_id: str = DEFA
         results.append({"table": table, "src": src_count, "dst": dst_count, "ok": ok})
 
     # Summary
-    print(f"\n{'='*55}")
+    print(f"\n{'=' * 55}")
     print(f"{'Table':<30} {'Source':>8} {'Dest':>8} {'Status':>8}")
-    print(f"{'─'*55}")
+    print(f"{'─' * 55}")
     all_ok = True
     for r in results:
         status = "✓" if r["ok"] else "✗"
         if not r["ok"]:
             all_ok = False
         print(f"  {r['table']:<28} {r['src']:>8} {r['dst']:>8} {status:>8}")
-    print(f"{'='*55}")
+    print(f"{'=' * 55}")
     print("Migration complete — " + ("all counts match ✓" if all_ok else "MISMATCHES FOUND ✗"))
 
     # Spot-check: first + last row of each non-empty table
@@ -196,7 +194,9 @@ def migrate(src_url: str, dst_url: str, force: bool = False, user_id: str = DEFA
                 src_pk = src_first.get(pk_col)
                 dst_pk = dst_first.get(pk_col)
                 uid = dst_first.get("user_id")
-                print(f"  {table}: pk={dst_pk!r}  user_id={uid!r}  {'✓' if src_pk == dst_pk else '≠ (ordering differs — ok)'}")
+                print(
+                    f"  {table}: pk={dst_pk!r}  user_id={uid!r}  {'✓' if src_pk == dst_pk else '≠ (ordering differs — ok)'}"
+                )
         print()
 
 

@@ -14,7 +14,7 @@ Run directly:
     python -m src.database.migrations.005_postgresql
 """
 
-from sqlalchemy import Engine, Index, inspect, text
+from sqlalchemy import Engine, inspect, text
 
 from src.database.connection import get_engine
 from src.database.models import Base
@@ -42,26 +42,26 @@ _TABLES_NEEDING_USER_ID = {
 # SQLAlchemy models already declare most of these via index=True on Column;
 # this list covers any that need to be created explicitly on existing tables.
 _INDEXES: list[tuple[str, str, list[str]]] = [
-    ("ix_whoop_cycles_start_time",         "whoop_cycles",        ["start_time"]),
-    ("ix_whoop_sleep_end_time",            "whoop_sleep",         ["end_time"]),
-    ("ix_whoop_workouts_start_time",       "whoop_workouts",      ["start_time"]),
-    ("ix_garmin_activities_start_time_gmt","garmin_activities",   ["start_time_gmt"]),
-    ("ix_unified_workouts_date",           "unified_workouts",    ["date"]),
-    ("ix_unified_workouts_start_time",     "unified_workouts",    ["start_time"]),
+    ("ix_whoop_cycles_start_time", "whoop_cycles", ["start_time"]),
+    ("ix_whoop_sleep_end_time", "whoop_sleep", ["end_time"]),
+    ("ix_whoop_workouts_start_time", "whoop_workouts", ["start_time"]),
+    ("ix_garmin_activities_start_time_gmt", "garmin_activities", ["start_time_gmt"]),
+    ("ix_unified_workouts_date", "unified_workouts", ["date"]),
+    ("ix_unified_workouts_start_time", "unified_workouts", ["start_time"]),
     # user_id indexes (covered by model index=True on new tables; belt-and-suspenders)
-    ("ix_whoop_recovery_user_id",          "whoop_recovery",      ["user_id"]),
-    ("ix_whoop_sleep_user_id",             "whoop_sleep",         ["user_id"]),
-    ("ix_whoop_workouts_user_id",          "whoop_workouts",      ["user_id"]),
-    ("ix_garmin_activities_user_id",       "garmin_activities",   ["user_id"]),
-    ("ix_garmin_exercise_sets_user_id",    "garmin_exercise_sets",["user_id"]),
-    ("ix_garmin_daily_summary_user_id",    "garmin_daily_summary",["user_id"]),
-    ("ix_garmin_sleep_user_id",            "garmin_sleep",        ["user_id"]),
-    ("ix_garmin_hrv_user_id",              "garmin_hrv",          ["user_id"]),
-    ("ix_unified_daily_user_id",           "unified_daily",       ["user_id"]),
-    ("ix_unified_sleep_user_id",           "unified_sleep",       ["user_id"]),
-    ("ix_unified_workouts_user_id",        "unified_workouts",    ["user_id"]),
-    ("ix_sync_log_user_id",               "sync_log",            ["user_id"]),
-    ("ix_token_store_user_id",            "token_store",         ["user_id"]),
+    ("ix_whoop_recovery_user_id", "whoop_recovery", ["user_id"]),
+    ("ix_whoop_sleep_user_id", "whoop_sleep", ["user_id"]),
+    ("ix_whoop_workouts_user_id", "whoop_workouts", ["user_id"]),
+    ("ix_garmin_activities_user_id", "garmin_activities", ["user_id"]),
+    ("ix_garmin_exercise_sets_user_id", "garmin_exercise_sets", ["user_id"]),
+    ("ix_garmin_daily_summary_user_id", "garmin_daily_summary", ["user_id"]),
+    ("ix_garmin_sleep_user_id", "garmin_sleep", ["user_id"]),
+    ("ix_garmin_hrv_user_id", "garmin_hrv", ["user_id"]),
+    ("ix_unified_daily_user_id", "unified_daily", ["user_id"]),
+    ("ix_unified_sleep_user_id", "unified_sleep", ["user_id"]),
+    ("ix_unified_workouts_user_id", "unified_workouts", ["user_id"]),
+    ("ix_sync_log_user_id", "sync_log", ["user_id"]),
+    ("ix_token_store_user_id", "token_store", ["user_id"]),
 ]
 
 

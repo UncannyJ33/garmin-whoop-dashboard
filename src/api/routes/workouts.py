@@ -12,8 +12,6 @@ from src.analytics.workout_analysis import (
     get_workout_type_summary,
 )
 from src.api.dependencies import get_engine_dep
-from src.auth.dependencies import get_current_user
-from src.auth.models import User
 from src.api.models import (
     EnrichedWorkoutResponse,
     ExerciseSetItem,
@@ -21,6 +19,8 @@ from src.api.models import (
     StrengthVolumeItem,
     WorkoutTypeSummaryItem,
 )
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 
 router = APIRouter(prefix="/api/workouts", tags=["workouts"])
 

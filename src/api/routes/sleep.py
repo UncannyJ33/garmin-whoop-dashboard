@@ -12,14 +12,14 @@ from src.analytics.sleep_analysis import (
     get_strain_sleep_correlation,
 )
 from src.api.dependencies import get_engine_dep
-from src.auth.dependencies import get_current_user
-from src.auth.models import User
 from src.api.models import (
     CorrelationResult,
     SleepConsistencyResponse,
     SleepCorrelationResponse,
     SleepInsightResponse,
 )
+from src.auth.dependencies import get_current_user
+from src.auth.models import User
 
 router = APIRouter(prefix="/api/sleep", tags=["sleep"])
 

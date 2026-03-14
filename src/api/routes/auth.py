@@ -77,9 +77,11 @@ def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> T
     ip = request.client.host if request.client else "unknown"
     _check_rate_limit(ip)
 
-    user = db.execute(
-        text("SELECT * FROM users WHERE email = :email"), {"email": body.email}
-    ).mappings().one_or_none()
+    user = (
+        db.execute(text("SELECT * FROM users WHERE email = :email"), {"email": body.email})
+        .mappings()
+        .one_or_none()
+    )
 
     if user is None or not verify_password(body.password, user["hashed_password"]):
         raise HTTPException(
@@ -99,15 +101,21 @@ def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> T
     )
 
 
-@router.post("/refresh", response_model=TokenResponse, summary="Exchange refresh token for new access token")
+@router.post(
+    "/refresh", response_model=TokenResponse, summary="Exchange refresh token for new access token"
+)
 def refresh_token(request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     """Pass a refresh token in the Authorization: Bearer header to get a new access token."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token."
+        )
 
     token = auth_header.removeprefix("Bearer ").strip()
-    invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token.")
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token."
+    )
     try:
         payload = decode_token(token)
     except JWTError:

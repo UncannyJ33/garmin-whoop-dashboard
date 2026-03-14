@@ -61,6 +61,7 @@ def _duration_minutes(start_str: str, end_str: str) -> float | None:
     """Compute duration in minutes from two ISO 8601 strings."""
     try:
         from datetime import datetime as dt
+
         fmt = lambda s: dt.fromisoformat(s.replace("Z", "+00:00"))  # noqa: E731
         delta = fmt(end_str) - fmt(start_str)
         return round(delta.total_seconds() / 60, 1)
@@ -88,17 +89,23 @@ async def list_recovery(
     lookup_end = (end + timedelta(days=1)).isoformat()
 
     with engine.connect() as conn:
-        act_rows = conn.execute(
-            text(_ACTIVITY_QUERY), {"start": str(start), "end": end_exclusive}
-        ).mappings().all()
+        act_rows = (
+            conn.execute(text(_ACTIVITY_QUERY), {"start": str(start), "end": end_exclusive})
+            .mappings()
+            .all()
+        )
 
-        daily_rows = conn.execute(
-            text(_UNIFIED_DAILY_QUERY), {"start": str(start), "end": lookup_end}
-        ).mappings().all()
+        daily_rows = (
+            conn.execute(text(_UNIFIED_DAILY_QUERY), {"start": str(start), "end": lookup_end})
+            .mappings()
+            .all()
+        )
 
-        sleep_rows = conn.execute(
-            text(_UNIFIED_SLEEP_QUERY), {"start": str(start), "end": lookup_end}
-        ).mappings().all()
+        sleep_rows = (
+            conn.execute(text(_UNIFIED_SLEEP_QUERY), {"start": str(start), "end": lookup_end})
+            .mappings()
+            .all()
+        )
 
     daily_by_date = {r["date"]: r for r in daily_rows}
     sleep_by_date = {r["date"]: r for r in sleep_rows}
@@ -142,10 +149,7 @@ async def with_without(
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     with engine.connect() as conn:
-        rec_dates = {
-            r[0]
-            for r in conn.execute(text(_ALL_RECOVERY_DATES_QUERY)).fetchall()
-        }
+        rec_dates = {r[0] for r in conn.execute(text(_ALL_RECOVERY_DATES_QUERY)).fetchall()}
         daily_rows = (
             conn.execute(
                 text(_DAILY_RECOVERY_QUERY),
