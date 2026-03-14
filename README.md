@@ -273,6 +273,36 @@ tests/            # pytest (503 tests, unit + integration)
 - Deployed to Railway — auto-deploys on push to `main`; always-on 24/7
 - Background sync: Garmin every 15 min, Whoop every 30 min via APScheduler
 - Whoop OAuth redirect URI updated for production URL
+- Custom domain: **https://pulsebuilt.net** (Cloudflare Registrar + DNS, Railway TLS)
+
+---
+
+## Production URLs
+
+| Service | URL |
+|---|---|
+| Dashboard | https://pulsebuilt.net |
+| API docs | https://pulsebuilt.net/docs |
+| Health check | https://pulsebuilt.net/health |
+| Railway (origin) | https://garmin-whoop-dashboard-production.up.railway.app |
+
+### Domain setup
+
+The domain `pulsebuilt.net` is registered on Cloudflare Registrar with DNS managed by Cloudflare.
+Railway's one-click DNS setup adds the required CNAME and TXT verification records automatically.
+TLS is provisioned by Railway (Let's Encrypt). Cloudflare SSL/TLS mode is set to **Full**.
+
+### Key env vars for production (set in Railway dashboard)
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Supabase PostgreSQL pooler connection string |
+| `JWT_SECRET` | Long random string for HS256 token signing |
+| `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | Whoop OAuth app credentials |
+| `WHOOP_REDIRECT_URI` | `https://pulsebuilt.net/api/auth/whoop/callback` |
+| `GARMIN_EMAIL` / `GARMIN_PASSWORD` | Garmin Connect credentials |
+| `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://pulsebuilt.net`) |
+| `PORT` | Set automatically by Railway |
 
 ---
 

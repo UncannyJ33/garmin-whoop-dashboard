@@ -30,7 +30,7 @@ def _run_garmin_sync() -> None:
     logger.info("Garmin scheduled sync starting")
     try:
         engine = get_engine()
-        run_migrations(engine)
+        run_migrations(engine=engine)
         SessionFactory = get_session_factory(engine)
         with SessionFactory() as db:
             pipeline = GarminPipeline(db)

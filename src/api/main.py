@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Start the Garmin sync scheduler on startup, stop it on shutdown."""
     logger.info("Fitness Dashboard API starting up (log_level=%s)", settings.log_level)
+    logger.info("Whoop redirect URI: %s", settings.whoop_redirect_uri)
     start_scheduler()
     yield
     stop_scheduler()
