@@ -27,9 +27,16 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
         database_url: Optional database URL override.
         engine: Optional pre-built SQLAlchemy engine (useful for in-memory testing).
     """
-    _load("001_initial.py").run(database_url, engine)
-    _load("002_garmin_tables.py").run(database_url, engine)
-    _load("003_unified_tables.py").run(database_url, engine)
-    _load("004_exercise_sets.py").run(database_url, engine)
-    _load("005_postgresql.py").run(database_url, engine)
-    _load("006_users_table.py").run(database_url, engine)
+    # Guard: if an Engine was accidentally passed as database_url (positional call),
+    # recover gracefully instead of crashing with an AttributeError.
+    if isinstance(database_url, Engine):
+        engine = database_url
+        database_url = None
+
+    kwargs = {"database_url": database_url, "engine": engine}
+    _load("001_initial.py").run(**kwargs)
+    _load("002_garmin_tables.py").run(**kwargs)
+    _load("003_unified_tables.py").run(**kwargs)
+    _load("004_exercise_sets.py").run(**kwargs)
+    _load("005_postgresql.py").run(**kwargs)
+    _load("006_users_table.py").run(**kwargs)
