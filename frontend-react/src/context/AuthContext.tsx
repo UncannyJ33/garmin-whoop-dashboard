@@ -34,6 +34,13 @@ interface AuthContextValue {
   logout: () => void
 }
 
+/** Clear all service-worker caches so a stale SW cannot serve the previous user's API data. */
+function clearSwCaches(): void {
+  if ('caches' in window) {
+    void caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))
+  }
+}
+
 /** Extract the `sub` (user UUID) from a JWT without a library. JWTs are signed, not encrypted. */
 function extractUserId(token: string): string | null {
   try {
@@ -93,9 +100,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem(SESSION_KEY)
     setAuthToken(null)
     setTokens(null)
-    // Cancel in-flight requests then wipe cache before navigating to login.
+    // Cancel in-flight requests, wipe TanStack cache, and clear SW disk cache
+    // so no prior user's data can be served by a stale service worker.
     void queryClient.cancelQueries()
     queryClient.clear()
+    clearSwCaches()
     navigateRef.current('/login')
   }, [queryClient])
 
