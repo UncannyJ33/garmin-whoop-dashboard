@@ -247,6 +247,17 @@ export function useWhoopStatus() {
   })
 }
 
+export function useGarminStatus() {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['auth', 'garmin-status', userId],
+    queryFn: ({ signal }) => api.get<{ connected: boolean }>('/api/auth/garmin/status', signal),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    enabled: !!userId,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Sync / Settings
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ from src.api.dependencies import get_db, get_engine_dep
 from src.api.models import DataStatsResponse, SyncStatusItem, SyncTriggerResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.clients.garmin_auth import has_garmin_token
 from src.clients.whoop_auth import WhoopAuth
 from src.database.connection import get_session_factory as _get_session_factory
 from src.ingestion.scheduler import _get_owner_user_id, get_scheduler_status
@@ -139,13 +140,10 @@ async def trigger_sync(
     # ── Per-source authorization checks ──────────────────────────────────────
     if source == "garmin":
         owner_id = _get_owner_user_id(engine)
-        if owner_id != current_user.id:
+        if owner_id != current_user.id and not has_garmin_token(current_user.id, db_check):
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Garmin sync is tied to the primary account credentials. "
-                    "Only the account owner can trigger a Garmin sync."
-                ),
+                detail="Garmin not connected. Go to Settings → Connect Garmin to link your account.",
             )
 
     if source == "whoop":

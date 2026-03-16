@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from jose import JWTError
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -178,6 +179,45 @@ async def whoop_connection_status(
 ) -> JSONResponse:
     """Return whether the current user has a valid Whoop token stored."""
     connected = WhoopAuth.has_token(current_user.id, db)
+    return JSONResponse({"connected": connected})
+
+
+# ── Garmin credential-based connect ───────────────────────────────────────────
+
+
+class GarminConnectBody(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/garmin/connect", summary="Connect Garmin with email and password")
+async def garmin_connect(
+    body: GarminConnectBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Authenticate with Garmin Connect and persist per-user session tokens.
+
+    The raw password is never stored — only the garth session tokens.
+    """
+    from src.clients.garmin_auth import GarminAuthError, authenticate_user_garmin
+
+    try:
+        authenticate_user_garmin(current_user.id, body.email, body.password, db)
+    except GarminAuthError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return JSONResponse({"connected": True, "message": "Garmin connected successfully."})
+
+
+@router.get("/garmin/status", summary="Check whether the current user has connected Garmin")
+async def garmin_connection_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Return whether the current user has valid Garmin session tokens stored."""
+    from src.clients.garmin_auth import has_garmin_token
+
+    connected = has_garmin_token(current_user.id, db)
     return JSONResponse({"connected": connected})
 
 

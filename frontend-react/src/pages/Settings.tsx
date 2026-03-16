@@ -2,9 +2,11 @@
  * Settings page — sync status, data overview, preferences
  */
 import { useState } from 'react'
-import { useDataStats, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
+import { useDataStats, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
 import { api } from '../api/client'
 import { useTheme } from '../context/ThemeContext'
+import { useQueryClient } from '@tanstack/react-query'
+import { useAuth } from '../context/AuthContext'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -112,17 +114,27 @@ function useSleepTarget() {
 export function Settings() {
   const { theme, toggle } = useTheme()
   const { hours: sleepTarget, setHours: setSleepTarget } = useSleepTarget()
+  const { userId } = useAuth()
+  const queryClient = useQueryClient()
 
   const statusQ = useSyncStatus()
   const statsQ  = useDataStats()
   const trigger = useTriggerSync()
   const whoopStatus = useWhoopStatus()
+  const garminStatus = useGarminStatus()
 
   // Track which source is currently being synced + which last succeeded/failed
   const [syncingSource, setSyncingSource] = useState<string | null>(null)
   const [lastSyncedSource, setLastSyncedSource] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<{ source: string; message: string } | null>(null)
   const [connectingWhoop, setConnectingWhoop] = useState(false)
+
+  // Garmin connect modal state
+  const [showGarminModal, setShowGarminModal] = useState(false)
+  const [garminEmail, setGarminEmail] = useState('')
+  const [garminPassword, setGarminPassword] = useState('')
+  const [connectingGarmin, setConnectingGarmin] = useState(false)
+  const [garminConnectError, setGarminConnectError] = useState<string | null>(null)
 
   function handleSync(source: string) {
     setSyncingSource(source)
@@ -143,6 +155,22 @@ export function Settings() {
     } catch {
       setSyncError({ source: 'whoop', message: 'Could not start Whoop authorization. Try again.' })
       setConnectingWhoop(false)
+    }
+  }
+
+  async function handleConnectGarmin() {
+    setConnectingGarmin(true)
+    setGarminConnectError(null)
+    try {
+      await api.post('/api/auth/garmin/connect', { email: garminEmail, password: garminPassword })
+      setShowGarminModal(false)
+      setGarminEmail('')
+      setGarminPassword('')
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
+    } catch (err) {
+      setGarminConnectError(err instanceof Error ? err.message : 'Could not connect Garmin. Check your credentials.')
+    } finally {
+      setConnectingGarmin(false)
     }
   }
 
@@ -194,9 +222,14 @@ export function Settings() {
           const isSyncing = syncingSource === source.source
           const label = source.source === 'whoop' ? 'Whoop' : 'Garmin'
           const isWhoop = source.source === 'whoop'
-          // For Whoop, use token-based connection status once loaded; fall back to sync_log while loading
+          const isGarmin = source.source === 'garmin'
+
+          // Drive connection status from token existence (not sync_log) for both sources
           const whoopConnected = whoopStatus.isLoading ? true : (whoopStatus.data?.connected ?? false)
-          const rawStatus = isWhoop && !whoopConnected ? null : source.status
+          const garminConnected = garminStatus.isLoading ? true : (garminStatus.data?.connected ?? false)
+          const isConnected = isWhoop ? whoopConnected : garminConnected
+
+          const rawStatus = !isConnected ? null : source.status
           const { text, color, dot } = statusLabel(rawStatus)
 
           return (
@@ -212,18 +245,23 @@ export function Settings() {
                   </div>
                 </div>
 
-                {/* Whoop: show Connect button if not connected, else Sync Now */}
-                {isWhoop && !whoopConnected ? (
+                {/* Show Connect button when not connected, Sync Now when connected */}
+                {!isConnected ? (
                   <button
-                    onClick={() => { void handleConnectWhoop() }}
-                    disabled={connectingWhoop}
+                    onClick={() => {
+                      if (isWhoop) void handleConnectWhoop()
+                      else { setGarminConnectError(null); setShowGarminModal(true) }
+                    }}
+                    disabled={isWhoop ? connectingWhoop : false}
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      connectingWhoop
+                      (isWhoop && connectingWhoop)
                         ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
-                        : 'bg-red-500 text-white'
+                        : isWhoop ? 'bg-red-500 text-white' : 'bg-blue-600 text-white'
                     }`}
                   >
-                    {connectingWhoop ? <><Spinner /> Connecting…</> : 'Connect Whoop'}
+                    {isWhoop && connectingWhoop
+                      ? <><Spinner /> Connecting…</>
+                      : isWhoop ? 'Connect Whoop' : 'Connect Garmin'}
                   </button>
                 ) : (
                   <button
@@ -240,10 +278,10 @@ export function Settings() {
                 )}
               </div>
 
-              {/* Garmin: note that sync requires the primary account */}
-              {source.source === 'garmin' && (
+              {/* Garmin: brief note about what Connect Garmin does */}
+              {isGarmin && !garminConnected && (
                 <p className="text-2xs text-slate-400">
-                  Garmin sync uses shared credentials — only available for the primary account owner.
+                  Connect your Garmin Connect account to sync activities, sleep, and daily stats.
                 </p>
               )}
 
@@ -400,6 +438,70 @@ export function Settings() {
         </div>
       </div>
 
+      {/* ── Garmin Connect Modal ─────────────────────────────────────────────── */}
+      {showGarminModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Connect Garmin</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Enter your Garmin Connect credentials. Your password is never stored — only the session token.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={garminEmail}
+                  onChange={e => setGarminEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={garminPassword}
+                  onChange={e => setGarminPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                  onKeyDown={e => { if (e.key === 'Enter' && !connectingGarmin) void handleConnectGarmin() }}
+                />
+              </div>
+            </div>
+
+            {garminConnectError && (
+              <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+                {garminConnectError}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowGarminModal(false)}
+                disabled={connectingGarmin}
+                className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleConnectGarmin() }}
+                disabled={connectingGarmin || !garminEmail || !garminPassword}
+                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                  connectingGarmin || !garminEmail || !garminPassword
+                    ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                    : 'bg-blue-600 text-white'
+                }`}
+              >
+                {connectingGarmin ? <><Spinner /> Connecting…</> : 'Connect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

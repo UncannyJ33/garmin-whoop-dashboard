@@ -296,12 +296,22 @@ class GarminPipeline:
         Args:
             db: Active SQLAlchemy session used for all reads and writes.
             client: Pre-built GarminClient, useful for injection in tests.
-                    Defaults to a new GarminClient.
+                    Defaults to a new GarminClient (or per-user client when tokens exist).
             user_id: App user UUID to tag all stored records.
         """
+        from src.clients.garmin_auth import GarminAuth, has_garmin_token
+
         self._db = db
-        self._client = client or GarminClient()
         self.user_id = user_id
+        self._user_auth: GarminAuth | None = None
+
+        if client is not None:
+            self._client = client
+        elif user_id is not None and has_garmin_token(user_id, db):
+            self._user_auth = GarminAuth.for_user(user_id, db)
+            self._client = GarminClient(auth=self._user_auth)
+        else:
+            self._client = GarminClient()
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -385,6 +395,13 @@ class GarminPipeline:
             normalizer = Normalizer(self._db, user_id=self.user_id)
             norm_counts = normalizer.normalize_all(sync_start, sync_end)
             logger.info("Normalization complete: %s", norm_counts)
+
+            # Persist any refreshed garth session tokens back to DB
+            if self._user_auth is not None and self.user_id is not None:
+                try:
+                    self._user_auth.save_for_user(self.user_id, self._db)
+                except Exception:  # noqa: BLE001
+                    logger.warning("Garmin: could not save refreshed tokens for user %s", self.user_id)
 
         except Exception as exc:
             log.status = "error"

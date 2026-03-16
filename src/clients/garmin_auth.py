@@ -10,12 +10,14 @@ persisted in the ``token_store`` PostgreSQL table and restored on container boot
 
 import json
 import logging
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
 from garminconnect import Garmin
 from garth.exc import GarthHTTPError
 from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 
 from config.settings import settings
 
@@ -101,6 +103,71 @@ def load_garmin_tokens_from_db(engine: Engine, token_dir: Path | None = None) ->
     return True
 
 
+# ---------------------------------------------------------------------------
+# Per-user token helpers
+# ---------------------------------------------------------------------------
+
+
+def has_garmin_token(user_id: str, db: Session) -> bool:
+    """Return True if a per-user Garmin token exists in token_store.
+
+    Args:
+        user_id: App user UUID.
+        db: Active SQLAlchemy session.
+    """
+    from src.database.models import TokenStore
+
+    return db.get(TokenStore, f"garmin_{user_id}") is not None
+
+
+def authenticate_user_garmin(user_id: str, email: str, password: str, db: Session) -> None:
+    """Authenticate with Garmin for a specific user and persist tokens in DB.
+
+    Performs a full email/password login, dumps the resulting garth token
+    files to a temporary directory, then stores them in ``token_store`` under
+    the key ``garmin_{user_id}``.  The raw password is never stored.
+
+    Args:
+        user_id: App user UUID to tag the stored tokens.
+        email: Garmin Connect email address.
+        password: Garmin Connect password.
+        db: Active SQLAlchemy session.
+
+    Raises:
+        GarminAuthError: If authentication fails or tokens cannot be saved.
+    """
+    from src.database.models import TokenStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        token_dir = Path(tmpdir)
+        try:
+            client = Garmin(email=email, password=password)
+            client.login()
+        except GarthHTTPError as exc:
+            _raise_for_status(exc)
+
+        try:
+            client.garth.dump(str(token_dir))
+        except Exception as exc:  # noqa: BLE001
+            raise GarminAuthError(f"Could not save Garmin tokens: {exc}") from exc
+
+        files = {f.name: f.read_text() for f in token_dir.iterdir() if f.is_file()}
+        if not files:
+            raise GarminAuthError("Garmin login succeeded but produced no token files.")
+
+        service_key = f"garmin_{user_id}"
+        record = db.get(TokenStore, service_key)
+        if record is None:
+            record = TokenStore(service=service_key)
+            db.add(record)
+        record.token_data_json = json.dumps(files)
+        record.user_id = user_id
+        record.updated_at = datetime.now(UTC).isoformat()
+        db.commit()
+
+    logger.info("Garmin: authenticated and stored tokens for user %s", user_id)
+
+
 class GarminAuthError(Exception):
     """Raised when Garmin authentication fails."""
 
@@ -165,9 +232,11 @@ class GarminAuth:
         activities = client.get_activities(0, 10)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, token_dir: Path | None = None) -> None:
         self._client: Garmin | None = None
-        self._token_dir: Path = Path(settings.garmin_token_dir)
+        self._token_dir: Path = token_dir if token_dir is not None else Path(settings.garmin_token_dir)
+        # Keeps a TemporaryDirectory alive when this instance owns one (per-user flow)
+        self._temp_dir_obj: tempfile.TemporaryDirectory | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -192,6 +261,70 @@ class GarminAuth:
 
         self._client = self._build_client()
         return self._client
+
+    @classmethod
+    def for_user(cls, user_id: str, db: Session) -> "GarminAuth":
+        """Create a GarminAuth pre-loaded with per-user tokens from token_store.
+
+        Writes the stored token files to a managed TemporaryDirectory so garth
+        can load them without a password round-trip.  The temp directory is
+        kept alive for the lifetime of the returned instance.
+
+        Args:
+            user_id: App user UUID whose tokens to load.
+            db: Active SQLAlchemy session.
+
+        Returns:
+            Configured GarminAuth instance ready for use.
+
+        Raises:
+            GarminAuthError: If no tokens are found for the user.
+        """
+        from src.database.models import TokenStore
+
+        service_key = f"garmin_{user_id}"
+        record = db.get(TokenStore, service_key)
+        if record is None or not record.token_data_json:
+            raise GarminAuthError(f"No Garmin tokens found for user {user_id}. Connect Garmin first.")
+
+        token_files: dict[str, str] = json.loads(record.token_data_json)
+        temp = tempfile.TemporaryDirectory()
+        token_dir = Path(temp.name)
+        for filename, content in token_files.items():
+            (token_dir / filename).write_text(content)
+
+        auth = cls(token_dir=token_dir)
+        auth._temp_dir_obj = temp  # keep TemporaryDirectory alive
+        return auth
+
+    def save_for_user(self, user_id: str, db: Session) -> None:
+        """Persist current garth token files back to token_store for this user.
+
+        Should be called after a successful sync so any refreshed session
+        tokens are stored and available on the next run.
+
+        Args:
+            user_id: App user UUID.
+            db: Active SQLAlchemy session.
+        """
+        if not self._token_dir.exists():
+            return
+        files = {f.name: f.read_text() for f in self._token_dir.iterdir() if f.is_file()}
+        if not files:
+            return
+
+        from src.database.models import TokenStore
+
+        service_key = f"garmin_{user_id}"
+        record = db.get(TokenStore, service_key)
+        if record is None:
+            record = TokenStore(service=service_key)
+            db.add(record)
+        record.token_data_json = json.dumps(files)
+        record.user_id = user_id
+        record.updated_at = datetime.now(UTC).isoformat()
+        db.commit()
+        logger.debug("Garmin: refreshed tokens saved for user %s", user_id)
 
     # ------------------------------------------------------------------
     # Internal helpers
