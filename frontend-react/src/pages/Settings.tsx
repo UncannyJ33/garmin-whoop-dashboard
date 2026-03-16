@@ -34,6 +34,7 @@ function statusLabel(status: string | null): { text: string; color: string; dot:
     case 'running':
       return { text: 'Syncing…', color: 'text-moderate', dot: 'bg-moderate' }
     case 'never_synced':
+      return { text: 'Connected', color: 'text-good', dot: 'bg-good' }
     case null:
       return { text: 'Not connected', color: 'text-slate-400', dot: 'bg-slate-400' }
     default:
