@@ -68,7 +68,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
 
   const login = useCallback((t: AuthTokens) => {
-    // Clear any cached data from a previous user before setting the new token
+    // Cancel in-flight requests (aborts fetch via AbortSignal) then wipe cache
+    // so no prior user's data leaks into the new session.
+    void queryClient.cancelQueries()
     queryClient.clear()
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(t))
     setAuthToken(t.access_token)
@@ -79,7 +81,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem(SESSION_KEY)
     setAuthToken(null)
     setTokens(null)
-    // Wipe the query cache so no prior user's data can leak to the next session
+    // Cancel in-flight requests then wipe cache before navigating to login.
+    void queryClient.cancelQueries()
     queryClient.clear()
     navigateRef.current('/login')
   }, [queryClient])
