@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy.pool import NullPool
 
 from config.settings import settings
 
@@ -55,11 +56,7 @@ def get_engine(database_url: str | None = None) -> Engine:
         engine = create_engine(
             url,
             echo=False,
-            pool_size=3,
-            max_overflow=2,
-            pool_recycle=120,
-            pool_pre_ping=True,
-            pool_timeout=10,
+            poolclass=NullPool,
         )
 
     return engine
