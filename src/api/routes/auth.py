@@ -154,21 +154,72 @@ def me(current_user: User = Depends(get_current_user)) -> UserResponse:
 
 # ── Whoop OAuth ───────────────────────────────────────────────────────────────
 
-# Maps CSRF state token → app user_id so the callback can tag the token row
-_pending_states: dict[str, str] = {}
 _whoop_auth = WhoopAuth()
+
+# State TTL: OAuth states older than this are considered expired
+_OAUTH_STATE_TTL_MINUTES = 30
+
+
+def _store_oauth_state(state: str, user_id: str, db: Session) -> None:
+    """Persist a Whoop OAuth CSRF state → user_id mapping in token_store.
+
+    Uses the DB so the mapping survives server restarts (Railway deploys).
+    Entries are keyed as ``whoop_state_{state}`` and cleaned up on use.
+    """
+    from src.database.models import TokenStore
+
+    record = db.get(TokenStore, f"whoop_state_{state}")
+    if record is None:
+        record = TokenStore(service=f"whoop_state_{state}")
+        db.add(record)
+    record.token_data_json = user_id
+    record.user_id = user_id
+    record.updated_at = datetime.now(UTC).isoformat()
+    db.commit()
+
+
+def _pop_oauth_state(state: str, db: Session) -> str | None:
+    """Retrieve and delete the user_id for a Whoop OAuth state.
+
+    Returns the user_id if the state is valid and not expired, else None.
+    """
+    from src.database.models import TokenStore
+
+    record = db.get(TokenStore, f"whoop_state_{state}")
+    if record is None:
+        return None
+
+    # Reject states older than TTL
+    try:
+        updated = datetime.fromisoformat(record.updated_at)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=UTC)
+        age_minutes = (datetime.now(UTC) - updated).total_seconds() / 60
+        if age_minutes > _OAUTH_STATE_TTL_MINUTES:
+            db.delete(record)
+            db.commit()
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+
+    user_id = record.token_data_json
+    db.delete(record)
+    db.commit()
+    return user_id
 
 
 @router.get("/whoop/url", summary="Get Whoop OAuth authorization URL")
 async def whoop_authorize_url(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> JSONResponse:
     """Return the Whoop authorization URL for the authenticated user.
 
     The frontend navigates to this URL to start the OAuth flow.
+    State is persisted to the DB so it survives server restarts.
     """
     url, state = _whoop_auth.get_authorization_url()
-    _pending_states[state] = current_user.id
+    _store_oauth_state(state, current_user.id, db)
     return JSONResponse({"url": url})
 
 
@@ -234,7 +285,7 @@ async def whoop_callback(
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     """Exchange the authorization code for tokens and redirect back to Settings."""
-    user_id = _pending_states.pop(state, None)
+    user_id = _pop_oauth_state(state, db)
     if user_id is None:
         logger.warning("Whoop callback: unknown or expired state — possible CSRF or server restart")
         return RedirectResponse(url="/settings?whoop_error=expired", status_code=302)
