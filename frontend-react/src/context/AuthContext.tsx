@@ -15,6 +15,7 @@ import {
   useState,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { setAuthToken } from '../api/client'
 
 const SESSION_KEY = 'pd_auth'
@@ -64,19 +65,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const navigateRef = useRef(navigate)
   navigateRef.current = navigate
+  const queryClient = useQueryClient()
 
   const login = useCallback((t: AuthTokens) => {
+    // Clear any cached data from a previous user before setting the new token
+    queryClient.clear()
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(t))
     setAuthToken(t.access_token)
     setTokens(t)
-  }, [])
+  }, [queryClient])
 
   const logout = useCallback(() => {
     sessionStorage.removeItem(SESSION_KEY)
     setAuthToken(null)
     setTokens(null)
+    // Wipe the query cache so no prior user's data can leak to the next session
+    queryClient.clear()
     navigateRef.current('/login')
-  }, [])
+  }, [queryClient])
 
   // Listen for 401s dispatched by the API client
   useEffect(() => {
