@@ -173,33 +173,6 @@ export function Readiness() {
     ]
   }, [weeklyQ.data])
 
-  // Full-page error if primary data fails
-  if (todayQ.isError && !todayQ.isLoading) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Morning Readiness</h1>
-        <ErrorState
-          message="Could not reach the API. Make sure the backend is running on port 8000."
-          onRetry={() => void todayQ.refetch()}
-        />
-      </div>
-    )
-  }
-
-  // 204 No Content — user has no data yet
-  if (todayQ.isSuccess && !todayQ.data) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Morning Readiness</h1>
-        <div className="card flex flex-col items-center justify-center py-16 gap-3 text-center">
-          <p className="text-4xl">📡</p>
-          <p className="text-lg font-semibold text-slate-700 dark:text-slate-200">No readiness data yet</p>
-          <p className="text-sm text-slate-500">Sync your devices to get started.</p>
-        </div>
-      </div>
-    )
-  }
-
   const data = todayQ.data
   const factors = data ? Object.entries(data.contributing_factors) : []
   const sourceCount = factors.filter(([, f]) => f.raw_value !== null).length
@@ -216,7 +189,18 @@ export function Readiness() {
       {/* ── SECTION 1: Hero ──────────────────────────────────────────────── */}
       {todayQ.isLoading ? (
         <HeroSkeleton />
-      ) : data ? (
+      ) : todayQ.isError ? (
+        <ErrorState
+          message="Could not reach the API. Make sure the backend is running on port 8000."
+          onRetry={() => void todayQ.refetch()}
+        />
+      ) : !data ? (
+        <div className="card flex flex-col items-center justify-center py-14 gap-3 text-center">
+          <p className="text-4xl">📡</p>
+          <p className="text-lg font-semibold text-slate-700 dark:text-slate-200">No readiness score yet today</p>
+          <p className="text-sm text-slate-500">Check back after your Whoop recovery is scored.</p>
+        </div>
+      ) : (
         <div
           className="card relative overflow-hidden flex flex-col items-center justify-center text-center py-14 gap-3"
           style={{ backgroundImage: data.score != null ? heroGradient(data.score) : undefined }}
@@ -242,7 +226,7 @@ export function Readiness() {
             )}
           </p>
         </div>
-      ) : null}
+      )}
 
       {/* ── SECTION 2: Contributing Factors ──────────────────────────────── */}
       <div>
