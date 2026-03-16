@@ -264,15 +264,17 @@ def _fetch_raw(
     user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Fetch (date, value) pairs from ``table`` ordered by date."""
-    uid_filter = "AND user_id = :uid" if user_id is not None else ""
-    params: dict = {"s": start_iso, "e": end_iso}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"s": start_iso, "e": end_iso, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"s": start_iso, "e": end_iso}
     with engine.connect() as conn:
         rows = conn.execute(
             text(  # noqa: S608
                 f"SELECT date, {column} FROM {table}"
-                f" WHERE date >= :s AND date <= :e {uid_filter} ORDER BY date"
+                f" WHERE date >= :s AND date <= :e {uid_clause} ORDER BY date"
             ),
             params,
         ).fetchall()
@@ -310,7 +312,7 @@ def _fetch_readiness_values(
     from src.analytics.readiness_score import get_readiness_history  # lazy import
 
     history = get_readiness_history(start_date, end_date, engine, user_id=user_id)
-    by_date = {r["date"]: r["score"] for r in history if r.get("confidence", 0.0) > 0}
+    by_date = {r["date"]: r["score"] for r in history if r.get("score") is not None}
     return [(d.isoformat(), by_date.get(d.isoformat())) for d in _date_range(start_date, end_date)]
 
 
@@ -321,15 +323,17 @@ def _fetch_training_load_values(
     user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Return per-day total whoop_strain summed from unified_workouts."""
-    uid_filter = "AND user_id = :uid" if user_id is not None else ""
-    params: dict = {"s": start_date.isoformat(), "e": end_date.isoformat()}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"s": start_date.isoformat(), "e": end_date.isoformat(), "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"s": start_date.isoformat(), "e": end_date.isoformat()}
     with engine.connect() as conn:
         rows = conn.execute(
             text(  # noqa: S608
                 "SELECT date, SUM(whoop_strain) FROM unified_workouts"
-                f" WHERE date >= :s AND date <= :e AND whoop_strain IS NOT NULL {uid_filter}"
+                f" WHERE date >= :s AND date <= :e AND whoop_strain IS NOT NULL {uid_clause}"
                 " GROUP BY date ORDER BY date"
             ),
             params,
@@ -748,20 +752,23 @@ def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = Non
     prev_end = start_date - timedelta(days=1)
     prev_start = prev_end - timedelta(days=6)
 
-    _uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    if user_id is not None:
+        _uid_clause = "AND user_id = :uid"
+    else:
+        _uid_clause = "AND user_id IS NULL"
 
     def _daily_stats(s: date, e: date) -> dict:
-        params: dict = {"s": s.isoformat(), "e": e.isoformat()}
+        p: dict = {"s": s.isoformat(), "e": e.isoformat()}
         if user_id is not None:
-            params["uid"] = user_id
+            p["uid"] = user_id
         with engine.connect() as conn:
             row = conn.execute(
                 text(
                     "SELECT AVG(whoop_recovery_score), AVG(whoop_hrv_rmssd),"
                     "       AVG(whoop_rhr), SUM(whoop_strain)"
-                    f" FROM unified_daily WHERE date >= :s AND date <= :e {_uid_filter}"
+                    f" FROM unified_daily WHERE date >= :s AND date <= :e {_uid_clause}"
                 ),
-                params,
+                p,
             ).fetchone()
         return {
             "avg_recovery": row[0],
@@ -771,17 +778,17 @@ def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = Non
         }
 
     def _sleep_stats(s: date, e: date) -> dict:
-        params: dict = {"s": s.isoformat(), "e": e.isoformat()}
+        p: dict = {"s": s.isoformat(), "e": e.isoformat()}
         if user_id is not None:
-            params["uid"] = user_id
+            p["uid"] = user_id
         with engine.connect() as conn:
             row = conn.execute(
                 text(
                     "SELECT AVG(total_sleep_minutes - COALESCE(awake_minutes, 0)),"
                     "       AVG(deep_sleep_minutes)"
-                    f" FROM unified_sleep WHERE date >= :s AND date <= :e {_uid_filter}"
+                    f" FROM unified_sleep WHERE date >= :s AND date <= :e {_uid_clause}"
                 ),
-                params,
+                p,
             ).fetchone()
         return {
             "avg_sleep_duration": row[0],
@@ -789,16 +796,16 @@ def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = Non
         }
 
     def _workout_stats(s: date, e: date) -> dict:
-        params: dict = {"s": s.isoformat(), "e": e.isoformat()}
+        p: dict = {"s": s.isoformat(), "e": e.isoformat()}
         if user_id is not None:
-            params["uid"] = user_id
+            p["uid"] = user_id
         with engine.connect() as conn:
             row = conn.execute(
                 text(
                     "SELECT COUNT(*), SUM(duration_minutes)"
-                    f" FROM unified_workouts WHERE date >= :s AND date <= :e {_uid_filter}"
+                    f" FROM unified_workouts WHERE date >= :s AND date <= :e {_uid_clause}"
                 ),
-                params,
+                p,
             ).fetchone()
         return {
             "workout_count": row[0] or 0,
@@ -809,7 +816,7 @@ def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = Non
         from src.analytics.readiness_score import get_readiness_history  # lazy import
 
         history = get_readiness_history(s, e, engine, user_id=user_id)
-        scores = [r["score"] for r in history if r.get("confidence", 0.0) > 0]
+        scores = [r["score"] for r in history if r.get("score") is not None]
         return sum(scores) / len(scores) if scores else None
 
     def _pct_change(curr: float | None, prev: float | None) -> float | None:

@@ -180,10 +180,12 @@ def _fetch_unified_sleep(
     engine: Engine, start: str, end: str, user_id: str | None = None
 ) -> dict[str, dict]:
     """Fetch unified_sleep rows keyed by date."""
-    uid_filter = "AND user_id = :uid" if user_id is not None else ""
-    params: dict = {"start": start, "end": end}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"start": start, "end": end, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"start": start, "end": end}
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -193,7 +195,7 @@ def _fetch_unified_sleep(
                        light_sleep_minutes, rem_sleep_minutes, awake_minutes,
                        whoop_performance, whoop_efficiency
                 FROM unified_sleep
-                WHERE date >= :start AND date <= :end {uid_filter}
+                WHERE date >= :start AND date <= :end {uid_clause}
                 """
                 ),
                 params,
@@ -208,10 +210,12 @@ def _fetch_unified_daily(
     engine: Engine, start: str, end: str, user_id: str | None = None
 ) -> dict[str, dict]:
     """Fetch unified_daily rows keyed by date."""
-    uid_filter = "AND user_id = :uid" if user_id is not None else ""
-    params: dict = {"start": start, "end": end}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"start": start, "end": end, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"start": start, "end": end}
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -220,7 +224,7 @@ def _fetch_unified_daily(
                 SELECT date, whoop_strain, whoop_recovery_score,
                        garmin_body_battery_high
                 FROM unified_daily
-                WHERE date >= :start AND date <= :end {uid_filter}
+                WHERE date >= :start AND date <= :end {uid_clause}
                 """
                 ),
                 params,
@@ -235,10 +239,12 @@ def _fetch_training_load_by_date(
     engine: Engine, start: str, end: str, user_id: str | None = None
 ) -> dict[str, float]:
     """Sum garmin_activities.training_load per day via unified_workouts join."""
-    uid_filter = "AND uw.user_id = :uid" if user_id is not None else ""
-    params: dict = {"start": start, "end": end}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND uw.user_id = :uid"
+        params: dict = {"start": start, "end": end, "uid": user_id}
+    else:
+        uid_clause = "AND uw.user_id IS NULL"
+        params = {"start": start, "end": end}
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -250,7 +256,7 @@ def _fetch_training_load_by_date(
                   ON uw.garmin_activity_id = ga.activity_id
                 WHERE ga.training_load IS NOT NULL
                   AND uw.date >= :start
-                  AND uw.date <= :end {uid_filter}
+                  AND uw.date <= :end {uid_clause}
                 GROUP BY uw.date
                 """
                 ),
@@ -270,10 +276,12 @@ def _fetch_whoop_sleep_times(
     Filters by DATE(end_time) (wake-up date) within the given range.
     Returns rows sorted by end_time ascending.
     """
-    uid_filter = "AND user_id = :uid" if user_id is not None else ""
-    params: dict = {"start": start, "end": end}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"start": start, "end": end, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"start": start, "end": end}
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -283,7 +291,7 @@ def _fetch_whoop_sleep_times(
                 FROM whoop_sleep
                 WHERE nap = false
                   AND SUBSTR(end_time, 1, 10) >= :start
-                  AND SUBSTR(end_time, 1, 10) <= :end {uid_filter}
+                  AND SUBSTR(end_time, 1, 10) <= :end {uid_clause}
                 ORDER BY end_time
                 """
                 ),

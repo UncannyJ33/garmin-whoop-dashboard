@@ -257,10 +257,12 @@ def _fetch_recovery_context(
     user_id: str | None = None,
 ) -> dict[str, float | None]:
     """Fetch whoop_recovery_score keyed by date for the given range."""
-    uid_filter = "AND user_id = :uid" if user_id is not None else ""
-    params: dict = {"start": min_date, "end": max_date}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"start": min_date, "end": max_date, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"start": min_date, "end": max_date}
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -268,7 +270,7 @@ def _fetch_recovery_context(
                     f"""
                 SELECT date, whoop_recovery_score
                 FROM unified_daily
-                WHERE date >= :start AND date <= :end {uid_filter}
+                WHERE date >= :start AND date <= :end {uid_clause}
                 """
                 ),
                 params,
@@ -299,15 +301,17 @@ def get_enriched_workout(
     Returns:
         EnrichedWorkout, or None if the ID does not exist.
     """
-    uid_filter = "AND uw.user_id = :uid" if user_id is not None else ""
-    params: dict = {"id": workout_id}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND uw.user_id = :uid"
+        params: dict = {"id": workout_id, "uid": user_id}
+    else:
+        uid_clause = "AND uw.user_id IS NULL"
+        params = {"id": workout_id}
     with engine.connect() as conn:
         row = (
             conn.execute(
                 text(  # noqa: S608
-                    f"SELECT {_WORKOUT_COLS} {_WORKOUT_JOIN} WHERE uw.id = :id {uid_filter}"
+                    f"SELECT {_WORKOUT_COLS} {_WORKOUT_JOIN} WHERE uw.id = :id {uid_clause}"
                 ),
                 params,
             )
@@ -349,10 +353,12 @@ def get_enriched_workouts(
     Returns:
         List of EnrichedWorkout sorted by start_time ascending.
     """
-    uid_filter = "AND uw.user_id = :uid" if user_id is not None else ""
-    params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat()}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND uw.user_id = :uid"
+        params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat(), "uid": user_id}
+    else:
+        uid_clause = "AND uw.user_id IS NULL"
+        params = {"start": start_date.isoformat(), "end": end_date.isoformat()}
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -360,7 +366,7 @@ def get_enriched_workouts(
                     f"""
                 SELECT {_WORKOUT_COLS}
                 {_WORKOUT_JOIN}
-                WHERE uw.date >= :start AND uw.date <= :end {uid_filter}
+                WHERE uw.date >= :start AND uw.date <= :end {uid_clause}
                 ORDER BY uw.start_time
                 """  # noqa: S608
                 ),

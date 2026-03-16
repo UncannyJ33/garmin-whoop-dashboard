@@ -59,6 +59,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new ApiError(401, 'Session expired. Please sign in again.')
   }
 
+  if (res.status === 204) {
+    return null as T
+  }
+
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {

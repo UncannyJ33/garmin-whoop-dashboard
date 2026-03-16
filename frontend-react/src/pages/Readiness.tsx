@@ -121,8 +121,8 @@ export function Readiness() {
 
   // Trend data: merge history scores + 7d rolling avg
   const trendData = useMemo(() => {
-    if (!historyQ.data) return []
-    const scores = historyQ.data.map(p => p.score as number | null)
+    if (!historyQ.data || historyQ.data.length === 0) return []
+    const scores = historyQ.data.map(p => p.score)
     const avgs = rolling7d(scores)
     return historyQ.data.map((p, i) => ({
       date: p.date,
@@ -186,6 +186,20 @@ export function Readiness() {
     )
   }
 
+  // 204 No Content — user has no data yet
+  if (todayQ.isSuccess && !todayQ.data) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Morning Readiness</h1>
+        <div className="card flex flex-col items-center justify-center py-16 gap-3 text-center">
+          <p className="text-4xl">📡</p>
+          <p className="text-lg font-semibold text-slate-700 dark:text-slate-200">No readiness data yet</p>
+          <p className="text-sm text-slate-500">Sync your devices to get started.</p>
+        </div>
+      </div>
+    )
+  }
+
   const data = todayQ.data
   const factors = data ? Object.entries(data.contributing_factors) : []
   const sourceCount = factors.filter(([, f]) => f.raw_value !== null).length
@@ -205,15 +219,15 @@ export function Readiness() {
       ) : data ? (
         <div
           className="card relative overflow-hidden flex flex-col items-center justify-center text-center py-14 gap-3"
-          style={{ backgroundImage: heroGradient(data.score) }}
+          style={{ backgroundImage: data.score != null ? heroGradient(data.score) : undefined }}
         >
           <p className="metric-label tracking-[0.2em]">Morning Readiness</p>
 
           <p
-            className={`font-mono font-bold tabular-nums leading-none ${scoreColor(data.score)}`}
+            className={`font-mono font-bold tabular-nums leading-none ${data.score != null ? scoreColor(data.score) : 'text-slate-400'}`}
             style={{ fontSize: 'clamp(72px, 16vw, 112px)' }}
           >
-            {Math.round(data.score)}
+            {data.score != null ? Math.round(data.score) : '--'}
           </p>
 
           <StatusBadge

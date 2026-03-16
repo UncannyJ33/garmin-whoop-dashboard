@@ -21,7 +21,7 @@ export interface ContributingFactor {
 
 export interface ReadinessResult {
   date: string
-  score: number
+  score: number | null
   recommendation: string
   contributing_factors: Record<string, ContributingFactor>
   confidence: number
@@ -29,7 +29,7 @@ export interface ReadinessResult {
 
 export interface ReadinessHistoryPoint {
   date: string
-  score: number
+  score: number | null
   recommendation: string
   confidence: number
 }

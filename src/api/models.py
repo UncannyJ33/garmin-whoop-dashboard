@@ -19,7 +19,7 @@ class ContributingFactor(BaseModel):
 
 class ReadinessResponse(BaseModel):
     date: str
-    score: float
+    score: float | None = None
     recommendation: str
     contributing_factors: dict[str, ContributingFactor]
     confidence: float
@@ -27,7 +27,7 @@ class ReadinessResponse(BaseModel):
 
 class ReadinessHistoryItem(BaseModel):
     date: str
-    score: float
+    score: float | None = None
     recommendation: str
     confidence: float
 

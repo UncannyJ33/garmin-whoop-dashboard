@@ -51,7 +51,8 @@ class ReadinessResult:
 
     Attributes:
         date: The date this result covers.
-        score: Composite readiness score, 0–100.
+        score: Composite readiness score, 0–100. None when no data available
+            (confidence == 0).
         recommendation: Human-readable training guidance string.
         contributing_factors: Dict keyed by component ID. Each value contains:
             ``name`` (str), ``raw_value`` (float|None),
@@ -63,7 +64,7 @@ class ReadinessResult:
     """
 
     date: date
-    score: float
+    score: float | None
     recommendation: str
     contributing_factors: dict[str, dict[str, Any]]
     confidence: float
@@ -280,24 +281,23 @@ def _compute_from_data(
     total_available_weight = sum(effective_weights[k] for k in available_keys)
 
     if not available_keys or total_available_weight == 0.0:
-        score = 50.0
+        score = None
         confidence = 0.0
         # effective_weights already initialised to 0.0 in _compute_components
     else:
-        score = 0.0
+        raw_score = 0.0
         for key, component in components.items():
             if key in available_keys:
                 eff_w = effective_weights[key] / total_available_weight
                 component["effective_weight"] = eff_w
-                score += component["normalized_value"] * eff_w
+                raw_score += component["normalized_value"] * eff_w
         confidence = min(1.0, total_available_weight)
-
-    score = max(0.0, min(100.0, score))
+        score = max(0.0, min(100.0, raw_score))
 
     return ReadinessResult(
         date=target_date,
-        score=round(score, 2),
-        recommendation=_get_recommendation(score),
+        score=round(score, 2) if score is not None else None,
+        recommendation=_get_recommendation(score if score is not None else 0.0),
         contributing_factors=components,
         confidence=round(confidence, 3),
     )
@@ -326,10 +326,12 @@ def _fetch_data_window(
     Returns:
         (daily_by_date, sleep_by_date): dicts keyed by ISO date string.
     """
-    uid_filter = "AND user_id = :uid" if user_id is not None else ""
-    params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat()}
     if user_id is not None:
-        params["uid"] = user_id
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat(), "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"start": start_date.isoformat(), "end": end_date.isoformat()}
 
     with engine.connect() as conn:
         daily_rows = (
@@ -339,7 +341,7 @@ def _fetch_data_window(
                 SELECT date, whoop_recovery_score, whoop_hrv_rmssd,
                        whoop_strain, garmin_body_battery_high
                 FROM unified_daily
-                WHERE date >= :start AND date <= :end {uid_filter}
+                WHERE date >= :start AND date <= :end {uid_clause}
                 ORDER BY date
                 """
                 ),
@@ -355,7 +357,7 @@ def _fetch_data_window(
                     f"""
                 SELECT date, whoop_performance
                 FROM unified_sleep
-                WHERE date >= :start AND date <= :end {uid_filter}
+                WHERE date >= :start AND date <= :end {uid_clause}
                 """
                 ),
                 params,
@@ -425,10 +427,10 @@ def get_readiness_history(
         weights: Optional weight overrides (see compute_readiness).
 
     Returns:
-        List of dicts — one per calendar date in the range, sorted ascending:
+        List of dicts for dates that have data (confidence > 0), sorted ascending:
         ``{"date": "YYYY-MM-DD", "score": float, "recommendation": str,
            "confidence": float}``.
-        Dates with no data return score=50.0, confidence=0.0.
+        Dates with no data (confidence == 0) are omitted. Returns [] if no data.
     """
     # Pull 7 extra days of history so start_date has a full HRV window
     fetch_start = start_date - timedelta(days=7)
@@ -438,14 +440,15 @@ def get_readiness_history(
     current = start_date
     while current <= end_date:
         result = _compute_from_data(current, daily_by_date, sleep_by_date, weights)
-        results.append(
-            {
-                "date": current.isoformat(),
-                "score": result.score,
-                "recommendation": result.recommendation,
-                "confidence": result.confidence,
-            }
-        )
+        if result.confidence > 0:
+            results.append(
+                {
+                    "date": current.isoformat(),
+                    "score": result.score,
+                    "recommendation": result.recommendation,
+                    "confidence": result.confidence,
+                }
+            )
         current += timedelta(days=1)
 
     return results

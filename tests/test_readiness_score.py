@@ -330,9 +330,9 @@ class TestComputeFromData:
         assert result.score == pytest.approx(60.0, abs=0.5)
         assert result.confidence == pytest.approx(READINESS_WEIGHTS["body_battery"], abs=0.001)
 
-    def test_no_data_returns_50_confidence_0(self):
+    def test_no_data_returns_none_score_confidence_0(self):
         result = _compute_from_data(self.TARGET, {}, {})
-        assert result.score == 50.0
+        assert result.score is None
         assert result.confidence == 0.0
 
     def test_score_clamped_0_to_100(self):
@@ -490,11 +490,11 @@ class TestComputeReadiness:
         assert result.confidence == pytest.approx(0.85, abs=0.001)
         assert result.contributing_factors["body_battery"]["effective_weight"] == 0.0
 
-    def test_date_with_no_data_returns_default(self, engine):
+    def test_date_with_no_data_returns_none_score(self, engine):
         # Date far in the future — no rows in DB
         target = date(2099, 12, 31)
         result = compute_readiness(target, engine)
-        assert result.score == 50.0
+        assert result.score is None
         assert result.confidence == 0.0
 
     def test_custom_weights_accepted(self, engine):
@@ -567,15 +567,12 @@ class TestGetReadinessHistory:
         assert len(results) == 1
         assert results[0]["date"] == target.isoformat()
 
-    def test_no_data_returns_default_score(self, engine):
-        # Date range with no DB rows → all defaults
+    def test_no_data_returns_empty_list(self, engine):
+        # Date range with no DB rows → empty list (confidence==0 entries are filtered)
         start = date(2099, 1, 1)
         end = date(2099, 1, 3)
         results = get_readiness_history(start, end, engine)
-        assert len(results) == 3
-        for entry in results:
-            assert entry["score"] == 50.0
-            assert entry["confidence"] == 0.0
+        assert results == []
 
     def test_custom_weights_propagated(self, engine):
         with Session(engine) as s:

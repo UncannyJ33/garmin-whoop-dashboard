@@ -157,7 +157,7 @@ export function ApiTest() {
         />
         {readinessToday.data && (
           <div className="ml-8 mb-2 text-xs text-slate-500 font-mono">
-            score={readinessToday.data.score.toFixed(1)}, factors={Object.keys(readinessToday.data.contributing_factors).length}, confidence={readinessToday.data.confidence.toFixed(2)}
+            score={readinessToday.data.score != null ? readinessToday.data.score.toFixed(1) : 'null'}, factors={Object.keys(readinessToday.data.contributing_factors).length}, confidence={readinessToday.data.confidence.toFixed(2)}
           </div>
         )}
         <Row

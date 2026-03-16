@@ -3,6 +3,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import Engine
 
 from src.analytics.readiness_score import (
@@ -32,16 +33,22 @@ def _to_response(r: ReadinessResult) -> ReadinessResponse:
 
 @router.get(
     "/today",
-    response_model=ReadinessResponse,
+    response_model=None,
     summary="Today's readiness score",
 )
 async def readiness_today(
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
-) -> ReadinessResponse:
-    """Compute the composite training readiness score for today."""
+) -> Response | ReadinessResponse:
+    """Compute the composite training readiness score for today.
+
+    Returns 204 No Content when no data is available for this user.
+    """
     try:
-        return _to_response(compute_readiness(date.today(), engine, user_id=current_user.id))
+        result = compute_readiness(date.today(), engine, user_id=current_user.id)
+        if result.confidence == 0.0:
+            return Response(status_code=204)
+        return _to_response(result)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
