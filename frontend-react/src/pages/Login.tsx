@@ -12,6 +12,7 @@ interface LoginResponse {
 export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -24,6 +25,23 @@ export function Login() {
     setError(null)
     setLoading(true)
     try {
+      if (mode === 'register') {
+        const res = await fetch(`${BASE_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+          },
+          body: JSON.stringify({ email, password }),
+        })
+        if (!res.ok) {
+          const body = (await res.json()) as { detail?: string }
+          setError(body.detail ?? `Registration failed (${res.status})`)
+          return
+        }
+        // Auto-login after successful registration
+      }
+
       const res = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
@@ -47,12 +65,19 @@ export function Login() {
     }
   }
 
+  function switchMode(next: 'login' | 'register') {
+    setMode(next)
+    setError(null)
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface-bg px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-slate-100">PulseEngine</h1>
-          <p className="text-slate-400 text-sm mt-1">Sign in to your dashboard</p>
+          <p className="text-slate-400 text-sm mt-1">
+            {mode === 'login' ? 'Sign in to your dashboard' : 'Create your account'}
+          </p>
         </div>
 
         <form
@@ -82,7 +107,7 @@ export function Login() {
             <input
               id="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -102,9 +127,35 @@ export function Login() {
             disabled={loading}
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            {loading
+              ? mode === 'login' ? 'Signing in…' : 'Creating account…'
+              : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
+
+        <p className="text-center text-sm text-slate-500 mt-4">
+          {mode === 'login' ? (
+            <>
+              Don't have an account?{' '}
+              <button
+                onClick={() => switchMode('register')}
+                className="text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Create one
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{' '}
+              <button
+                onClick={() => switchMode('login')}
+                className="text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Sign in
+              </button>
+            </>
+          )}
+        </p>
       </div>
     </div>
   )
