@@ -57,7 +57,17 @@ def _check_rate_limit(ip: str) -> None:
     summary="Create a new user account",
 )
 def register(body: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
-    """Register a new account. Returns the created user (no token yet)."""
+    """Register a new account.
+
+    Registration is restricted to the first account only. This is a personal
+    dashboard — additional accounts are not supported.
+    """
+    count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+    if count and count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is closed. This is a personal dashboard.",
+        )
     existing = db.execute(
         text("SELECT id FROM users WHERE email = :email"), {"email": body.email}
     ).one_or_none()
