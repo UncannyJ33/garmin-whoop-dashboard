@@ -1,7 +1,8 @@
 /**
  * Settings page — sync status, data overview, preferences
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useDataStats, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
 import { api } from '../api/client'
 import { useTheme } from '../context/ThemeContext'
@@ -128,6 +129,21 @@ export function Settings() {
   const [lastSyncedSource, setLastSyncedSource] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<{ source: string; message: string } | null>(null)
   const [connectingWhoop, setConnectingWhoop] = useState(false)
+
+  // Handle Whoop OAuth redirect-back params
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const whoopConnected = searchParams.get('whoop_connected')
+    const whoopError = searchParams.get('whoop_error')
+    if (whoopConnected === '1') {
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'whoop-status', userId] })
+      void queryClient.invalidateQueries({ queryKey: ['sync', 'status', userId] })
+      setSearchParams({}, { replace: true })
+    } else if (whoopError) {
+      setSyncError({ source: 'whoop', message: whoopError === 'expired' ? 'Authorization expired — please try connecting again.' : 'Whoop authorization failed. Please try again.' })
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams, queryClient, userId])
 
   // Garmin connect modal state
   const [showGarminModal, setShowGarminModal] = useState(false)

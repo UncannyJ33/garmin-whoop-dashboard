@@ -5,13 +5,13 @@ from collections import defaultdict, deque
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
-from src.api.dependencies import get_db
+from src.api.dependencies import get_db, get_engine_dep
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.auth.schemas import TokenResponse, UserCreate, UserLogin, UserResponse
@@ -213,11 +213,17 @@ async def garmin_connect(
 async def garmin_connection_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    engine: Engine = Depends(get_engine_dep),
 ) -> JSONResponse:
-    """Return whether the current user has valid Garmin session tokens stored."""
-    from src.clients.garmin_auth import has_garmin_token
+    """Return whether the current user has valid Garmin session tokens stored.
 
-    connected = has_garmin_token(current_user.id, db)
+    The primary account owner is considered connected via global env-var
+    credentials even without a per-user token row.
+    """
+    from src.clients.garmin_auth import has_garmin_token
+    from src.ingestion.scheduler import _get_owner_user_id
+
+    connected = has_garmin_token(current_user.id, db) or _get_owner_user_id(engine) == current_user.id
     return JSONResponse({"connected": connected})
 
 
@@ -226,13 +232,15 @@ async def whoop_callback(
     code: str,
     state: str,
     db: Session = Depends(get_db),
-) -> JSONResponse:
-    """Exchange the authorization code for tokens and persist them."""
+) -> RedirectResponse:
+    """Exchange the authorization code for tokens and redirect back to Settings."""
     user_id = _pending_states.pop(state, None)
     if user_id is None:
-        raise HTTPException(status_code=400, detail="Invalid or expired state parameter.")
+        logger.warning("Whoop callback: unknown or expired state — possible CSRF or server restart")
+        return RedirectResponse(url="/settings?whoop_error=expired", status_code=302)
     try:
         await _whoop_auth.exchange_code(code, db, user_id=user_id)
     except WhoopAuthError as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
-    return JSONResponse({"status": "authorized", "message": "Whoop connected successfully."})
+        logger.error("Whoop OAuth exchange failed: %s", e)
+        return RedirectResponse(url="/settings?whoop_error=auth_failed", status_code=302)
+    return RedirectResponse(url="/settings?whoop_connected=1", status_code=302)
