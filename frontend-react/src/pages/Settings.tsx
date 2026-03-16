@@ -191,11 +191,13 @@ export function Settings() {
         )}
 
         {(statusQ.data ?? []).map(source => {
-          const { text, color, dot } = statusLabel(source.status)
           const isSyncing = syncingSource === source.source
           const label = source.source === 'whoop' ? 'Whoop' : 'Garmin'
           const isWhoop = source.source === 'whoop'
-          const whoopConnected = whoopStatus.data?.connected ?? true // assume connected until loaded
+          // For Whoop, use token-based connection status once loaded; fall back to sync_log while loading
+          const whoopConnected = whoopStatus.isLoading ? true : (whoopStatus.data?.connected ?? false)
+          const rawStatus = isWhoop && !whoopConnected ? null : source.status
+          const { text, color, dot } = statusLabel(rawStatus)
 
           return (
             <div key={source.source} className="card space-y-4">
