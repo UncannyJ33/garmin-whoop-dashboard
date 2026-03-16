@@ -2,17 +2,27 @@
 set -e
 
 echo "Running database migrations..."
-python -c "from src.database.migrations import run; run()"
-echo "Migrations complete."
+python -c "
+from config.settings import settings
+from src.database.migrations import run
+
+# Use a single connection for all startup tasks to minimise Supabase pooler load.
+kwargs = {}
+if not settings.database_url.startswith('sqlite'):
+    from sqlalchemy import create_engine
+    engine = create_engine(
+        settings.database_url,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=30,
+    )
+    kwargs['engine'] = engine
+run(**kwargs)
 
 # Reset PostgreSQL sequences to avoid primary-key conflicts when rows were
 # inserted with explicit IDs (e.g. during migrations on a fresh DB).
-# This is a no-op on SQLite.
-python -c "
-from config.settings import settings
 if not settings.database_url.startswith('sqlite'):
-    from sqlalchemy import create_engine, text
-    engine = create_engine(settings.database_url)
+    from sqlalchemy import text
     tables = ['sync_log', 'garmin_exercise_sets']
     with engine.begin() as conn:
         for t in tables:
@@ -21,7 +31,10 @@ if not settings.database_url.startswith('sqlite'):
                 f\"COALESCE((SELECT MAX(id) FROM {t}), 0) + 1, false)\"
             ))
     print('Sequences reset.')
+
+engine.dispose()
 "
+echo "Startup DB tasks complete."
 
 echo "Starting server on port ${PORT:-8000}..."
 
