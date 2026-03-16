@@ -28,13 +28,25 @@ interface AuthTokens {
 
 interface AuthContextValue {
   token: string | null
+  userId: string | null
   isAuthenticated: boolean
   login: (tokens: AuthTokens) => void
   logout: () => void
 }
 
+/** Extract the `sub` (user UUID) from a JWT without a library. JWTs are signed, not encrypted. */
+function extractUserId(token: string): string | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return (payload.sub as string) ?? null
+  } catch {
+    return null
+  }
+}
+
 const AuthContext = createContext<AuthContextValue>({
   token: null,
+  userId: null,
   isAuthenticated: false,
   login: () => {},
   logout: () => {},
@@ -98,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         token: tokens?.access_token ?? null,
+        userId: tokens ? extractUserId(tokens.access_token) : null,
         isAuthenticated: tokens !== null,
         login,
         logout,
