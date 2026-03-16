@@ -29,20 +29,27 @@ class WhoopClient:
     Intended to be instantiated per-request with an active database session.
     """
 
-    def __init__(self, db: Session, auth: WhoopAuth | None = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        auth: WhoopAuth | None = None,
+        user_id: str | None = None,
+    ) -> None:
         """Initialise the client with a database session and optional auth handler.
 
         Args:
             db: Active SQLAlchemy session used for token reads and writes.
             auth: Pre-built WhoopAuth instance, useful for injection in tests.
                   Defaults to a new WhoopAuth instance.
+            user_id: App user UUID used to look up the correct token row.
         """
         self._db = db
         self._auth = auth or WhoopAuth()
+        self._user_id = user_id
 
     async def _get_headers(self) -> dict[str, str]:
         """Return Authorization headers with a valid (auto-refreshed) token."""
-        token = await self._auth.get_valid_token(self._db)
+        token = await self._auth.get_valid_token(self._db, user_id=self._user_id)
         return {"Authorization": f"Bearer {token}"}
 
     async def _request(
@@ -82,7 +89,7 @@ class WhoopClient:
                     logger.error("401 on %s even after token refresh", path)
                     raise WhoopAPIError(f"401 on {path} after token refresh — re-authorize")
                 logger.warning("401 on %s — refreshing token and retrying", path)
-                await self._auth.refresh_access_token(self._db)
+                await self._auth.refresh_access_token(self._db, user_id=self._user_id)
                 return await self._request(path, params, _token_refreshed=True)
 
             # 429 — exponential backoff up to _MAX_RATE_LIMIT_RETRIES

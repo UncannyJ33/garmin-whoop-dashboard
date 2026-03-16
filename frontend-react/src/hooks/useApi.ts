@@ -233,6 +233,21 @@ export function useRecoveryWithWithout(start: string, end: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Whoop connection status
+// ---------------------------------------------------------------------------
+
+export function useWhoopStatus() {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['auth', 'whoop-status', userId],
+    queryFn: ({ signal }) => api.get<{ connected: boolean }>('/api/auth/whoop/status', signal),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    enabled: !!userId,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Sync / Settings
 // ---------------------------------------------------------------------------
 

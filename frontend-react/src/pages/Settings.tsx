@@ -2,7 +2,8 @@
  * Settings page — sync status, data overview, preferences
  */
 import { useState } from 'react'
-import { useDataStats, useSyncStatus, useTriggerSync } from '../hooks/useApi'
+import { useDataStats, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
+import { api } from '../api/client'
 import { useTheme } from '../context/ThemeContext'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -115,11 +116,13 @@ export function Settings() {
   const statusQ = useSyncStatus()
   const statsQ  = useDataStats()
   const trigger = useTriggerSync()
+  const whoopStatus = useWhoopStatus()
 
   // Track which source is currently being synced + which last succeeded/failed
   const [syncingSource, setSyncingSource] = useState<string | null>(null)
   const [lastSyncedSource, setLastSyncedSource] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<{ source: string; message: string } | null>(null)
+  const [connectingWhoop, setConnectingWhoop] = useState(false)
 
   function handleSync(source: string) {
     setSyncingSource(source)
@@ -130,6 +133,17 @@ export function Settings() {
       onError: (err) => setSyncError({ source, message: err instanceof Error ? err.message : 'Sync failed' }),
       onSettled: () => setSyncingSource(null),
     })
+  }
+
+  async function handleConnectWhoop() {
+    setConnectingWhoop(true)
+    try {
+      const data = await api.get<{ url: string }>('/api/auth/whoop/url')
+      window.location.href = data.url
+    } catch {
+      setSyncError({ source: 'whoop', message: 'Could not start Whoop authorization. Try again.' })
+      setConnectingWhoop(false)
+    }
   }
 
   return (
@@ -180,6 +194,8 @@ export function Settings() {
           const { text, color, dot } = statusLabel(source.status)
           const isSyncing = syncingSource === source.source
           const label = source.source === 'whoop' ? 'Whoop' : 'Garmin'
+          const isWhoop = source.source === 'whoop'
+          const whoopConnected = whoopStatus.data?.connected ?? true // assume connected until loaded
 
           return (
             <div key={source.source} className="card space-y-4">
@@ -193,18 +209,41 @@ export function Settings() {
                     <span className={`text-xs ${color}`}>{text}</span>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleSync(source.source)}
-                  disabled={isSyncing || trigger.isPending}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    isSyncing || trigger.isPending
-                      ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-                      : 'bg-brand text-white'
-                  }`}
-                >
-                  {isSyncing ? <><Spinner /> Syncing…</> : 'Sync Now'}
-                </button>
+
+                {/* Whoop: show Connect button if not connected, else Sync Now */}
+                {isWhoop && !whoopConnected ? (
+                  <button
+                    onClick={() => { void handleConnectWhoop() }}
+                    disabled={connectingWhoop}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      connectingWhoop
+                        ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                        : 'bg-red-500 text-white'
+                    }`}
+                  >
+                    {connectingWhoop ? <><Spinner /> Connecting…</> : 'Connect Whoop'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSync(source.source)}
+                    disabled={isSyncing || trigger.isPending}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      isSyncing || trigger.isPending
+                        ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                        : 'bg-brand text-white'
+                    }`}
+                  >
+                    {isSyncing ? <><Spinner /> Syncing…</> : 'Sync Now'}
+                  </button>
+                )}
               </div>
+
+              {/* Garmin: note that sync requires the primary account */}
+              {source.source === 'garmin' && (
+                <p className="text-2xs text-slate-400">
+                  Garmin sync uses shared credentials — only available for the primary account owner.
+                </p>
+              )}
 
               {/* Stats grid */}
               <div className="grid grid-cols-2 gap-2 text-xs">

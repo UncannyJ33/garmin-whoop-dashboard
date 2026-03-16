@@ -195,7 +195,7 @@ class WhoopPipeline:
             user_id: App user UUID to tag all stored records.
         """
         self._db = db
-        self._client = client or WhoopClient(db)
+        self._client = client or WhoopClient(db, user_id=user_id)
         self.user_id = user_id
 
     def _get_sync_window(self) -> tuple[datetime, datetime]:

@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from jose import JWTError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -151,18 +151,34 @@ def me(current_user: User = Depends(get_current_user)) -> UserResponse:
     )
 
 
-# ── Whoop OAuth (unchanged) ───────────────────────────────────────────────────
+# ── Whoop OAuth ───────────────────────────────────────────────────────────────
 
-_pending_states: set[str] = set()
+# Maps CSRF state token → app user_id so the callback can tag the token row
+_pending_states: dict[str, str] = {}
 _whoop_auth = WhoopAuth()
 
 
-@router.get("/whoop", summary="Start Whoop OAuth flow")
-async def whoop_authorize() -> RedirectResponse:
-    """Redirect the user to Whoop's authorization page."""
+@router.get("/whoop/url", summary="Get Whoop OAuth authorization URL")
+async def whoop_authorize_url(
+    current_user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """Return the Whoop authorization URL for the authenticated user.
+
+    The frontend navigates to this URL to start the OAuth flow.
+    """
     url, state = _whoop_auth.get_authorization_url()
-    _pending_states.add(state)
-    return RedirectResponse(url)
+    _pending_states[state] = current_user.id
+    return JSONResponse({"url": url})
+
+
+@router.get("/whoop/status", summary="Check whether the current user has connected Whoop")
+async def whoop_connection_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Return whether the current user has a valid Whoop token stored."""
+    connected = WhoopAuth.has_token(current_user.id, db)
+    return JSONResponse({"connected": connected})
 
 
 @router.get("/whoop/callback", summary="Handle Whoop OAuth callback")
@@ -172,11 +188,11 @@ async def whoop_callback(
     db: Session = Depends(get_db),
 ) -> JSONResponse:
     """Exchange the authorization code for tokens and persist them."""
-    if state not in _pending_states:
+    user_id = _pending_states.pop(state, None)
+    if user_id is None:
         raise HTTPException(status_code=400, detail="Invalid or expired state parameter.")
-    _pending_states.discard(state)
     try:
-        await _whoop_auth.exchange_code(code, db)
+        await _whoop_auth.exchange_code(code, db, user_id=user_id)
     except WhoopAuthError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return JSONResponse({"status": "authorized", "message": "Whoop connected successfully."})

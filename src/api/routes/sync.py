@@ -5,13 +5,15 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Engine, text
+from sqlalchemy.orm import Session
 
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import get_db, get_engine_dep
 from src.api.models import DataStatsResponse, SyncStatusItem, SyncTriggerResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.clients.whoop_auth import WhoopAuth
 from src.database.connection import get_session_factory as _get_session_factory
-from src.ingestion.scheduler import get_scheduler_status
+from src.ingestion.scheduler import _get_owner_user_id, get_scheduler_status
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -116,18 +118,44 @@ async def trigger_sync(
     source: str,
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
+    db_check: Session = Depends(get_db),
 ) -> SyncTriggerResponse:
     """Trigger a 30-day incremental sync for the specified source.
 
     ``source`` must be ``whoop`` or ``garmin``.  Runs synchronously and
     returns the sync log when complete.  Garmin syncs typically take
     several minutes due to per-day API calls.
+
+    Authorization:
+    - Garmin: only the primary account owner (first registered user) may trigger.
+    - Whoop: the calling user must have connected their Whoop account first.
     """
     if source not in _KNOWN_SOURCES:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown source '{source}'. Valid values: {list(_KNOWN_SOURCES)}",
         )
+
+    # ── Per-source authorization checks ──────────────────────────────────────
+    if source == "garmin":
+        owner_id = _get_owner_user_id(engine)
+        if owner_id != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Garmin sync is tied to the primary account credentials. "
+                    "Only the account owner can trigger a Garmin sync."
+                ),
+            )
+
+    if source == "whoop":
+        if not WhoopAuth.has_token(current_user.id, db_check):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Whoop not connected. Go to Settings → Connect Whoop to authorize your account."
+                ),
+            )
 
     now = datetime.now(tz=UTC)
     start = now - timedelta(days=30)

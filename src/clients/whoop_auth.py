@@ -51,12 +51,14 @@ class WhoopAuth:
         url = f"{WHOOP_AUTH_URL}?{urlencode(params)}"
         return url, state
 
-    async def exchange_code(self, code: str, db: Session) -> TokenStore:
+    async def exchange_code(self, code: str, db: Session, user_id: str | None = None) -> TokenStore:
         """Exchange an authorization code for access and refresh tokens.
 
         Args:
             code: The authorization code received in the OAuth callback.
             db: Active database session for persisting the token.
+            user_id: App user UUID to tag the token row. When provided the
+                     service key is ``"whoop_{user_id}"``; otherwise ``"whoop"``.
 
         Returns:
             The saved TokenStore record.
@@ -80,13 +82,15 @@ class WhoopAuth:
             except httpx.HTTPStatusError as e:
                 raise WhoopAuthError(f"Token exchange failed: {e.response.status_code}") from e
 
-        return _store_tokens(response.json(), db)
+        return _store_tokens(response.json(), db, user_id=user_id)
 
-    async def refresh_access_token(self, db: Session) -> TokenStore:
+    async def refresh_access_token(self, db: Session, user_id: str | None = None) -> TokenStore:
         """Use the stored refresh token to obtain a new access token.
 
         Args:
             db: Active database session for reading and updating the token.
+            user_id: App user UUID used to look up the token row. When provided
+                     the service key is ``"whoop_{user_id}"``; otherwise ``"whoop"``.
 
         Returns:
             The updated TokenStore record.
@@ -94,7 +98,8 @@ class WhoopAuth:
         Raises:
             WhoopAuthError: If no refresh token exists or the request fails.
         """
-        record = db.get(TokenStore, "whoop")
+        service_key = f"whoop_{user_id}" if user_id else "whoop"
+        record = db.get(TokenStore, service_key)
         if record is None or not record.refresh_token:
             raise WhoopAuthError("No refresh token available. Complete the OAuth flow first.")
 
@@ -113,13 +118,15 @@ class WhoopAuth:
             except httpx.HTTPStatusError as e:
                 raise WhoopAuthError(f"Token refresh failed: {e.response.status_code}") from e
 
-        return _store_tokens(response.json(), db)
+        return _store_tokens(response.json(), db, user_id=user_id)
 
-    async def get_valid_token(self, db: Session) -> str:
+    async def get_valid_token(self, db: Session, user_id: str | None = None) -> str:
         """Return a valid access token, automatically refreshing if expired.
 
         Args:
             db: Active database session.
+            user_id: App user UUID used to look up the token row. When provided
+                     the service key is ``"whoop_{user_id}"``; otherwise ``"whoop"``.
 
         Returns:
             A valid access token string.
@@ -127,14 +134,30 @@ class WhoopAuth:
         Raises:
             WhoopAuthError: If no token exists or refresh fails.
         """
-        record = db.get(TokenStore, "whoop")
+        service_key = f"whoop_{user_id}" if user_id else "whoop"
+        record = db.get(TokenStore, service_key)
         if record is None:
-            raise WhoopAuthError("Not authenticated. Visit /api/auth/whoop to authorize.")
+            raise WhoopAuthError("Not authenticated. Visit /api/auth/whoop/url to authorize.")
 
         if is_token_expired(record):
-            record = await self.refresh_access_token(db)
+            record = await self.refresh_access_token(db, user_id=user_id)
 
         return record.access_token
+
+    @classmethod
+    def has_token(cls, user_id: str, db: Session) -> bool:
+        """Return True if a Whoop token row exists for the given user.
+
+        Args:
+            user_id: App user UUID.
+            db: Active database session.
+
+        Returns:
+            True if a TokenStore row with service key ``"whoop_{user_id}"`` exists.
+        """
+        service_key = f"whoop_{user_id}"
+        record = db.get(TokenStore, service_key)
+        return record is not None
 
 
 def is_token_expired(record: TokenStore) -> bool:
@@ -157,22 +180,25 @@ def is_token_expired(record: TokenStore) -> bool:
     return datetime.now(tz=UTC) >= refresh_at
 
 
-def _store_tokens(token_data: dict, db: Session) -> TokenStore:
+def _store_tokens(token_data: dict, db: Session, user_id: str | None = None) -> TokenStore:
     """Upsert token data into the token_store table.
 
     Args:
         token_data: Parsed JSON response from the Whoop token endpoint.
         db: Active database session.
+        user_id: App user UUID. When provided the service key is
+                 ``"whoop_{user_id}"``; otherwise ``"whoop"``.
 
     Returns:
         The saved TokenStore record.
     """
+    service_key = f"whoop_{user_id}" if user_id else "whoop"
     now = datetime.now(tz=UTC)
     expires_at = now + timedelta(seconds=token_data.get("expires_in", 3600))
 
-    record = db.get(TokenStore, "whoop")
+    record = db.get(TokenStore, service_key)
     if record is None:
-        record = TokenStore(service="whoop")
+        record = TokenStore(service=service_key)
         db.add(record)
 
     record.access_token = token_data["access_token"]
@@ -182,6 +208,7 @@ def _store_tokens(token_data: dict, db: Session) -> TokenStore:
     record.expires_at = expires_at.isoformat()
     record.token_data_json = json.dumps(token_data)
     record.updated_at = now.isoformat()
+    record.user_id = user_id
 
     db.commit()
     db.refresh(record)
