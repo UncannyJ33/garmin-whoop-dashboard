@@ -203,18 +203,25 @@ def _schedule_catchup_if_stale(scheduler: BackgroundScheduler, engine: Engine) -
         "whoop": _run_whoop_sync,
     }
 
+    owner_id = _get_owner_user_id(engine)
+
     for source, job_fn in job_map.items():
         try:
             with engine.connect() as conn:
+                uid_clause = "AND user_id = :uid" if owner_id is not None else "AND user_id IS NULL"
+                params: dict = {"source": source}
+                if owner_id is not None:
+                    params["uid"] = owner_id
                 row = conn.execute(
                     text(
-                        """
+                        f"""
                         SELECT completed_at FROM sync_log
                         WHERE source = :source AND status = 'success'
+                          {uid_clause}
                         ORDER BY id DESC LIMIT 1
                         """
                     ),
-                    {"source": source},
+                    params,
                 ).one_or_none()
 
             needs_catchup = True

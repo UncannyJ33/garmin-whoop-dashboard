@@ -409,6 +409,7 @@ class GarminPipeline:
         last = (
             self._db.query(SyncLog)
             .filter_by(source="garmin", status="success")
+            .filter(SyncLog.user_id == self.user_id)
             .order_by(SyncLog.id.desc())
             .first()
         )
