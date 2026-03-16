@@ -12,6 +12,10 @@ export default defineConfig({
       workbox: {
         // Precache all built assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Exclude /api/* from the SPA navigation fallback so that browser
+        // navigations to e.g. /api/auth/whoop/callback reach the server
+        // instead of being intercepted and served the cached index.html.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             // API calls are user-specific authenticated data — never cache in SW.
