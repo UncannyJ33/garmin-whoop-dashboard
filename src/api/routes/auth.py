@@ -284,14 +284,22 @@ async def whoop_callback(
     state: str,
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    """Exchange the authorization code for tokens and redirect back to Settings."""
-    user_id = _pop_oauth_state(state, db)
-    if user_id is None:
-        logger.warning("Whoop callback: unknown or expired state — possible CSRF or server restart")
-        return RedirectResponse(url="/settings?whoop_error=expired", status_code=302)
+    """Exchange the authorization code for tokens and redirect back to Settings.
+
+    Always returns a redirect — never a bare error response — so the browser
+    always lands back on the SPA rather than showing a blank/JSON error page.
+    """
     try:
+        user_id = _pop_oauth_state(state, db)
+        if user_id is None:
+            logger.warning("Whoop callback: unknown or expired state — possible CSRF or server restart")
+            return RedirectResponse(url="/settings?whoop_error=expired", status_code=302)
         await _whoop_auth.exchange_code(code, db, user_id=user_id)
+        logger.info("Whoop OAuth complete for user %s", user_id)
+        return RedirectResponse(url="/settings?whoop_connected=1", status_code=302)
     except WhoopAuthError as e:
-        logger.error("Whoop OAuth exchange failed: %s", e)
+        logger.error("Whoop OAuth exchange failed (WhoopAuthError): %s", e)
         return RedirectResponse(url="/settings?whoop_error=auth_failed", status_code=302)
-    return RedirectResponse(url="/settings?whoop_connected=1", status_code=302)
+    except Exception:
+        logger.exception("Whoop OAuth callback: unexpected error — redirecting to error page")
+        return RedirectResponse(url="/settings?whoop_error=auth_failed", status_code=302)

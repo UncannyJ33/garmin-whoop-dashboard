@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from config.settings import settings
 from src.database.models import TokenStore
+
+logger = logging.getLogger(__name__)
 
 WHOOP_AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
 WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
@@ -80,7 +83,15 @@ class WhoopAuth:
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                raise WhoopAuthError(f"Token exchange failed: {e.response.status_code}") from e
+                body = e.response.text[:500]
+                logger.error(
+                    "Whoop token exchange HTTP error %s: %s",
+                    e.response.status_code,
+                    body,
+                )
+                raise WhoopAuthError(
+                    f"Token exchange failed: {e.response.status_code} — {body}"
+                ) from e
 
         return _store_tokens(response.json(), db, user_id=user_id)
 
