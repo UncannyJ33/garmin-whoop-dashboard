@@ -15,6 +15,7 @@ if not settings.database_url.startswith('sqlite'):
         pool_size=1,
         max_overflow=0,
         pool_timeout=30,
+        connect_args={'sslmode': 'require'},
     )
     kwargs['engine'] = engine
 run(**kwargs)

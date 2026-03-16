@@ -129,7 +129,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
   - Engine creation in `src/database/connection.py` — pool_size=5, max_overflow=10, pool_recycle=300 for PostgreSQL; WAL mode + check_same_thread for SQLite
   - Migration 005: idempotency check; Migration 006: users table; Migration 007: user_id on whoop_cycles
   - Boolean columns (`nap`, `matched`) — use Python `True`/`False` and `.is_(False)` ORM filter; never compare with integer 0/1 on PostgreSQL
-  - Supabase connection: use port **6543** (Transaction mode pooler), NOT 5432 (Session mode has limited connections and causes startup failures)
+  - Supabase connection: use direct connection **port 5432** (`db.[ref].supabase.co`) — bypasses PgBouncer, avoids SSL connection drop issues. Do NOT use port 6543 (Transaction mode pooler) — PgBouncer drops connections after sustained use. Do NOT use the pooler host port 5432 (Session mode).
 - **Auth + Multi-tenancy**: JWT-based (`src/auth/` module), full user_id data scoping
   - `src/auth/security.py` — bcrypt password hashing, HS256 JWT (24h access / 30d refresh), secret from `JWT_SECRET` env var
   - `src/auth/dependencies.py` — `get_current_user` FastAPI dependency added to every protected route
