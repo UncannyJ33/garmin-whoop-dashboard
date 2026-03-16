@@ -57,6 +57,14 @@ def get_engine(database_url: str | None = None) -> Engine:
             url,
             echo=False,
             poolclass=NullPool,
+            # TCP keepalives prevent PgBouncer from closing idle connections
+            # mid-session (server_idle_timeout = 600 s by default on Supabase).
+            connect_args={
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5,
+            },
         )
 
     return engine

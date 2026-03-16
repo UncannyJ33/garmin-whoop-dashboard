@@ -21,7 +21,6 @@ from sqlalchemy import Engine, text
 from config.settings import settings
 from src.clients.garmin_auth import load_garmin_tokens_from_db, save_garmin_tokens_to_db
 from src.database.connection import get_engine, get_session_factory
-from src.database.migrations import run as run_migrations
 from src.ingestion.garmin_pipeline import GarminPipeline
 
 logger = logging.getLogger(__name__)
@@ -72,7 +71,6 @@ def _run_garmin_sync() -> None:
     logger.info("Garmin scheduled sync starting")
     try:
         engine = get_engine()
-        run_migrations(engine=engine)
 
         owner_id = _get_owner_user_id(engine)
         if owner_id is None:
@@ -83,10 +81,11 @@ def _run_garmin_sync() -> None:
         with SessionFactory() as db:
             pipeline = GarminPipeline(db, user_id=owner_id)
             log = pipeline.run()
+            stored, status = log.records_stored, log.status
         logger.info(
             "Garmin scheduled sync complete — %d stored (status: %s)",
-            log.records_stored,
-            log.status,
+            stored,
+            status,
         )
         # Persist any updated garth tokens back to DB for container restart resilience
         save_garmin_tokens_to_db(engine)
@@ -115,10 +114,11 @@ def _run_whoop_sync() -> None:
             from src.ingestion.whoop_pipeline import WhoopPipeline
 
             log = asyncio.run(WhoopPipeline(db, user_id=owner_id).run())
+            stored, status = log.records_stored, log.status
         logger.info(
             "Whoop scheduled sync complete — %d stored (status: %s)",
-            log.records_stored,
-            log.status,
+            stored,
+            status,
         )
     except Exception:
         logger.exception("Whoop scheduled sync failed — scheduler will retry next interval")
