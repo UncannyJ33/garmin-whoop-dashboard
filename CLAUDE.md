@@ -1,8 +1,8 @@
 # Fitness Dashboard — Claude Code Context
 
 ## Project
-Personal training dashboard integrating Garmin + Whoop data into a single view.
-Python + FastAPI + PostgreSQL (Supabase) + React 18 (TypeScript + Vite + TailwindCSS + Recharts). Deployed on Railway.
+Production fitness dashboard (PulseEngine) integrating Garmin + Whoop data. Multi-user, production-grade app — not a personal-only tool. Users register accounts, connect their own Whoop via OAuth, and see only their own data.
+Python + FastAPI + PostgreSQL (Supabase) + React 18 (TypeScript + Vite + TailwindCSS + Recharts). Deployed on Railway at pulsebuilt.net.
 
 ## Reference Docs
 Full project planning docs are in opus_plan_src_files/. Read these when you need:
@@ -12,7 +12,9 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Phase 5 IN PROGRESS** — Production infrastructure. Tasks 5.1–5.9 complete. Remaining: 5.7 (custom domain), 5.10 (Whoop app submission), 5.11 (smoke test + docs).
+**Phase 5 IN PROGRESS** — Production infrastructure. Tasks 5.1–5.9 complete. Remaining: 5.10 (Whoop app submission), 5.11 (smoke test + docs).
+- Task 5.7 (custom domain): pulsebuilt.net is live on Railway
+- Multi-tenancy: complete — all data tables have user_id; all queries scoped to current user; migration 007 adds whoop_cycles.user_id
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -122,30 +124,36 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - **UTC date display fix**: `new Date('YYYY-MM-DD')` was parsing as UTC midnight, shifting one day back in US timezones. Fixed in `WorkoutRow.tsx` and `TrendChart.tsx` by appending `'T12:00:00'` for date-only strings.
 - **Vite proxy note**: `/api` in `vite.config.ts` is a prefix match — rename any dev-only routes that start with `/api` to avoid accidental forwarding (e.g. `/dev/api-test`).
 
-## What's Built (Phase 5 — Production Infrastructure, Tasks 5.1–5.9)
+## What's Built (Phase 5 — Production Infrastructure, Tasks 5.1–5.9+)
 - **Database**: PostgreSQL on Supabase (connection pooler); `DATABASE_URL` env var selects SQLite (local) or PostgreSQL (prod)
   - Engine creation in `src/database/connection.py` — pool_size=5, max_overflow=10, pool_recycle=300 for PostgreSQL; WAL mode + check_same_thread for SQLite
-  - Migration 005: idempotency check (verifies all tables present); Migration 006: users table
+  - Migration 005: idempotency check; Migration 006: users table; Migration 007: user_id on whoop_cycles
   - Boolean columns (`nap`, `matched`) — use Python `True`/`False` and `.is_(False)` ORM filter; never compare with integer 0/1 on PostgreSQL
-- **Auth**: JWT-based (`src/auth/` module)
+  - Supabase connection: use port **6543** (Transaction mode pooler), NOT 5432 (Session mode has limited connections and causes startup failures)
+- **Auth + Multi-tenancy**: JWT-based (`src/auth/` module), full user_id data scoping
   - `src/auth/security.py` — bcrypt password hashing, HS256 JWT (24h access / 30d refresh), secret from `JWT_SECRET` env var
   - `src/auth/dependencies.py` — `get_current_user` FastAPI dependency added to every protected route
   - Routes at `/api/auth/`: `POST /register`, `POST /login`, `POST /refresh`, `GET /me`
-  - React: `AuthContext` manages token in memory (not localStorage); `Login.tsx` page; 401 → auto-redirect to `/login`
-- **Railway deployment**: `https://garmin-whoop-dashboard-production.up.railway.app`
+  - React: `AuthContext` manages token in memory (not localStorage); `Login.tsx` has login/register toggle; 401 → auto-redirect to `/login`
+  - **All data tables have `user_id` column**; all analytics and API queries filter by `user_id = current_user.id`
+  - Analytics functions: `compute_readiness`, `get_readiness_history`, `get_enriched_workout/s`, `get_workout_type_summary`, `get_sleep_insights`, `get_strain_sleep_correlation`, `get_sleep_consistency`, `get_metric_series/trend`, `get_weekly_summary`, `get_weekly/monthly_rollup` — all accept `user_id: str | None` param
+  - Pipelines: `WhoopPipeline(db, user_id)` and `GarminPipeline(db, user_id)` — tag every record and SyncLog with user_id
+  - Normalizer: `Normalizer(db, user_id)` — scopes source queries and output rows
+  - Scheduler: `_get_owner_user_id()` queries first registered user for background syncs
+  - Registration: open — any number of accounts can be created
+- **Railway deployment**: `https://pulsebuilt.net` (custom domain)
   - Single container: FastAPI serves React `dist/` at `/` + all `/api/*` routes
   - Auto-deploys on push to `main` branch
   - PORT env var set by Railway dynamically
-  - Startup: runs all migrations then starts uvicorn
-- **Vercel frontend** (Task 5.6): not yet deployed — Railway serves React directly; `frontend-react/vercel.json` exists with SPA rewrite + SW no-cache headers for when Vercel is configured
+  - Startup: single Python process creates one DB connection (pool_size=1) for migrations + sequence reset, then disposes before uvicorn starts
 - **Background sync** (Task 5.9):
   - Garmin: APScheduler interval job every 15 min (`src/ingestion/scheduler.py`)
   - Whoop: scheduled every 30 min (supplements webhooks)
-  - Both syncs: incremental from last `sync_log` entry; manual trigger via `POST /api/sync/trigger/{source}`
+  - Both syncs: incremental from last `sync_log` entry; uses owner user_id from `_get_owner_user_id()`; manual trigger via `POST /api/sync/trigger/{source}`
 - **Whoop OAuth in production**: redirect URI configurable via `WHOOP_REDIRECT_URI` env var; production URL registered in Whoop Developer Dashboard
 - **CORS**: `CORS_ORIGINS` env var (comma-separated); defaults to `*` if unset
 - **Key env vars for production** (set in Railway dashboard):
-  - `DATABASE_URL` — Supabase PostgreSQL pooler connection string
+  - `DATABASE_URL` — Supabase PostgreSQL **Transaction mode** pooler string (port 6543)
   - `JWT_SECRET` — long random string for HS256 signing
   - `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`, `WHOOP_REDIRECT_URI`
   - `GARMIN_EMAIL`, `GARMIN_PASSWORD`
