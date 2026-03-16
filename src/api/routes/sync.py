@@ -31,7 +31,7 @@ _SCHEDULER_JOB_IDS = {
 )
 async def sync_status(
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[SyncStatusItem]:
     """Return the most recent completed sync record for Whoop and Garmin."""
     with engine.connect() as conn:
@@ -46,11 +46,14 @@ async def sync_status(
                     SELECT source, MAX(id) AS max_id
                     FROM sync_log
                     WHERE status != 'running'
+                      AND user_id = :uid
                     GROUP BY source
                 ) latest ON s.source = latest.source AND s.id = latest.max_id
+                WHERE s.user_id = :uid
                 ORDER BY s.source
                 """
-                )
+                ),
+                {"uid": current_user.id},
             )
             .mappings()
             .all()
@@ -77,13 +80,23 @@ async def sync_status(
 )
 async def data_stats(
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> DataStatsResponse:
     """Return total days, workouts, matched workouts, and date range from unified tables."""
     with engine.connect() as conn:
-        daily = conn.execute(text("SELECT COUNT(*), MIN(date), MAX(date) FROM unified_daily")).one()
+        daily = conn.execute(
+            text(
+                "SELECT COUNT(*), MIN(date), MAX(date) FROM unified_daily"
+                " WHERE user_id = :uid"
+            ),
+            {"uid": current_user.id},
+        ).one()
         workouts = conn.execute(
-            text("SELECT COUNT(*), SUM(CASE WHEN matched THEN 1 ELSE 0 END) FROM unified_workouts")
+            text(
+                "SELECT COUNT(*), SUM(CASE WHEN matched THEN 1 ELSE 0 END)"
+                " FROM unified_workouts WHERE user_id = :uid"
+            ),
+            {"uid": current_user.id},
         ).one()
     return DataStatsResponse(
         total_days=daily[0] or 0,
@@ -102,7 +115,7 @@ async def data_stats(
 async def trigger_sync(
     source: str,
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> SyncTriggerResponse:
     """Trigger a 30-day incremental sync for the specified source.
 
@@ -125,12 +138,14 @@ async def trigger_sync(
         if source == "whoop":
             from src.ingestion.whoop_pipeline import WhoopPipeline
 
-            log = await WhoopPipeline(db).run(start=start, end=now)
+            log = await WhoopPipeline(db, user_id=current_user.id).run(start=start, end=now)
         else:
             from src.ingestion.garmin_pipeline import GarminPipeline
 
             log = await asyncio.to_thread(
-                lambda: GarminPipeline(db).run(start=start.date(), end=now.date())
+                lambda: GarminPipeline(db, user_id=current_user.id).run(
+                    start=start.date(), end=now.date()
+                )
             )
         # Read all log fields while session is still open to avoid DetachedInstanceError
         response = SyncTriggerResponse(

@@ -176,21 +176,27 @@ def _net_sleep(row: dict) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_unified_sleep(engine: Engine, start: str, end: str) -> dict[str, dict]:
+def _fetch_unified_sleep(
+    engine: Engine, start: str, end: str, user_id: str | None = None
+) -> dict[str, dict]:
     """Fetch unified_sleep rows keyed by date."""
+    uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    params: dict = {"start": start, "end": end}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = (
             conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT date, total_sleep_minutes, deep_sleep_minutes,
                        light_sleep_minutes, rem_sleep_minutes, awake_minutes,
                        whoop_performance, whoop_efficiency
                 FROM unified_sleep
-                WHERE date >= :start AND date <= :end
+                WHERE date >= :start AND date <= :end {uid_filter}
                 """
                 ),
-                {"start": start, "end": end},
+                params,
             )
             .mappings()
             .all()
@@ -198,20 +204,26 @@ def _fetch_unified_sleep(engine: Engine, start: str, end: str) -> dict[str, dict
     return {r["date"]: dict(r) for r in rows}
 
 
-def _fetch_unified_daily(engine: Engine, start: str, end: str) -> dict[str, dict]:
+def _fetch_unified_daily(
+    engine: Engine, start: str, end: str, user_id: str | None = None
+) -> dict[str, dict]:
     """Fetch unified_daily rows keyed by date."""
+    uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    params: dict = {"start": start, "end": end}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = (
             conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT date, whoop_strain, whoop_recovery_score,
                        garmin_body_battery_high
                 FROM unified_daily
-                WHERE date >= :start AND date <= :end
+                WHERE date >= :start AND date <= :end {uid_filter}
                 """
                 ),
-                {"start": start, "end": end},
+                params,
             )
             .mappings()
             .all()
@@ -219,24 +231,30 @@ def _fetch_unified_daily(engine: Engine, start: str, end: str) -> dict[str, dict
     return {r["date"]: dict(r) for r in rows}
 
 
-def _fetch_training_load_by_date(engine: Engine, start: str, end: str) -> dict[str, float]:
+def _fetch_training_load_by_date(
+    engine: Engine, start: str, end: str, user_id: str | None = None
+) -> dict[str, float]:
     """Sum garmin_activities.training_load per day via unified_workouts join."""
+    uid_filter = "AND uw.user_id = :uid" if user_id is not None else ""
+    params: dict = {"start": start, "end": end}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = (
             conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT uw.date, SUM(ga.training_load) AS total_load
                 FROM unified_workouts uw
                 JOIN garmin_activities ga
                   ON uw.garmin_activity_id = ga.activity_id
                 WHERE ga.training_load IS NOT NULL
                   AND uw.date >= :start
-                  AND uw.date <= :end
+                  AND uw.date <= :end {uid_filter}
                 GROUP BY uw.date
                 """
                 ),
-                {"start": start, "end": end},
+                params,
             )
             .mappings()
             .all()
@@ -244,26 +262,32 @@ def _fetch_training_load_by_date(engine: Engine, start: str, end: str) -> dict[s
     return {r["date"]: r["total_load"] for r in rows}
 
 
-def _fetch_whoop_sleep_times(engine: Engine, start: str, end: str) -> list[dict]:
+def _fetch_whoop_sleep_times(
+    engine: Engine, start: str, end: str, user_id: str | None = None
+) -> list[dict]:
     """Fetch non-nap whoop_sleep rows with start/end timestamps.
 
     Filters by DATE(end_time) (wake-up date) within the given range.
     Returns rows sorted by end_time ascending.
     """
+    uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    params: dict = {"start": start, "end": end}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = (
             conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT start_time, end_time
                 FROM whoop_sleep
                 WHERE nap = false
                   AND SUBSTR(end_time, 1, 10) >= :start
-                  AND SUBSTR(end_time, 1, 10) <= :end
+                  AND SUBSTR(end_time, 1, 10) <= :end {uid_filter}
                 ORDER BY end_time
                 """
                 ),
-                {"start": start, "end": end},
+                params,
             )
             .mappings()
             .all()
@@ -324,6 +348,7 @@ def get_sleep_insights(
     start_date: date,
     end_date: date,
     target_sleep_minutes: float = DEFAULT_TARGET_SLEEP_MINUTES,
+    user_id: str | None = None,
 ) -> list[SleepInsight]:
     """Build sleep insight records for a date range.
 
@@ -348,9 +373,9 @@ def get_sleep_insights(
     history_start = _add_days(start_str, -6)
     daily_start = _add_days(start_str, -1)
 
-    sleep_all = _fetch_unified_sleep(engine, history_start, end_str)
-    daily_all = _fetch_unified_daily(engine, daily_start, end_str)
-    load_all = _fetch_training_load_by_date(engine, daily_start, end_str)
+    sleep_all = _fetch_unified_sleep(engine, history_start, end_str, user_id)
+    daily_all = _fetch_unified_daily(engine, daily_start, end_str, user_id)
+    load_all = _fetch_training_load_by_date(engine, daily_start, end_str, user_id)
 
     insights = []
     current = start_date
@@ -393,6 +418,7 @@ def get_strain_sleep_correlation(
     engine: Engine,
     days: int = 30,
     end_date: date | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Calculate Pearson correlations between prior-day strain and sleep outcomes.
 
@@ -414,7 +440,7 @@ def get_strain_sleep_correlation(
     """
     end = end_date or date.today()
     start = end - timedelta(days=days - 1)
-    insights = get_sleep_insights(engine, start, end)
+    insights = get_sleep_insights(engine, start, end, user_id=user_id)
 
     strain_total: list[tuple[float, float]] = []
     strain_deep: list[tuple[float, float]] = []
@@ -445,6 +471,7 @@ def get_sleep_consistency(
     engine: Engine,
     days: int = 30,
     end_date: date | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Summarise sleep schedule consistency over the most recent N days.
 
@@ -472,7 +499,7 @@ def get_sleep_consistency(
     start_str = start.isoformat()
     end_str = end.isoformat()
 
-    whoop_rows = _fetch_whoop_sleep_times(engine, start_str, end_str)
+    whoop_rows = _fetch_whoop_sleep_times(engine, start_str, end_str, user_id)
     n = len(whoop_rows)
 
     if n < _MIN_CORRELATION_SAMPLE:
@@ -500,7 +527,7 @@ def get_sleep_consistency(
 
     # Sleep debt trend from unified_sleep (7 extra days for rolling avg)
     history_start = _add_days(start_str, -6)
-    sleep_all = _fetch_unified_sleep(engine, history_start, end_str)
+    sleep_all = _fetch_unified_sleep(engine, history_start, end_str, user_id)
 
     # Compute daily debt in chronological order for linear regression
     debt_series: list[float] = []
@@ -525,7 +552,7 @@ def get_sleep_consistency(
         trend = "improving"
 
     # Average sleep for the period: net (awake excluded) and time-in-bed (awake included)
-    sleep_range = _fetch_unified_sleep(engine, start_str, end_str)
+    sleep_range = _fetch_unified_sleep(engine, start_str, end_str, user_id)
     avg_total_sleep = _avg_nonull([_net_sleep(r) for r in sleep_range.values()])
     avg_time_in_bed = _avg_nonull([r.get("total_sleep_minutes") for r in sleep_range.values()])
 

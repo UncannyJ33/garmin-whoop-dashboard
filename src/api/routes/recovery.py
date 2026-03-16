@@ -28,6 +28,7 @@ WHERE ww.strain IS NULL
   AND ww.end_time IS NOT NULL
   AND ww.start_time >= :start
   AND ww.start_time <  :end
+  AND ww.user_id = :uid
 ORDER BY ww.start_time DESC
 """
 
@@ -35,18 +36,21 @@ _UNIFIED_DAILY_QUERY = """
 SELECT date, whoop_recovery_score, whoop_hrv_rmssd
 FROM unified_daily
 WHERE date BETWEEN :start AND :end
+  AND user_id = :uid
 """
 
 _UNIFIED_SLEEP_QUERY = """
 SELECT date, whoop_performance, total_sleep_minutes
 FROM unified_sleep
 WHERE date BETWEEN :start AND :end
+  AND user_id = :uid
 """
 
 _ALL_RECOVERY_DATES_QUERY = """
 SELECT DISTINCT SUBSTR(start_time, 1, 10) AS date
 FROM whoop_workouts
 WHERE strain IS NULL AND end_time IS NOT NULL
+  AND user_id = :uid
 """
 
 _DAILY_RECOVERY_QUERY = """
@@ -54,6 +58,7 @@ SELECT date, whoop_recovery_score AS next_day_recovery
 FROM unified_daily
 WHERE date >= :start AND date <= :end
   AND whoop_recovery_score IS NOT NULL
+  AND user_id = :uid
 """
 
 
@@ -78,7 +83,7 @@ async def list_recovery(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[RecoveryActivityItem]:
     """Return Whoop recovery activities (strain IS NULL) for the date range."""
     if start > end:
@@ -90,19 +95,28 @@ async def list_recovery(
 
     with engine.connect() as conn:
         act_rows = (
-            conn.execute(text(_ACTIVITY_QUERY), {"start": str(start), "end": end_exclusive})
+            conn.execute(
+                text(_ACTIVITY_QUERY),
+                {"start": str(start), "end": end_exclusive, "uid": current_user.id},
+            )
             .mappings()
             .all()
         )
 
         daily_rows = (
-            conn.execute(text(_UNIFIED_DAILY_QUERY), {"start": str(start), "end": lookup_end})
+            conn.execute(
+                text(_UNIFIED_DAILY_QUERY),
+                {"start": str(start), "end": lookup_end, "uid": current_user.id},
+            )
             .mappings()
             .all()
         )
 
         sleep_rows = (
-            conn.execute(text(_UNIFIED_SLEEP_QUERY), {"start": str(start), "end": lookup_end})
+            conn.execute(
+                text(_UNIFIED_SLEEP_QUERY),
+                {"start": str(start), "end": lookup_end, "uid": current_user.id},
+            )
             .mappings()
             .all()
         )
@@ -143,17 +157,22 @@ async def with_without(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> WithWithoutResponse:
     """Compare avg next-day recovery on days where previous day had a recovery activity vs not."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     with engine.connect() as conn:
-        rec_dates = {r[0] for r in conn.execute(text(_ALL_RECOVERY_DATES_QUERY)).fetchall()}
+        rec_dates = {
+            r[0]
+            for r in conn.execute(
+                text(_ALL_RECOVERY_DATES_QUERY), {"uid": current_user.id}
+            ).fetchall()
+        }
         daily_rows = (
             conn.execute(
                 text(_DAILY_RECOVERY_QUERY),
-                {"start": str(start), "end": str(end)},
+                {"start": str(start), "end": str(end), "uid": current_user.id},
             )
             .mappings()
             .all()

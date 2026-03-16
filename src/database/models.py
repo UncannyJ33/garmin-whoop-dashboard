@@ -23,6 +23,7 @@ class WhoopCycle(Base):
     max_heart_rate = Column(Integer)
     fetched_at = Column(String, nullable=False)
     raw_json = Column(Text)
+    app_user_id = Column(Text, nullable=True, index=True)  # app user UUID (multi-tenancy)
 
     recovery = relationship("WhoopRecovery", back_populates="cycle", uselist=False)
     sleep = relationship("WhoopSleep", back_populates="cycle")

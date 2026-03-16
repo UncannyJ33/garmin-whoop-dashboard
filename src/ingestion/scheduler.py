@@ -32,6 +32,29 @@ _scheduler: BackgroundScheduler | None = None
 _STALE_THRESHOLD_HOURS = 1
 
 
+def _get_owner_user_id(engine: Engine) -> str | None:
+    """Return the ID of the first registered user (by created_at), or None.
+
+    The scheduler runs without a request context, so it targets the primary
+    account — the earliest-registered user in the database.
+
+    Args:
+        engine: SQLAlchemy engine for DB queries.
+
+    Returns:
+        User ID string, or None if no users exist yet.
+    """
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT id FROM users ORDER BY created_at ASC LIMIT 1")
+            ).one_or_none()
+        return str(row[0]) if row is not None else None
+    except Exception:
+        logger.exception("Could not look up owner user_id for scheduled sync")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Job targets
 # ---------------------------------------------------------------------------
@@ -50,9 +73,15 @@ def _run_garmin_sync() -> None:
     try:
         engine = get_engine()
         run_migrations(engine=engine)
+
+        owner_id = _get_owner_user_id(engine)
+        if owner_id is None:
+            logger.warning("Garmin scheduled sync: no users registered yet — skipping")
+            return
+
         SessionFactory = get_session_factory(engine)
         with SessionFactory() as db:
-            pipeline = GarminPipeline(db)
+            pipeline = GarminPipeline(db, user_id=owner_id)
             log = pipeline.run()
         logger.info(
             "Garmin scheduled sync complete — %d stored (status: %s)",
@@ -75,11 +104,17 @@ def _run_whoop_sync() -> None:
     logger.info("Whoop scheduled sync starting")
     try:
         engine = get_engine()
+
+        owner_id = _get_owner_user_id(engine)
+        if owner_id is None:
+            logger.warning("Whoop scheduled sync: no users registered yet — skipping")
+            return
+
         SessionFactory = get_session_factory(engine)
         with SessionFactory() as db:
             from src.ingestion.whoop_pipeline import WhoopPipeline
 
-            log = asyncio.run(WhoopPipeline(db).run())
+            log = asyncio.run(WhoopPipeline(db, user_id=owner_id).run())
         logger.info(
             "Whoop scheduled sync complete — %d stored (status: %s)",
             log.records_stored,

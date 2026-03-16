@@ -285,16 +285,23 @@ class GarminPipeline:
         print(log.records_stored)
     """
 
-    def __init__(self, db: Session, client: GarminClient | None = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        client: GarminClient | None = None,
+        user_id: str | None = None,
+    ) -> None:
         """Initialise the pipeline.
 
         Args:
             db: Active SQLAlchemy session used for all reads and writes.
             client: Pre-built GarminClient, useful for injection in tests.
                     Defaults to a new GarminClient.
+            user_id: App user UUID to tag all stored records.
         """
         self._db = db
         self._client = client or GarminClient()
+        self.user_id = user_id
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -326,6 +333,7 @@ class GarminPipeline:
             sync_type=sync_type,
             started_at=now.isoformat(),
             status="running",
+            user_id=self.user_id,
             metadata_json=json.dumps(
                 {
                     "sync_start": sync_start.isoformat(),
@@ -374,7 +382,7 @@ class GarminPipeline:
                 records_stored,
             )
 
-            normalizer = Normalizer(self._db)
+            normalizer = Normalizer(self._db, user_id=self.user_id)
             norm_counts = normalizer.normalize_all(sync_start, sync_end)
             logger.info("Normalization complete: %s", norm_counts)
 
@@ -436,6 +444,7 @@ class GarminPipeline:
         strength_ids: list[str] = []
         for record in activities:
             data = transform_activity(record, fetched_at)
+            data["user_id"] = self.user_id
             self._upsert(GarminActivity, "activity_id", data)
             atype = (record.get("activityType") or {}).get("typeKey") or ""
             if atype in _STRENGTH_TYPES:
@@ -511,6 +520,7 @@ class GarminPipeline:
             # Delete stale rows before reinserting
             self._db.query(GarminExerciseSet).filter_by(activity_id=aid).delete()
             for row in rows:
+                row["user_id"] = self.user_id
                 self._db.add(GarminExerciseSet(**row))
             self._db.commit()
             stored += len(rows)
@@ -539,6 +549,7 @@ class GarminPipeline:
         summary = self._client.get_daily_summary(d)
         if summary:
             data = transform_daily_summary(date_str, summary, fetched_at)
+            data["user_id"] = self.user_id
             self._upsert(GarminDailySummary, "date", data)
             self._db.commit()
             fetched += 1
@@ -550,6 +561,7 @@ class GarminPipeline:
         sleep = self._client.get_sleep(d)
         if sleep is not None:
             data = transform_sleep(date_str, sleep, fetched_at)
+            data["user_id"] = self.user_id
             self._upsert(GarminSleep, "date", data)
             self._db.commit()
             fetched += 1
@@ -561,6 +573,7 @@ class GarminPipeline:
         hrv = self._client.get_hrv(d)
         if hrv is not None:
             data = transform_hrv(date_str, hrv, fetched_at)
+            data["user_id"] = self.user_id
             self._upsert(GarminHRV, "date", data)
             self._db.commit()
             fetched += 1

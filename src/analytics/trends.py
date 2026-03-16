@@ -256,15 +256,25 @@ def _metric_source(metric: str) -> tuple[str, str]:
 
 
 def _fetch_raw(
-    engine: Engine, table: str, column: str, start_iso: str, end_iso: str
+    engine: Engine,
+    table: str,
+    column: str,
+    start_iso: str,
+    end_iso: str,
+    user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Fetch (date, value) pairs from ``table`` ordered by date."""
+    uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    params: dict = {"s": start_iso, "e": end_iso}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = conn.execute(
             text(  # noqa: S608
-                f"SELECT date, {column} FROM {table} WHERE date >= :s AND date <= :e ORDER BY date"
+                f"SELECT date, {column} FROM {table}"
+                f" WHERE date >= :s AND date <= :e {uid_filter} ORDER BY date"
             ),
-            {"s": start_iso, "e": end_iso},
+            params,
         ).fetchall()
     return [(r[0], r[1]) for r in rows]
 
@@ -291,43 +301,57 @@ def _calendar_fill(
 
 
 def _fetch_readiness_values(
-    engine: Engine, start_date: date, end_date: date
+    engine: Engine,
+    start_date: date,
+    end_date: date,
+    user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Return per-day readiness scores via get_readiness_history."""
     from src.analytics.readiness_score import get_readiness_history  # lazy import
 
-    history = get_readiness_history(start_date, end_date, engine)
+    history = get_readiness_history(start_date, end_date, engine, user_id=user_id)
     by_date = {r["date"]: r["score"] for r in history if r.get("confidence", 0.0) > 0}
     return [(d.isoformat(), by_date.get(d.isoformat())) for d in _date_range(start_date, end_date)]
 
 
 def _fetch_training_load_values(
-    engine: Engine, start_date: date, end_date: date
+    engine: Engine,
+    start_date: date,
+    end_date: date,
+    user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Return per-day total whoop_strain summed from unified_workouts."""
+    uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    params: dict = {"s": start_date.isoformat(), "e": end_date.isoformat()}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = conn.execute(
             text(  # noqa: S608
                 "SELECT date, SUM(whoop_strain) FROM unified_workouts"
-                " WHERE date >= :s AND date <= :e AND whoop_strain IS NOT NULL"
+                f" WHERE date >= :s AND date <= :e AND whoop_strain IS NOT NULL {uid_filter}"
                 " GROUP BY date ORDER BY date"
             ),
-            {"s": start_date.isoformat(), "e": end_date.isoformat()},
+            params,
         ).fetchall()
     by_date = {r[0]: float(r[1]) for r in rows}
     return [(d.isoformat(), by_date.get(d.isoformat())) for d in _date_range(start_date, end_date)]
 
 
 def _fetch_metric_calendar(
-    engine: Engine, metric: str, start_date: date, end_date: date
+    engine: Engine,
+    metric: str,
+    start_date: date,
+    end_date: date,
+    user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Return (date, value) pairs for every calendar day in [start_date, end_date]."""
     if metric == "readiness":
-        return _fetch_readiness_values(engine, start_date, end_date)
+        return _fetch_readiness_values(engine, start_date, end_date, user_id)
     if metric == "training_load":
-        return _fetch_training_load_values(engine, start_date, end_date)
+        return _fetch_training_load_values(engine, start_date, end_date, user_id)
     table, column = _metric_source(metric)
-    raw = _fetch_raw(engine, table, column, start_date.isoformat(), end_date.isoformat())
+    raw = _fetch_raw(engine, table, column, start_date.isoformat(), end_date.isoformat(), user_id)
     return _calendar_fill(raw, start_date, end_date)
 
 
@@ -336,6 +360,7 @@ def _get_notable_anomalies(
     fetch_start: date,
     fetch_end: date,
     current_week_start: date,
+    user_id: str | None = None,
 ) -> list[dict]:
     """Detect anomalies in key metrics over a 14-day window; return only
     those whose date falls within the current week."""
@@ -344,7 +369,7 @@ def _get_notable_anomalies(
     notable: list[dict] = []
     for metric in _KEY_METRICS:
         try:
-            calendar = _fetch_metric_calendar(engine, metric, fetch_start, fetch_end)
+            calendar = _fetch_metric_calendar(engine, metric, fetch_start, fetch_end, user_id)
             values = [v for _, v in calendar]
             dates = [d for d, _ in calendar]
             for a in detect_anomalies(values, dates):
@@ -365,6 +390,7 @@ def get_metric_series(
     metric: str,
     start_date: date,
     end_date: date,
+    user_id: str | None = None,
 ) -> list[DailyPoint]:
     """Return one DailyPoint per calendar day in [start_date, end_date].
 
@@ -389,7 +415,7 @@ def get_metric_series(
     """
     table, column = _metric_source(metric)
     fetch_start = start_date - timedelta(days=_ROLLING_LONG - 1)
-    raw = _fetch_raw(engine, table, column, fetch_start.isoformat(), end_date.isoformat())
+    raw = _fetch_raw(engine, table, column, fetch_start.isoformat(), end_date.isoformat(), user_id)
     calendar = _calendar_fill(raw, fetch_start, end_date)
 
     start_iso = start_date.isoformat()
@@ -451,6 +477,7 @@ def get_weekly_rollup(
     metric: str,
     start_date: date,
     end_date: date,
+    user_id: str | None = None,
 ) -> list[PeriodRollup]:
     """Aggregate ``metric`` by ISO calendar week for [start_date, end_date].
 
@@ -466,7 +493,7 @@ def get_weekly_rollup(
     Returns:
         List of PeriodRollup sorted by ISO week label (chronological order).
     """
-    return _rollup(engine, metric, start_date, end_date, _week_key)
+    return _rollup(engine, metric, start_date, end_date, _week_key, user_id)
 
 
 def get_monthly_rollup(
@@ -474,6 +501,7 @@ def get_monthly_rollup(
     metric: str,
     start_date: date,
     end_date: date,
+    user_id: str | None = None,
 ) -> list[PeriodRollup]:
     """Aggregate ``metric`` by calendar month for [start_date, end_date].
 
@@ -489,7 +517,7 @@ def get_monthly_rollup(
     Returns:
         List of PeriodRollup sorted by month label (chronological order).
     """
-    return _rollup(engine, metric, start_date, end_date, _month_key)
+    return _rollup(engine, metric, start_date, end_date, _month_key, user_id)
 
 
 def _rollup(
@@ -498,10 +526,11 @@ def _rollup(
     start_date: date,
     end_date: date,
     key_fn: Callable[[date], tuple[str, str]],
+    user_id: str | None = None,
 ) -> list[PeriodRollup]:
     """Shared implementation for weekly and monthly rollups."""
     table, column = _metric_source(metric)
-    raw = _fetch_raw(engine, table, column, start_date.isoformat(), end_date.isoformat())
+    raw = _fetch_raw(engine, table, column, start_date.isoformat(), end_date.isoformat(), user_id)
 
     groups: dict[str, list[float]] = {}
     period_starts: dict[str, str] = {}
@@ -632,6 +661,7 @@ def get_metric_trend(
     metric_name: str,
     start_date: date,
     end_date: date,
+    user_id: str | None = None,
 ) -> MetricTrend:
     """Compute rolling averages, anomalies, and trend direction for a metric.
 
@@ -662,7 +692,7 @@ def get_metric_trend(
         )
 
     lookback_start = start_date - timedelta(days=29)
-    full_calendar = _fetch_metric_calendar(engine, metric_name, lookback_start, end_date)
+    full_calendar = _fetch_metric_calendar(engine, metric_name, lookback_start, end_date, user_id)
 
     all_dates = [d for d, _ in full_calendar]
     all_values = [v for _, v in full_calendar]
@@ -694,7 +724,7 @@ def get_metric_trend(
     )
 
 
-def get_weekly_summary(engine: Engine, end_date: date) -> dict:
+def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = None) -> dict:
     """Compute a 7-day wellness summary ending on ``end_date``.
 
     Queries unified_daily, unified_sleep, and unified_workouts for the
@@ -718,15 +748,20 @@ def get_weekly_summary(engine: Engine, end_date: date) -> dict:
     prev_end = start_date - timedelta(days=1)
     prev_start = prev_end - timedelta(days=6)
 
+    _uid_filter = "AND user_id = :uid" if user_id is not None else ""
+
     def _daily_stats(s: date, e: date) -> dict:
+        params: dict = {"s": s.isoformat(), "e": e.isoformat()}
+        if user_id is not None:
+            params["uid"] = user_id
         with engine.connect() as conn:
             row = conn.execute(
                 text(
                     "SELECT AVG(whoop_recovery_score), AVG(whoop_hrv_rmssd),"
                     "       AVG(whoop_rhr), SUM(whoop_strain)"
-                    " FROM unified_daily WHERE date >= :s AND date <= :e"
+                    f" FROM unified_daily WHERE date >= :s AND date <= :e {_uid_filter}"
                 ),
-                {"s": s.isoformat(), "e": e.isoformat()},
+                params,
             ).fetchone()
         return {
             "avg_recovery": row[0],
@@ -736,14 +771,17 @@ def get_weekly_summary(engine: Engine, end_date: date) -> dict:
         }
 
     def _sleep_stats(s: date, e: date) -> dict:
+        params: dict = {"s": s.isoformat(), "e": e.isoformat()}
+        if user_id is not None:
+            params["uid"] = user_id
         with engine.connect() as conn:
             row = conn.execute(
                 text(
                     "SELECT AVG(total_sleep_minutes - COALESCE(awake_minutes, 0)),"
                     "       AVG(deep_sleep_minutes)"
-                    " FROM unified_sleep WHERE date >= :s AND date <= :e"
+                    f" FROM unified_sleep WHERE date >= :s AND date <= :e {_uid_filter}"
                 ),
-                {"s": s.isoformat(), "e": e.isoformat()},
+                params,
             ).fetchone()
         return {
             "avg_sleep_duration": row[0],
@@ -751,13 +789,16 @@ def get_weekly_summary(engine: Engine, end_date: date) -> dict:
         }
 
     def _workout_stats(s: date, e: date) -> dict:
+        params: dict = {"s": s.isoformat(), "e": e.isoformat()}
+        if user_id is not None:
+            params["uid"] = user_id
         with engine.connect() as conn:
             row = conn.execute(
                 text(
                     "SELECT COUNT(*), SUM(duration_minutes)"
-                    " FROM unified_workouts WHERE date >= :s AND date <= :e"
+                    f" FROM unified_workouts WHERE date >= :s AND date <= :e {_uid_filter}"
                 ),
-                {"s": s.isoformat(), "e": e.isoformat()},
+                params,
             ).fetchone()
         return {
             "workout_count": row[0] or 0,
@@ -767,7 +808,7 @@ def get_weekly_summary(engine: Engine, end_date: date) -> dict:
     def _avg_readiness(s: date, e: date) -> float | None:
         from src.analytics.readiness_score import get_readiness_history  # lazy import
 
-        history = get_readiness_history(s, e, engine)
+        history = get_readiness_history(s, e, engine, user_id=user_id)
         scores = [r["score"] for r in history if r.get("confidence", 0.0) > 0]
         return sum(scores) / len(scores) if scores else None
 
@@ -786,7 +827,7 @@ def get_weekly_summary(engine: Engine, end_date: date) -> dict:
     prev_workouts = _workout_stats(prev_start, prev_end)
     prev_readiness = _avg_readiness(prev_start, prev_end)
 
-    notable_anomalies = _get_notable_anomalies(engine, prev_start, end_date, start_date)
+    notable_anomalies = _get_notable_anomalies(engine, prev_start, end_date, start_date, user_id)
 
     comparison = {
         "avg_readiness": _pct_change(curr_readiness, prev_readiness),

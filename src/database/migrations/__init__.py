@@ -40,3 +40,4 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
     _load("004_exercise_sets.py").run(**kwargs)
     _load("005_postgresql.py").run(**kwargs)
     _load("006_users_table.py").run(**kwargs)
+    _load("007_user_id_gaps.py").run(**kwargs)

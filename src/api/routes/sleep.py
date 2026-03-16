@@ -33,13 +33,13 @@ async def sleep_insights(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[SleepInsightResponse]:
     """Return per-night sleep insights linking sleep quality, prior training, and recovery."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     try:
-        insights = get_sleep_insights(engine, start, end)
+        insights = get_sleep_insights(engine, start, end, user_id=current_user.id)
         return [SleepInsightResponse(**dataclasses.asdict(s)) for s in insights]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -53,11 +53,11 @@ async def sleep_insights(
 async def sleep_correlations(
     days: int = Query(default=30, ge=7, le=365, description="Number of days to analyse"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> SleepCorrelationResponse:
     """Pearson correlations between prior-day strain and sleep/recovery outcomes."""
     try:
-        result = get_strain_sleep_correlation(engine, days=days)
+        result = get_strain_sleep_correlation(engine, days=days, user_id=current_user.id)
         return SleepCorrelationResponse(
             strain_vs_total_sleep=CorrelationResult(**result["strain_vs_total_sleep"]),
             strain_vs_deep_sleep=CorrelationResult(**result["strain_vs_deep_sleep"]),
@@ -76,11 +76,11 @@ async def sleep_correlations(
 async def sleep_consistency(
     days: int = Query(default=30, ge=7, le=365, description="Number of days to analyse"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> SleepConsistencyResponse:
     """Bedtime variance, average total sleep, and sleep debt trend."""
     try:
-        result = get_sleep_consistency(engine, days=days)
+        result = get_sleep_consistency(engine, days=days, user_id=current_user.id)
         return SleepConsistencyResponse(**result)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

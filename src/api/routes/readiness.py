@@ -37,11 +37,11 @@ def _to_response(r: ReadinessResult) -> ReadinessResponse:
 )
 async def readiness_today(
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> ReadinessResponse:
     """Compute the composite training readiness score for today."""
     try:
-        return _to_response(compute_readiness(date.today(), engine))
+        return _to_response(compute_readiness(date.today(), engine, user_id=current_user.id))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -55,13 +55,13 @@ async def readiness_history(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[ReadinessHistoryItem]:
     """Return daily readiness scores for a date range."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     try:
-        history = get_readiness_history(start, end, engine)
+        history = get_readiness_history(start, end, engine, user_id=current_user.id)
         return [ReadinessHistoryItem(**h) for h in history]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

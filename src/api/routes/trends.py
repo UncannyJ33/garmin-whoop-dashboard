@@ -58,12 +58,12 @@ def _trend_to_response(t) -> MetricTrendResponse:
 async def weekly_summary(
     end: date = Query(default=None, description="End date (YYYY-MM-DD); defaults to today"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> WeeklySummaryResponse:
     """Return current-week averages and % change vs the prior week."""
     target = end or date.today()
     try:
-        result = get_weekly_summary(engine, target)
+        result = get_weekly_summary(engine, target, user_id=current_user.id)
         return WeeklySummaryResponse(**result)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -78,7 +78,7 @@ async def anomaly_log(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[AnomalyItem]:
     """Return all anomalous days (≥ 2σ from 7-day prior mean) across key metrics."""
     if start > end:
@@ -86,7 +86,7 @@ async def anomaly_log(
     rows: list[AnomalyItem] = []
     for metric in _ANOMALY_METRICS:
         try:
-            trend = get_metric_trend(engine, metric, start, end)
+            trend = get_metric_trend(engine, metric, start, end, user_id=current_user.id)
             for a in trend.anomalies:
                 rows.append(
                     AnomalyItem(
@@ -112,7 +112,7 @@ async def metric_trend(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> MetricTrendResponse:
     """Return daily values, 7d/30d rolling averages, anomalies, and trend direction.
 
@@ -122,7 +122,7 @@ async def metric_trend(
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     try:
-        trend = get_metric_trend(engine, metric, start, end)
+        trend = get_metric_trend(engine, metric, start, end, user_id=current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

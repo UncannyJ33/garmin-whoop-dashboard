@@ -312,25 +312,38 @@ def _fetch_data_window(
     start_date: date,
     end_date: date,
     engine: Engine,
+    user_id: str | None = None,
 ) -> tuple[dict[str, dict], dict[str, dict]]:
     """Fetch unified_daily and unified_sleep rows for the given date range.
+
+    Args:
+        start_date: Start of the fetch window.
+        end_date: End of the fetch window.
+        engine: SQLAlchemy engine.
+        user_id: Optional app user UUID to scope results. When provided,
+            adds ``AND user_id = :uid`` to both queries.
 
     Returns:
         (daily_by_date, sleep_by_date): dicts keyed by ISO date string.
     """
+    uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat()}
+    if user_id is not None:
+        params["uid"] = user_id
+
     with engine.connect() as conn:
         daily_rows = (
             conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT date, whoop_recovery_score, whoop_hrv_rmssd,
                        whoop_strain, garmin_body_battery_high
                 FROM unified_daily
-                WHERE date >= :start AND date <= :end
+                WHERE date >= :start AND date <= :end {uid_filter}
                 ORDER BY date
                 """
                 ),
-                {"start": start_date.isoformat(), "end": end_date.isoformat()},
+                params,
             )
             .mappings()
             .all()
@@ -339,13 +352,13 @@ def _fetch_data_window(
         sleep_rows = (
             conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT date, whoop_performance
                 FROM unified_sleep
-                WHERE date >= :start AND date <= :end
+                WHERE date >= :start AND date <= :end {uid_filter}
                 """
                 ),
-                {"start": start_date.isoformat(), "end": end_date.isoformat()},
+                params,
             )
             .mappings()
             .all()
@@ -359,6 +372,7 @@ def _fetch_data_window(
 def compute_readiness(
     target_date: date,
     engine: Engine,
+    user_id: str | None = None,
     weights: dict[str, float] | None = None,
 ) -> ReadinessResult:
     """Compute training readiness score for a single date.
@@ -369,6 +383,8 @@ def compute_readiness(
     Args:
         target_date: The date to score.
         engine: SQLAlchemy engine connected to the fitness database.
+        user_id: App user UUID to scope data. When provided, only data
+            belonging to that user is returned.
         weights: Optional dict overriding READINESS_WEIGHTS. Must use the same
                  five keys; values are normalized internally so they need not
                  sum to 1.0.
@@ -378,7 +394,7 @@ def compute_readiness(
         and confidence.
     """
     fetch_start = target_date - timedelta(days=7)
-    daily_by_date, sleep_by_date = _fetch_data_window(fetch_start, target_date, engine)
+    daily_by_date, sleep_by_date = _fetch_data_window(fetch_start, target_date, engine, user_id)
     result = _compute_from_data(target_date, daily_by_date, sleep_by_date, weights)
     logger.debug(
         "Readiness computed: date=%s score=%.1f confidence=%.2f sources=%d/5",
@@ -394,6 +410,7 @@ def get_readiness_history(
     start_date: date,
     end_date: date,
     engine: Engine,
+    user_id: str | None = None,
     weights: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Compute readiness scores for a date range in a single batch.
@@ -415,7 +432,7 @@ def get_readiness_history(
     """
     # Pull 7 extra days of history so start_date has a full HRV window
     fetch_start = start_date - timedelta(days=7)
-    daily_by_date, sleep_by_date = _fetch_data_window(fetch_start, end_date, engine)
+    daily_by_date, sleep_by_date = _fetch_data_window(fetch_start, end_date, engine, user_id)
 
     results: list[dict[str, Any]] = []
     current = start_date

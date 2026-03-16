@@ -34,13 +34,13 @@ async def workout_summary(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[WorkoutTypeSummaryItem]:
     """Aggregate stats grouped by activity type for the given date range."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     try:
-        summary = get_workout_type_summary(engine, start, end)
+        summary = get_workout_type_summary(engine, start, end, user_id=current_user.id)
         return [
             WorkoutTypeSummaryItem(activity_type=atype, **stats)
             for atype, stats in sorted(summary.items(), key=lambda x: -x[1]["count"])
@@ -146,13 +146,13 @@ async def list_workouts(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[EnrichedWorkoutResponse]:
     """Return all enriched workouts in the date range, sorted by date ascending."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     try:
-        workouts = get_enriched_workouts(engine, start, end)
+        workouts = get_enriched_workouts(engine, start, end, user_id=current_user.id)
         return [EnrichedWorkoutResponse(**dataclasses.asdict(w)) for w in workouts]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -166,13 +166,16 @@ async def list_workouts(
 async def get_exercise_sets(
     workout_id: str,
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[ExerciseSetItem]:
     """Return active exercise sets for a unified workout (strength only)."""
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT garmin_activity_id FROM unified_workouts WHERE id = :id"),
-            {"id": workout_id},
+            text(
+                "SELECT garmin_activity_id FROM unified_workouts"
+                " WHERE id = :id AND user_id = :uid"
+            ),
+            {"id": workout_id, "uid": current_user.id},
         ).one_or_none()
     if row is None or row[0] is None:
         return []
@@ -203,11 +206,11 @@ async def get_exercise_sets(
 async def get_workout(
     workout_id: str,
     engine: Engine = Depends(get_engine_dep),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> EnrichedWorkoutResponse:
     """Return a single enriched workout by its unified_workouts ID."""
     try:
-        workout = get_enriched_workout(engine, workout_id)
+        workout = get_enriched_workout(engine, workout_id, user_id=current_user.id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if workout is None:

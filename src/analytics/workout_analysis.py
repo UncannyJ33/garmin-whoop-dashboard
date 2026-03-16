@@ -254,19 +254,24 @@ def _fetch_recovery_context(
     engine: Engine,
     min_date: str,
     max_date: str,
+    user_id: str | None = None,
 ) -> dict[str, float | None]:
     """Fetch whoop_recovery_score keyed by date for the given range."""
+    uid_filter = "AND user_id = :uid" if user_id is not None else ""
+    params: dict = {"start": min_date, "end": max_date}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = (
             conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT date, whoop_recovery_score
                 FROM unified_daily
-                WHERE date >= :start AND date <= :end
+                WHERE date >= :start AND date <= :end {uid_filter}
                 """
                 ),
-                {"start": min_date, "end": max_date},
+                params,
             )
             .mappings()
             .all()
@@ -282,21 +287,29 @@ def _fetch_recovery_context(
 def get_enriched_workout(
     engine: Engine,
     workout_id: str,
+    user_id: str | None = None,
 ) -> EnrichedWorkout | None:
     """Fetch and enrich a single workout by its unified_workouts ID.
 
     Args:
         engine: SQLAlchemy engine for the fitness database.
         workout_id: Primary key from unified_workouts (e.g. "w_abc123").
+        user_id: App user UUID to scope results.
 
     Returns:
         EnrichedWorkout, or None if the ID does not exist.
     """
+    uid_filter = "AND uw.user_id = :uid" if user_id is not None else ""
+    params: dict = {"id": workout_id}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         row = (
             conn.execute(
-                text(f"SELECT {_WORKOUT_COLS} {_WORKOUT_JOIN} WHERE uw.id = :id"),  # noqa: S608
-                {"id": workout_id},
+                text(  # noqa: S608
+                    f"SELECT {_WORKOUT_COLS} {_WORKOUT_JOIN} WHERE uw.id = :id {uid_filter}"
+                ),
+                params,
             )
             .mappings()
             .fetchone()
@@ -311,7 +324,7 @@ def get_enriched_workout(
     # Fetch recovery window: 7 days prior for the rolling avg + next day
     context_start = _add_days(workout_date, -6)
     context_end = _add_days(workout_date, 1)
-    recovery_by_date = _fetch_recovery_context(engine, context_start, context_end)
+    recovery_by_date = _fetch_recovery_context(engine, context_start, context_end, user_id)
 
     return _build_enriched(row_dict, recovery_by_date)
 
@@ -320,6 +333,7 @@ def get_enriched_workouts(
     engine: Engine,
     start_date: date,
     end_date: date,
+    user_id: str | None = None,
 ) -> list[EnrichedWorkout]:
     """Fetch and enrich all workouts in a date range.
 
@@ -330,10 +344,15 @@ def get_enriched_workouts(
         engine: SQLAlchemy engine for the fitness database.
         start_date: First date to include (inclusive).
         end_date: Last date to include (inclusive).
+        user_id: App user UUID to scope results.
 
     Returns:
         List of EnrichedWorkout sorted by start_time ascending.
     """
+    uid_filter = "AND uw.user_id = :uid" if user_id is not None else ""
+    params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat()}
+    if user_id is not None:
+        params["uid"] = user_id
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -341,11 +360,11 @@ def get_enriched_workouts(
                     f"""
                 SELECT {_WORKOUT_COLS}
                 {_WORKOUT_JOIN}
-                WHERE uw.date >= :start AND uw.date <= :end
+                WHERE uw.date >= :start AND uw.date <= :end {uid_filter}
                 ORDER BY uw.start_time
                 """  # noqa: S608
                 ),
-                {"start": start_date.isoformat(), "end": end_date.isoformat()},
+                params,
             )
             .mappings()
             .all()
@@ -358,7 +377,7 @@ def get_enriched_workouts(
     # Recovery context: 6 days before earliest workout → 1 day after latest
     context_start = _add_days(start_date.isoformat(), -6)
     context_end = _add_days(end_date.isoformat(), 1)
-    recovery_by_date = _fetch_recovery_context(engine, context_start, context_end)
+    recovery_by_date = _fetch_recovery_context(engine, context_start, context_end, user_id)
 
     result = [_build_enriched(dict(r), recovery_by_date) for r in rows]
     logger.debug(
@@ -374,6 +393,7 @@ def get_workout_type_summary(
     engine: Engine,
     start_date: date,
     end_date: date,
+    user_id: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Aggregate enriched workouts by activity type.
 
@@ -392,7 +412,7 @@ def get_workout_type_summary(
             ``avg_efficiency_score``.
         All ``avg_*`` values are float or None if no valid data for that metric.
     """
-    workouts = get_enriched_workouts(engine, start_date, end_date)
+    workouts = get_enriched_workouts(engine, start_date, end_date, user_id)
 
     # Group by activity_type
     groups: dict[str, list[EnrichedWorkout]] = {}

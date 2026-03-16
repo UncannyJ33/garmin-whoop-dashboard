@@ -180,16 +180,23 @@ class WhoopPipeline:
         print(log.records_stored)
     """
 
-    def __init__(self, db: Session, client: WhoopClient | None = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        client: WhoopClient | None = None,
+        user_id: str | None = None,
+    ) -> None:
         """Initialise the pipeline with a database session and optional API client.
 
         Args:
             db: Active SQLAlchemy session used for all reads and writes.
             client: Pre-built WhoopClient, useful for injection in tests.
                     Defaults to a new WhoopClient bound to *db*.
+            user_id: App user UUID to tag all stored records.
         """
         self._db = db
         self._client = client or WhoopClient(db)
+        self.user_id = user_id
 
     def _get_sync_window(self) -> tuple[datetime, datetime]:
         """Return (start, end) for the next sync window.
@@ -242,6 +249,7 @@ class WhoopPipeline:
             sync_type=sync_type,
             started_at=now.isoformat(),
             status="running",
+            user_id=self.user_id,
             metadata_json=json.dumps(
                 {
                     "sync_start": sync_start.isoformat(),
@@ -292,7 +300,7 @@ class WhoopPipeline:
             self._db.commit()
             logger.info("Whoop sync complete — %d fetched, %d stored", records_fetched, stored)
 
-            normalizer = Normalizer(self._db)
+            normalizer = Normalizer(self._db, user_id=self.user_id)
             norm_counts = normalizer.normalize_all(sync_start.date(), sync_end.date())
             logger.info("Normalization complete: %s", norm_counts)
 
@@ -338,27 +346,35 @@ class WhoopPipeline:
     def _store_cycles(self, records: list[dict], fetched_at: str) -> int:
         """Transform and upsert cycle records. Returns number of records processed."""
         for r in records:
-            self._upsert(WhoopCycle, transform_cycle(r, fetched_at))
+            data = transform_cycle(r, fetched_at)
+            data["app_user_id"] = self.user_id
+            self._upsert(WhoopCycle, data)
         self._db.commit()
         return len(records)
 
     def _store_recovery(self, records: list[dict], fetched_at: str) -> int:
         """Transform and upsert recovery records. Returns number of records processed."""
         for r in records:
-            self._upsert(WhoopRecovery, transform_recovery(r, fetched_at))
+            data = transform_recovery(r, fetched_at)
+            data["user_id"] = self.user_id
+            self._upsert(WhoopRecovery, data)
         self._db.commit()
         return len(records)
 
     def _store_sleep(self, records: list[dict], fetched_at: str) -> int:
         """Transform and upsert sleep records. Returns number of records processed."""
         for r in records:
-            self._upsert(WhoopSleep, transform_sleep(r, fetched_at))
+            data = transform_sleep(r, fetched_at)
+            data["user_id"] = self.user_id
+            self._upsert(WhoopSleep, data)
         self._db.commit()
         return len(records)
 
     def _store_workouts(self, records: list[dict], fetched_at: str) -> int:
         """Transform and upsert workout records. Returns number of records processed."""
         for r in records:
-            self._upsert(WhoopWorkout, transform_workout(r, fetched_at))
+            data = transform_workout(r, fetched_at)
+            data["user_id"] = self.user_id
+            self._upsert(WhoopWorkout, data)
         self._db.commit()
         return len(records)
