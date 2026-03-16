@@ -12,7 +12,7 @@ import { ErrorState } from '../components/ErrorState'
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 function toISO(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return d.toLocaleDateString('en-CA')
 }
 
 function subDays(days: number): string {
@@ -207,7 +207,7 @@ export function Trends() {
   const exStart = subDays(explorerDays)
   const exEnd   = today
 
-  const summaryQ   = useWeeklySummary()
+  const summaryQ   = useWeeklySummary(today)
   const trendQ     = useMetricTrend(selectedMetric, exStart, exEnd)
   const anomaliesQ = useAnomalies(exStart, exEnd)
 

@@ -7,7 +7,7 @@ import {
   useReadinessToday,
   useWeeklySummary,
 } from '../hooks/useApi'
-import { useDateRange } from '../hooks/useDateRange'
+import { todayISO, useDateRange } from '../hooks/useDateRange'
 import { ChartSkeleton, MetricCardSkeleton } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { MetricCard } from '../components/MetricCard'
@@ -117,7 +117,7 @@ export function Readiness() {
 
   const todayQ  = useReadinessToday()
   const historyQ = useReadinessHistory(range30.start, range30.end)
-  const weeklyQ  = useWeeklySummary()
+  const weeklyQ  = useWeeklySummary(todayISO())
 
   // Trend data: merge history scores + 7d rolling avg
   const trendData = useMemo(() => {

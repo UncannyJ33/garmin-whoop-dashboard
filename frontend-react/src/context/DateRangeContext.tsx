@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState } from 'react'
 
 function toISO(d: Date): string {
-  return d.toISOString().split('T')[0]
+  return d.toLocaleDateString('en-CA')
 }
 
 function rangeFromDays(days: number): { start: string; end: string } {

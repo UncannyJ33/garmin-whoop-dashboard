@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
+import { todayISO } from './useDateRange'
 import type {
   DataStats,
   EnrichedWorkout,
@@ -27,7 +28,7 @@ import type {
 export function useReadinessToday() {
   return useQuery({
     queryKey: ['readiness', 'today'],
-    queryFn: () => api.get<ReadinessResult>('/api/readiness/today'),
+    queryFn: () => api.get<ReadinessResult>(`/api/readiness/today?date=${todayISO()}`),
     staleTime: 5 * 60 * 1000,
     retry: 1,
     refetchOnWindowFocus: true,

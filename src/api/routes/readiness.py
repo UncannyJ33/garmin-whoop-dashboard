@@ -37,6 +37,7 @@ def _to_response(r: ReadinessResult) -> ReadinessResponse:
     summary="Today's readiness score",
 )
 async def readiness_today(
+    local_date: date | None = Query(None, alias="date", description="User's local date (YYYY-MM-DD); defaults to server UTC date if omitted"),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> Response | ReadinessResponse:
@@ -45,7 +46,8 @@ async def readiness_today(
     Returns 204 No Content when no data is available for this user.
     """
     try:
-        result = compute_readiness(date.today(), engine, user_id=current_user.id)
+        target = local_date or date.today()
+        result = compute_readiness(target, engine, user_id=current_user.id)
         if result.confidence == 0.0:
             return Response(status_code=204)
         return _to_response(result)
