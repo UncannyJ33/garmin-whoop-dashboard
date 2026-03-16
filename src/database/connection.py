@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, text
-from sqlalchemy.pool import NullPool
 
 from config.settings import settings
 
@@ -56,11 +55,19 @@ def get_engine(database_url: str | None = None) -> Engine:
         engine = create_engine(
             url,
             echo=False,
-            poolclass=NullPool,
-            # sslmode=require is recommended by Supabase for psycopg2 + Transaction
-            # mode pooler (port 6543).  Without it psycopg2 defaults to
-            # sslmode=prefer, which can trigger unexpected SSL close errors when
-            # PgBouncer cycles its server-side SSL session cache.
+            # Small pool — keeps 2 warm connections for fast request handling.
+            # max_overflow=3 allows bursts; pool_pre_ping detects and replaces
+            # dead connections automatically (handles transient PgBouncer drops
+            # without surfacing errors to users).
+            # pool_recycle=1800 refreshes connections before Supabase's
+            # server_lifetime expires (typically 3600 s).
+            pool_size=2,
+            max_overflow=3,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            pool_timeout=30,
+            # sslmode=require: Supabase's explicit recommendation for psycopg2 +
+            # Transaction mode pooler (port 6543).
             connect_args={"sslmode": "require"},
         )
 
