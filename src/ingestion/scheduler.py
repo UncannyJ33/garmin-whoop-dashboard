@@ -20,7 +20,7 @@ from sqlalchemy import Engine, text
 
 from config.settings import settings
 from src.clients.garmin_auth import load_garmin_tokens_from_db, save_garmin_tokens_to_db
-from src.database.connection import get_engine, get_session_factory
+from src.database.connection import get_session_factory
 from src.ingestion.garmin_pipeline import GarminPipeline
 
 logger = logging.getLogger(__name__)
@@ -62,22 +62,22 @@ def _get_owner_user_id(engine: Engine) -> str | None:
 def _run_garmin_sync() -> None:
     """Job target: run an incremental Garmin sync.
 
-    Opens its own DB session so APScheduler can call this from a thread pool
-    without sharing state with the main application thread.  Any exception is
-    caught, logged, and suppressed so the scheduler keeps running.  Garmin
+    Reuses the shared app engine (NullPool — thread-safe) so APScheduler
+    background threads don't create additional engine objects.  Any exception
+    is caught, logged, and suppressed so the scheduler keeps running.  Garmin
     tokens are persisted to DB after each successful sync so they survive
     container restarts.
     """
+    from src.api.dependencies import _engine as app_engine
+
     logger.info("Garmin scheduled sync starting")
     try:
-        engine = get_engine()
-
-        owner_id = _get_owner_user_id(engine)
+        owner_id = _get_owner_user_id(app_engine)
         if owner_id is None:
             logger.warning("Garmin scheduled sync: no users registered yet — skipping")
             return
 
-        SessionFactory = get_session_factory(engine)
+        SessionFactory = get_session_factory(app_engine)
         with SessionFactory() as db:
             pipeline = GarminPipeline(db, user_id=owner_id)
             log = pipeline.run()
@@ -88,7 +88,7 @@ def _run_garmin_sync() -> None:
             status,
         )
         # Persist any updated garth tokens back to DB for container restart resilience
-        save_garmin_tokens_to_db(engine)
+        save_garmin_tokens_to_db(app_engine)
     except Exception:
         logger.exception("Garmin scheduled sync failed — scheduler will retry next interval")
 
@@ -96,20 +96,21 @@ def _run_garmin_sync() -> None:
 def _run_whoop_sync() -> None:
     """Job target: run an incremental Whoop sync.
 
+    Reuses the shared app engine (NullPool — thread-safe).
     Uses ``asyncio.run()`` to bridge APScheduler's synchronous thread pool into
     an async context for WhoopPipeline.  Any exception is caught, logged, and
     suppressed so the scheduler keeps running.
     """
+    from src.api.dependencies import _engine as app_engine
+
     logger.info("Whoop scheduled sync starting")
     try:
-        engine = get_engine()
-
-        owner_id = _get_owner_user_id(engine)
+        owner_id = _get_owner_user_id(app_engine)
         if owner_id is None:
             logger.warning("Whoop scheduled sync: no users registered yet — skipping")
             return
 
-        SessionFactory = get_session_factory(engine)
+        SessionFactory = get_session_factory(app_engine)
         with SessionFactory() as db:
             from src.ingestion.whoop_pipeline import WhoopPipeline
 
@@ -282,7 +283,8 @@ def start_scheduler(engine: Engine | None = None) -> None:
         return
 
     if engine is None:
-        engine = get_engine()
+        from src.api.dependencies import _engine as app_engine
+        engine = app_engine
 
     # Restore Garmin tokens from DB so garth can find them on the filesystem
     try:

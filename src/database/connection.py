@@ -57,14 +57,11 @@ def get_engine(database_url: str | None = None) -> Engine:
             url,
             echo=False,
             poolclass=NullPool,
-            # TCP keepalives prevent PgBouncer from closing idle connections
-            # mid-session (server_idle_timeout = 600 s by default on Supabase).
-            connect_args={
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                "keepalives_interval": 10,
-                "keepalives_count": 5,
-            },
+            # sslmode=require is recommended by Supabase for psycopg2 + Transaction
+            # mode pooler (port 6543).  Without it psycopg2 defaults to
+            # sslmode=prefer, which can trigger unexpected SSL close errors when
+            # PgBouncer cycles its server-side SSL session cache.
+            connect_args={"sslmode": "require"},
         )
 
     return engine
