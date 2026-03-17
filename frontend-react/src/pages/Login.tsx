@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 interface LoginResponse {
@@ -133,6 +133,16 @@ export function Login() {
                 ? 'Sign in'
                 : 'Create account'}
           </button>
+
+          {!isLogin && (
+            <p className="text-center text-slate-500 text-xs leading-relaxed">
+              By creating an account, you agree to our{' '}
+              <Link to="/privacy" className="text-slate-400 underline hover:text-slate-200">
+                Privacy Policy
+              </Link>
+              .
+            </p>
+          )}
         </form>
 
         <p className="text-center text-slate-500 text-sm mt-4">

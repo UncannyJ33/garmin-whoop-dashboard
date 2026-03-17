@@ -9,6 +9,7 @@ import { Trends } from './pages/Trends'
 import { Settings } from './pages/Settings'
 import { RecoveryActivities } from './pages/RecoveryActivities'
 import { Login } from './pages/Login'
+import { Privacy } from './pages/Privacy'
 import { Showcase } from './pages/Showcase'
 import { ApiTest } from './pages/ApiTest'
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -50,6 +51,7 @@ export function App() {
           <TokenSync />
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/privacy" element={<Privacy />} />
             <Route element={<ProtectedLayout />}>
               <Route path="/" element={<Readiness />} />
               <Route path="/workouts" element={<Workouts />} />

@@ -2,7 +2,7 @@
  * Settings page — sync status, data overview, preferences
  */
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useDataStats, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
 import { api } from '../api/client'
 import { useTheme } from '../context/ThemeContext'
@@ -473,6 +473,13 @@ export function Settings() {
           />
         </div>
       </div>
+
+      {/* ── Footer ───────────────────────────────────────────────────────────── */}
+      <p className="text-center text-xs text-slate-600 pt-2">
+        <Link to="/privacy" className="hover:text-slate-400 transition-colors">
+          Privacy Policy
+        </Link>
+      </p>
 
       {/* ── Garmin Connect Modal ─────────────────────────────────────────────── */}
       {showGarminModal && (
