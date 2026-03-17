@@ -6,13 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import Engine
 
+from src.analytics.limiting_factors import get_limiting_factors
 from src.analytics.readiness_score import (
     ReadinessResult,
     compute_readiness,
     get_readiness_history,
 )
 from src.api.dependencies import get_engine_dep
-from src.api.models import ContributingFactor, ReadinessHistoryItem, ReadinessResponse
+from src.api.models import ContributingFactor, LimitingFactorResponse, ReadinessHistoryItem, ReadinessResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 
@@ -51,6 +52,35 @@ async def readiness_today(
         if result.confidence == 0.0:
             return Response(status_code=204)
         return _to_response(result)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/limiting-factors",
+    response_model=list[LimitingFactorResponse],
+    summary="Top factors suppressing today's readiness score",
+)
+async def readiness_limiting_factors(
+    local_date: date | None = Query(
+        None,
+        alias="date",
+        description="User's local date (YYYY-MM-DD); defaults to server UTC date if omitted",
+    ),
+    top_n: int = Query(2, ge=1, le=5, description="Maximum number of factors to return"),
+    engine: Engine = Depends(get_engine_dep),
+    current_user: User = Depends(get_current_user),
+) -> list[LimitingFactorResponse]:
+    """Return the top factors dragging today's readiness score below baseline.
+
+    Each factor includes the current value, 7-day average, deviation percentage,
+    and a plain-language explanation.  Returns an empty list on good days when
+    all factors are near or above their 7-day baselines.
+    """
+    try:
+        target = local_date or date.today()
+        factors = get_limiting_factors(engine, current_user.id, target, top_n=top_n)
+        return [LimitingFactorResponse(**vars(f)) for f in factors]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

@@ -175,6 +175,17 @@ class AnomalyItem(BaseModel):
     severity: float
 
 
+class EnrichedAnomalyResponse(BaseModel):
+    date: str
+    metric: str
+    metric_label: str
+    value: float
+    direction: str
+    severity: float
+    context: dict[str, Any]
+    explanation: str
+
+
 # ---------------------------------------------------------------------------
 # Sync
 # ---------------------------------------------------------------------------
@@ -234,6 +245,53 @@ class StrengthMaxWeightItem(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Limiting Factors
+# ---------------------------------------------------------------------------
+
+
+class LimitingFactorResponse(BaseModel):
+    factor_name: str
+    current_value: float
+    current_value_display: str
+    normalized_score: float
+    seven_day_avg: float
+    seven_day_avg_display: str
+    deviation_pct: float
+    explanation: str
+    severity: str
+
+
+# ---------------------------------------------------------------------------
+# Training Load (ACWR)
+# ---------------------------------------------------------------------------
+
+
+class WeeklyLoadItem(BaseModel):
+    week_start_date: str
+    total_strain: float
+    workout_count: int
+
+
+class TrainingLoadResponse(BaseModel):
+    acwr: float | None = None
+    acute_load: float
+    chronic_load: float
+    zone: str | None = None
+    zone_description: str | None = None
+    trend: str
+    weekly_loads: list[WeeklyLoadItem]
+    confidence_note: str | None = None
+
+
+class TrainingLoadHistoryItem(BaseModel):
+    date: str
+    acwr: float | None = None
+    acute_load: float
+    chronic_load: float
+    zone: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Recovery Activities
 # ---------------------------------------------------------------------------
 
@@ -254,3 +312,15 @@ class WithWithoutResponse(BaseModel):
     without_avg: float | None = None
     with_count: int
     without_count: int
+
+
+# ---------------------------------------------------------------------------
+# Insights / Weekly Digest
+# ---------------------------------------------------------------------------
+
+
+class WeeklyDigestResponse(BaseModel):
+    week_start: str
+    week_end: str
+    takeaways: list[str]
+    metrics_snapshot: dict[str, Any]

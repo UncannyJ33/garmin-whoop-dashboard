@@ -9,10 +9,12 @@ from fastapi.staticfiles import StaticFiles
 
 from config.settings import settings
 from src.api.routes.auth import router as auth_router
+from src.api.routes.insights import router as insights_router
 from src.api.routes.readiness import router as readiness_router
 from src.api.routes.recovery import router as recovery_router
 from src.api.routes.sleep import router as sleep_router
 from src.api.routes.sync import router as sync_router
+from src.api.routes.training import router as training_router
 from src.api.routes.trends import router as trends_router
 from src.api.routes.webhooks import router as webhooks_router
 from src.api.routes.workouts import router as workouts_router
@@ -61,6 +63,8 @@ app.include_router(workouts_router)
 app.include_router(recovery_router)
 app.include_router(sleep_router)
 app.include_router(trends_router)
+app.include_router(training_router)
+app.include_router(insights_router)
 app.include_router(sync_router)
 app.include_router(webhooks_router)
 

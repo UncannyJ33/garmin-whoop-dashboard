@@ -728,6 +728,345 @@ def get_metric_trend(
     )
 
 
+# ---------------------------------------------------------------------------
+# Enriched anomaly constants and dataclass
+# ---------------------------------------------------------------------------
+
+_ENRICHED_ANOMALY_METRICS: list[str] = [
+    "recovery",
+    "hrv",
+    "resting_hr",
+    "strain",
+    "body_battery",
+    "sleep_duration",
+    "deep_sleep",
+]
+
+_ENRICHED_METRIC_LABELS: dict[str, str] = {
+    "recovery": "Recovery Score",
+    "hrv": "HRV",
+    "resting_hr": "Resting HR",
+    "strain": "Strain",
+    "body_battery": "Body Battery",
+    "sleep_duration": "Sleep Duration",
+    "deep_sleep": "Deep Sleep",
+}
+
+
+@dataclass
+class EnrichedAnomaly:
+    """An anomaly with 48-hour surrounding context and a plain-language explanation.
+
+    Attributes:
+        date: ISO date string (YYYY-MM-DD) of the anomalous day.
+        metric: Internal metric key (e.g. "hrv").
+        metric_label: Human-readable label (e.g. "HRV").
+        value: Raw metric value on the anomalous day.
+        direction: "high" or "low" relative to the rolling mean.
+        severity: Absolute z-score (always positive).
+        context: Dict with keys:
+            training_48h — {total_strain, workout_count} for the 2 days prior.
+            sleep_prior_night — {duration_hours, quality_pct, deep_pct}.
+            recovery_trend — "improving" | "declining" | "stable" over 7d.
+            co_anomalies — list of metric labels also flagged on the same day.
+        explanation: One-sentence natural-language summary.
+    """
+
+    date: str
+    metric: str
+    metric_label: str
+    value: float
+    direction: str  # "high" | "low"
+    severity: float  # abs z-score
+    context: dict
+    explanation: str
+
+
+# ---------------------------------------------------------------------------
+# Enriched anomaly helpers (private)
+# ---------------------------------------------------------------------------
+
+
+def _enriched_severity_label(z_abs: float) -> str:
+    """Human-readable severity label from an absolute z-score."""
+    if z_abs >= 3.5:
+        return "significant"
+    if z_abs >= 2.5:
+        return "moderate"
+    return "mild"
+
+
+def _fmt_anomaly_value(metric: str, value: float) -> str:
+    """Format a raw metric value for use in an explanation string."""
+    if metric == "hrv":
+        return f"{value:.0f}ms"
+    if metric in ("recovery", "sleep_performance"):
+        return f"{value:.0f}%"
+    if metric == "resting_hr":
+        return f"{value:.0f}bpm"
+    if metric == "sleep_duration":
+        return f"{value / 60.0:.1f}h"
+    if metric == "deep_sleep":
+        return f"{value:.0f}min"
+    return f"{value:.1f}"
+
+
+def _fetch_training_ctx(
+    engine: Engine, user_id: str | None, anomaly_date: date
+) -> dict:
+    """Return total strain and workout count in the 2 days prior to anomaly_date."""
+    start_iso = (anomaly_date - timedelta(days=2)).isoformat()
+    end_iso = (anomaly_date - timedelta(days=1)).isoformat()
+    if user_id is not None:
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"s": start_iso, "e": end_iso, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"s": start_iso, "e": end_iso}
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(  # noqa: S608
+                "SELECT COALESCE(SUM(whoop_strain), 0), COUNT(*)"
+                " FROM unified_workouts"
+                f" WHERE date >= :s AND date <= :e AND whoop_strain IS NOT NULL {uid_clause}"
+            ),
+            params,
+        ).fetchone()
+    total_strain = float(row[0]) if row[0] else None
+    workout_count = int(row[1]) if row[1] else 0
+    return {"total_strain": total_strain, "workout_count": workout_count}
+
+
+def _fetch_sleep_ctx(
+    engine: Engine, user_id: str | None, anomaly_date: date
+) -> dict:
+    """Return sleep duration, quality, and deep-sleep % for the night before anomaly_date."""
+    prev_iso = (anomaly_date - timedelta(days=1)).isoformat()
+    if user_id is not None:
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"d": prev_iso, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"d": prev_iso}
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(  # noqa: S608
+                "SELECT total_sleep_minutes, whoop_performance, deep_sleep_minutes"
+                f" FROM unified_sleep WHERE date = :d {uid_clause} LIMIT 1"
+            ),
+            params,
+        ).fetchone()
+    if row is None:
+        return {"duration_hours": None, "quality_pct": None, "deep_pct": None}
+    total_min = row[0]
+    quality = row[1]
+    deep_min = row[2]
+    duration_hours = round(total_min / 60.0, 1) if total_min else None
+    deep_pct = (
+        round(deep_min / total_min * 100.0, 1)
+        if (deep_min and total_min and total_min > 0)
+        else None
+    )
+    return {
+        "duration_hours": duration_hours,
+        "quality_pct": float(quality) if quality is not None else None,
+        "deep_pct": deep_pct,
+    }
+
+
+def _fetch_recovery_ctx(
+    engine: Engine, user_id: str | None, anomaly_date: date
+) -> str:
+    """Return recovery trend direction over the 7 days ending on anomaly_date."""
+    start = anomaly_date - timedelta(days=6)
+    raw = _fetch_raw(
+        engine,
+        "unified_daily",
+        "whoop_recovery_score",
+        start.isoformat(),
+        anomaly_date.isoformat(),
+        user_id,
+    )
+    values = [float(v) for _, v in raw if v is not None]
+    rolling = _rolling_avg(values, len(values))
+    return calculate_trend_direction(rolling)
+
+
+def _build_enriched_explanation(
+    metric: str,
+    metric_label: str,
+    value: float,
+    direction: str,
+    severity: float,
+    context: dict,
+) -> str:
+    """Build a natural-language explanation for an enriched anomaly."""
+    sev_label = _enriched_severity_label(severity)
+    verb = "elevated" if (metric == "resting_hr" and direction == "high") else (
+        "spiked" if direction == "high" else "dropped"
+    )
+    fmt_val = _fmt_anomaly_value(metric, value)
+    base = f"{metric_label} {verb} to {fmt_val} ({sev_label})"
+
+    training = context.get("training_48h", {})
+    sleep = context.get("sleep_prior_night", {})
+    co_anomalies = context.get("co_anomalies", [])
+    recovery_trend = context.get("recovery_trend", "stable")
+
+    strain = training.get("total_strain")
+    workout_count = training.get("workout_count", 0)
+
+    # High training load explains fatigue signals (low hrv/recovery/bb, high resting_hr)
+    fatigue_signal = (
+        (metric in ("hrv", "recovery", "body_battery") and direction == "low")
+        or (metric == "resting_hr" and direction == "high")
+    )
+    if fatigue_signal and strain and strain > 0 and workout_count > 0:
+        sessions = f"{workout_count} session{'s' if workout_count != 1 else ''}"
+        return f"{base} — you logged {sessions} in the prior 48h totaling {strain:.1f} strain"
+
+    # Good sleep explains positive recovery/hrv spikes
+    good_signal = metric in ("recovery", "hrv") and direction == "high"
+    dur = sleep.get("duration_hours")
+    if good_signal and dur is not None:
+        deep_pct = sleep.get("deep_pct")
+        if deep_pct is not None:
+            return f"{base} — follows {dur:.1f}h of sleep with {deep_pct:.0f}% deep sleep proportion"
+        return f"{base} — follows {dur:.1f}h of sleep the night before"
+
+    # Co-occurring anomalies on the same day
+    if co_anomalies:
+        co_str = " and ".join(co_anomalies[:2])
+        return f"{base} — {co_str} was also flagged on the same day"
+
+    # Recovery trend as fallback context
+    if recovery_trend != "stable":
+        return f"{base} — recovery has been {recovery_trend} over the past week"
+
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Enriched anomaly public API
+# ---------------------------------------------------------------------------
+
+
+def enrich_anomaly(
+    engine: Engine,
+    user_id: str | None,
+    metric: str,
+    anomaly: dict,
+    co_anomalies_by_date: dict[str, list[str]] | None = None,
+) -> EnrichedAnomaly:
+    """Enrich a single anomaly dict with 48-hour surrounding context.
+
+    Args:
+        engine: SQLAlchemy engine for the fitness database.
+        user_id: App user UUID (None → match rows where user_id IS NULL).
+        metric: Internal metric key (e.g. "hrv").
+        anomaly: Dict with keys {date, value, direction, severity} as returned
+            by detect_anomalies().
+        co_anomalies_by_date: Optional pre-built map of date → list of metric
+            labels flagged on that day.  If provided, the co-anomaly lookup uses
+            this cache rather than re-computing.
+
+    Returns:
+        EnrichedAnomaly with context and explanation populated.
+    """
+    anomaly_date = date.fromisoformat(anomaly["date"])
+    metric_label = _ENRICHED_METRIC_LABELS.get(metric, metric)
+    severity = abs(anomaly["severity"])
+
+    training_ctx = _fetch_training_ctx(engine, user_id, anomaly_date)
+    sleep_ctx = _fetch_sleep_ctx(engine, user_id, anomaly_date)
+    recovery_trend = _fetch_recovery_ctx(engine, user_id, anomaly_date)
+
+    # Co-anomalies: other metric labels flagged on the same date (excluding self)
+    same_day = (co_anomalies_by_date or {}).get(anomaly["date"], [])
+    co_anomalies = [lbl for lbl in same_day if lbl != metric_label]
+
+    context = {
+        "training_48h": training_ctx,
+        "sleep_prior_night": sleep_ctx,
+        "recovery_trend": recovery_trend,
+        "co_anomalies": co_anomalies,
+    }
+    explanation = _build_enriched_explanation(
+        metric, metric_label, anomaly["value"], anomaly["direction"], severity, context
+    )
+    return EnrichedAnomaly(
+        date=anomaly["date"],
+        metric=metric,
+        metric_label=metric_label,
+        value=anomaly["value"],
+        direction=anomaly["direction"],
+        severity=round(severity, 2),
+        context=context,
+        explanation=explanation,
+    )
+
+
+def get_enriched_anomalies(
+    engine: Engine,
+    user_id: str | None,
+    start_date: date,
+    end_date: date,
+    limit: int = 20,
+) -> list[EnrichedAnomaly]:
+    """Detect anomalies across all tracked metrics and enrich with 48h context.
+
+    Algorithm:
+    1. Run anomaly detection for each metric in ``_ENRICHED_ANOMALY_METRICS``
+       over [start_date, end_date].
+    2. Build a co-anomaly map (date → list of metric labels flagged that day).
+    3. Enrich each anomaly with training/sleep/recovery context.
+    4. Sort by date descending (most recent first), then by severity descending
+       within the same date.
+    5. Return the top ``limit`` enriched anomalies.
+
+    Args:
+        engine: SQLAlchemy engine for the fitness database.
+        user_id: App user UUID.
+        start_date: First date to search for anomalies (inclusive).
+        end_date: Last date to search for anomalies (inclusive).
+        limit: Maximum number of enriched anomalies to return (default 20).
+
+    Returns:
+        List of EnrichedAnomaly sorted most-recent-first.  Empty when there
+        is no data or no anomalies in the date range.
+    """
+    # 1. Collect raw anomalies per metric
+    raw_pairs: list[tuple[str, dict]] = []
+    for metric in _ENRICHED_ANOMALY_METRICS:
+        try:
+            trend = get_metric_trend(engine, metric, start_date, end_date, user_id)
+            for a in trend.anomalies:
+                raw_pairs.append((metric, a))
+        except Exception:  # noqa: BLE001
+            logger.debug("get_enriched_anomalies: skipping metric %r", metric)
+            continue
+
+    if not raw_pairs:
+        return []
+
+    # 2. Build co-anomaly map: date → [metric_label, ...]
+    co_map: dict[str, list[str]] = {}
+    for metric, a in raw_pairs:
+        lbl = _ENRICHED_METRIC_LABELS.get(metric, metric)
+        co_map.setdefault(a["date"], []).append(lbl)
+
+    # 3. Enrich each anomaly
+    enriched: list[EnrichedAnomaly] = [
+        enrich_anomaly(engine, user_id, metric, a, co_map)
+        for metric, a in raw_pairs
+    ]
+
+    # 4. Sort: date descending, severity descending within same date
+    enriched.sort(key=lambda x: (x.date, x.severity), reverse=True)
+
+    return enriched[:limit]
+
+
 def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = None) -> dict:
     """Compute a 7-day wellness summary ending on ``end_date``.
 

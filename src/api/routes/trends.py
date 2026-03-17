@@ -5,9 +5,9 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
-from src.analytics.trends import get_metric_trend, get_weekly_summary
+from src.analytics.trends import get_enriched_anomalies, get_metric_trend, get_weekly_summary
 from src.api.dependencies import get_engine_dep
-from src.api.models import AnomalyItem, MetricTrendResponse, WeeklySummaryResponse
+from src.api.models import AnomalyItem, EnrichedAnomalyResponse, MetricTrendResponse, WeeklySummaryResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 
@@ -100,6 +100,32 @@ async def anomaly_log(
         except Exception:  # noqa: BLE001
             continue
     return sorted(rows, key=lambda x: x.date, reverse=True)
+
+
+@router.get(
+    "/anomalies/enriched",
+    response_model=list[EnrichedAnomalyResponse],
+    summary="Anomaly log with 48-hour contextual explanations",
+)
+async def enriched_anomaly_log(
+    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of anomalies to return"),
+    engine: Engine = Depends(get_engine_dep),
+    current_user: User = Depends(get_current_user),
+) -> list[EnrichedAnomalyResponse]:
+    """Return anomalous days enriched with training load, sleep, and co-anomaly context.
+
+    Each entry includes a natural-language explanation of what was happening
+    in the 48 hours surrounding the anomaly.
+    """
+    if start > end:
+        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    try:
+        results = get_enriched_anomalies(engine, current_user.id, start, end, limit=limit)
+        return [EnrichedAnomalyResponse(**vars(r)) for r in results]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get(
