@@ -1,10 +1,10 @@
 /**
- * AuthContext — JWT token stored in sessionStorage (not localStorage).
- * sessionStorage is cleared when the browser tab/session closes, which is
- * more secure than localStorage while still surviving page refreshes.
+ * AuthContext — JWT tokens stored in localStorage so they survive PWA close/reopen.
+ * On app open, if the access token is expired but a refresh token exists, a silent
+ * refresh is attempted before redirecting to login.
  *
- * On 401 the API client dispatches an 'auth-error' event; AuthProvider
- * listens for it and redirects to /login.
+ * On 401 the API client dispatches an 'auth-error' event; AuthProvider listens and
+ * redirects to /login.
  */
 import {
   createContext,
@@ -18,7 +18,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { setAuthToken } from '../api/client'
 
-const SESSION_KEY = 'pd_auth'
+const STORAGE_KEY = 'pd_auth'
 
 interface AuthTokens {
   access_token: string
@@ -30,6 +30,7 @@ interface AuthContextValue {
   token: string | null
   userId: string | null
   isAuthenticated: boolean
+  isInitializing: boolean
   login: (tokens: AuthTokens) => void
   logout: () => void
 }
@@ -51,24 +52,30 @@ function extractUserId(token: string): string | null {
   }
 }
 
+function isAccessTokenExpired(tokens: AuthTokens): boolean {
+  return new Date(tokens.expires_at) <= new Date()
+}
+
 const AuthContext = createContext<AuthContextValue>({
   token: null,
   userId: null,
   isAuthenticated: false,
+  isInitializing: true,
   login: () => {},
   logout: () => {},
 })
 
-function loadFromSession(): AuthTokens | null {
+function loadFromStorage(): AuthTokens | null {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY)
+    const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as AuthTokens
-    // Discard if access token is expired
-    if (new Date(parsed.expires_at) <= new Date()) {
-      sessionStorage.removeItem(SESSION_KEY)
+    // If expired with no refresh token, discard immediately
+    if (isAccessTokenExpired(parsed) && !parsed.refresh_token) {
+      localStorage.removeItem(STORAGE_KEY)
       return null
     }
+    // If expired but refresh token present, return as-is — will be refreshed on mount
     return parsed
   } catch {
     return null
@@ -77,36 +84,73 @@ function loadFromSession(): AuthTokens | null {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tokens, setTokens] = useState<AuthTokens | null>(() => {
-    const t = loadFromSession()
-    setAuthToken(t?.access_token ?? null)
+    const t = loadFromStorage()
+    // Only set the auth token if access token is still valid
+    if (t && !isAccessTokenExpired(t)) setAuthToken(t.access_token)
     return t
   })
+  // isInitializing stays true until we've either confirmed the token or refreshed/cleared it
+  const [isInitializing, setIsInitializing] = useState<boolean>(() => {
+    const t = loadFromStorage()
+    // If expired with a refresh token, we'll need to do an async refresh
+    return t !== null && isAccessTokenExpired(t)
+  })
+
   const navigate = useNavigate()
   const navigateRef = useRef(navigate)
   navigateRef.current = navigate
   const queryClient = useQueryClient()
 
   const login = useCallback((t: AuthTokens) => {
-    // Cancel in-flight requests (aborts fetch via AbortSignal) then wipe cache
-    // so no prior user's data leaks into the new session.
     void queryClient.cancelQueries()
     queryClient.clear()
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(t))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(t))
     setAuthToken(t.access_token)
     setTokens(t)
   }, [queryClient])
 
   const logout = useCallback(() => {
-    sessionStorage.removeItem(SESSION_KEY)
+    localStorage.removeItem(STORAGE_KEY)
     setAuthToken(null)
     setTokens(null)
-    // Cancel in-flight requests, wipe TanStack cache, and clear SW disk cache
-    // so no prior user's data can be served by a stale service worker.
     void queryClient.cancelQueries()
     queryClient.clear()
     clearSwCaches()
     navigateRef.current('/login')
   }, [queryClient])
+
+  // On mount: if stored tokens exist but access token is expired, attempt silent refresh
+  useEffect(() => {
+    if (!isInitializing) return
+
+    const stored = loadFromStorage()
+    if (!stored || !stored.refresh_token) {
+      setIsInitializing(false)
+      return
+    }
+
+    fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${stored.refresh_token}` },
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('refresh failed')
+        return res.json() as Promise<AuthTokens>
+      })
+      .then(newTokens => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newTokens))
+        setAuthToken(newTokens.access_token)
+        setTokens(newTokens)
+      })
+      .catch(() => {
+        // Refresh token is also expired or invalid — clear everything and go to login
+        localStorage.removeItem(STORAGE_KEY)
+        setAuthToken(null)
+        setTokens(null)
+        navigateRef.current('/login')
+      })
+      .finally(() => setIsInitializing(false))
+  }, [isInitializing])
 
   // Listen for 401s dispatched by the API client
   useEffect(() => {
@@ -120,7 +164,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         token: tokens?.access_token ?? null,
         userId: tokens ? extractUserId(tokens.access_token) : null,
-        isAuthenticated: tokens !== null,
+        isAuthenticated: tokens !== null && !isAccessTokenExpired(tokens),
+        isInitializing,
         login,
         logout,
       }}

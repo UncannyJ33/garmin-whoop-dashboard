@@ -34,9 +34,10 @@ function TokenSync() {
   return null
 }
 
-/** Redirect unauthenticated users to /login. */
+/** Redirect unauthenticated users to /login. Hold while silent token refresh is in progress. */
 function ProtectedLayout() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isInitializing } = useAuth()
+  if (isInitializing) return null
   if (!isAuthenticated) return <Navigate to="/login" replace />
   return <Layout />
 }
