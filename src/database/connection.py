@@ -55,14 +55,14 @@ def get_engine(database_url: str | None = None) -> Engine:
         engine = create_engine(
             url,
             echo=False,
-            # Small pool — keeps 2 warm connections for fast request handling.
-            # max_overflow=3 allows bursts; pool_pre_ping detects and replaces
-            # dead connections automatically (handles transient PgBouncer drops
-            # without surfacing errors to users).
-            # pool_recycle=1800 refreshes connections before Supabase's
-            # server_lifetime expires (typically 3600 s).
-            pool_size=2,
-            max_overflow=3,
+            # pool_size=5: keeps 5 warm connections ready.  The Trends page
+            # fires ~7 parallel metric requests; each needs one connection for
+            # the data query (auth no longer uses a separate session).
+            # max_overflow=10 absorbs further bursts; pool_pre_ping replaces
+            # dead connections (handles transient PgBouncer drops).
+            # pool_recycle=1800 refreshes before Supabase's server_lifetime.
+            pool_size=5,
+            max_overflow=10,
             pool_pre_ping=True,
             pool_recycle=1800,
             pool_timeout=30,

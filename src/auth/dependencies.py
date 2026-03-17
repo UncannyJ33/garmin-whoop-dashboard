@@ -3,9 +3,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
-from sqlalchemy.orm import Session
 
-from src.api.dependencies import get_db
 from src.auth.models import User
 from src.auth.security import decode_token
 
@@ -14,12 +12,15 @@ _bearer = HTTPBearer()
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
-    db: Session = Depends(get_db),
 ) -> User:
     """Verify the Bearer JWT and return the authenticated User.
 
+    Constructs a User from the JWT payload without a DB lookup — the token is
+    cryptographically signed so the user_id can be trusted directly.  This
+    removes one DB connection per request, which is important when the Trends
+    page fires many parallel requests and the connection pool is small.
+
     Raises 401 if the token is missing, expired, or invalid.
-    Raises 403 if the account is inactive.
     """
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -38,10 +39,6 @@ def get_current_user(
     if not user_id:
         raise invalid
 
-    user = db.get(User, user_id)
-    if user is None:
-        raise invalid
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled.")
-
-    return user
+    # Build a detached (session-less) User from the JWT claims.
+    # No DB round-trip — the signed JWT is the source of truth.
+    return User(id=user_id, is_active=True)

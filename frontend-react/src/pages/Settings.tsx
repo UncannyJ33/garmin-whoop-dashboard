@@ -246,9 +246,11 @@ export function Settings() {
           const isWhoop = source.source === 'whoop'
           const isGarmin = source.source === 'garmin'
 
-          // Drive connection status from token existence (not sync_log) for both sources
-          const whoopConnected = whoopStatus.isLoading ? true : (whoopStatus.data?.connected ?? false)
-          const garminConnected = garminStatus.isLoading ? true : (garminStatus.data?.connected ?? false)
+          // Drive connection status from token existence (not sync_log) for both sources.
+          // Default to false while loading — safer than defaulting to true, which would
+          // briefly show "Sync Now" on new unconnected accounts before the query resolves.
+          const whoopConnected = whoopStatus.data?.connected ?? false
+          const garminConnected = garminStatus.data?.connected ?? false
           const isConnected = isWhoop ? whoopConnected : garminConnected
 
           const rawStatus = !isConnected ? null : source.status
