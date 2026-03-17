@@ -114,8 +114,8 @@ const METRICS: MetricConfig[] = [
   { key: 'hrv',            label: 'HRV',            unit: ' ms',  color: '#818cf8' },
   { key: 'resting_hr',     label: 'Resting HR',     unit: ' bpm', color: '#f87171', lowerIsBetter: true },
   { key: 'strain',         label: 'Strain',         unit: '',     color: '#fb923c' },
-  { key: 'sleep_duration', label: 'Sleep Duration', unit: 'h',    color: '#60a5fa', formatValue: v => `${v.toFixed(1)}h` },
-  { key: 'deep_sleep',     label: 'Deep Sleep',     unit: 'h',    color: '#4f46e5', formatValue: v => `${v.toFixed(1)}h` },
+  { key: 'sleep_duration', label: 'Sleep Duration', unit: 'h',    color: '#60a5fa', formatValue: v => `${(v/60).toFixed(1)}h` },
+  { key: 'deep_sleep',     label: 'Deep Sleep',     unit: 'h',    color: '#4f46e5', formatValue: v => `${(v/60).toFixed(1)}h` },
   { key: 'readiness',      label: 'Readiness',      unit: '',     color: '#2dd4bf' },
   { key: 'body_battery',   label: 'Body Battery',   unit: '',     color: '#facc15' },
   { key: 'training_load',  label: 'Training Load',  unit: '',     color: '#e879f9' },
@@ -162,9 +162,9 @@ function anomalyContext(metric: string, direction: string, value: number): strin
     'HRV':            [`HRV spiked to ${value.toFixed(0)}ms — unusually high for you.`,            `HRV dipped to ${value.toFixed(0)}ms — may reflect accumulated fatigue.`],
     'Resting HR':     [`Resting HR reached ${value.toFixed(0)}bpm — elevated, often a sign of stress.`, `Resting HR dropped to ${value.toFixed(0)}bpm — unusually low for you.`],
     'Strain (Daily)': [`Strain hit ${value.toFixed(1)} — a very high training load day.`,           `Strain was only ${value.toFixed(1)} — unusually light activity.`],
-    'Body Battery':   [`Body Battery peaked at ${value.toFixed(0)} — excellent energy reserves.`,   `Body Battery dropped to ${value.toFixed(0)} — energy was heavily depleted.`],
-    'Sleep Duration': [`Sleep reached ${value.toFixed(1)}h — well above your average.`,             `Sleep was only ${value.toFixed(1)}h — significantly below your average.`],
-    'Deep Sleep':     [`Deep sleep hit ${value.toFixed(1)}h — more restorative than usual.`,        `Deep sleep was only ${value.toFixed(1)}h — less restoration than typical.`],
+    'Body Battery':   [`Body Battery peaked at ${value.toFixed(0)} — excellent energy reserves.`,   `Body Battery dropped to ${value.toFixed(0)} — below your typical baseline.`],
+    'Sleep Duration': [`Sleep reached ${(value/60).toFixed(1)}h — well above your average.`,        `Sleep was only ${(value/60).toFixed(1)}h — significantly below your average.`],
+    'Deep Sleep':     [`Deep sleep hit ${(value/60).toFixed(1)}h — more restorative than usual.`,   `Deep sleep was only ${(value/60).toFixed(1)}h — less restoration than typical.`],
   }
   const pair = ctx[metric]
   if (pair) return hi ? pair[0] : pair[1]
