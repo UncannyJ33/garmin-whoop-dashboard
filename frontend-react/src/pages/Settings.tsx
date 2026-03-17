@@ -25,6 +25,11 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function isStale(iso: string | null): boolean {
+  if (!iso) return true
+  return Date.now() - new Date(iso).getTime() > 24 * 60 * 60 * 1000
+}
+
 function statusLabel(status: string | null): { text: string; color: string; dot: string } {
   switch (status) {
     case 'success':
@@ -317,6 +322,18 @@ export function Settings() {
                   </p>
                 </div>
               </div>
+
+              {/* Stale sync warning */}
+              {isConnected && isStale(source.last_sync_at) && (
+                <div className="rounded-lg bg-moderate/10 border border-moderate/30 px-3 py-2 text-xs text-moderate flex items-start gap-2">
+                  <span className="mt-0.5 flex-shrink-0">⚠</span>
+                  <span>
+                    {source.last_sync_at
+                      ? 'Last sync was over 24 hours ago — your data may be outdated. Tap Sync Now to refresh.'
+                      : 'No sync on record — tap Sync Now to load your data.'}
+                  </span>
+                </div>
+              )}
 
               {/* Error message */}
               {source.error_message && (
