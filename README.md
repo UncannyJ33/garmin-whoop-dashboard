@@ -39,22 +39,36 @@ source .venv/bin/activate
 uv sync
 ```
 
-**4. Authenticate with Whoop** (first run only)
+**4. Run migrations** (creates all tables; idempotent — safe to run repeatedly)
 ```bash
-make run-api        # starts FastAPI on port 8000
-# visit http://localhost:8000/api/auth/whoop in your browser to complete OAuth
+make run-api   # migrations run automatically on startup
+# OR run manually:
+source .venv/bin/activate
+python -c "from src.database.migrations import run; run()"
 ```
 
-**5. Run the initial sync** (pulls 30 days of data from both sources)
+**5. Start the API and log in**
 ```bash
-make run-sync
+make run-api        # FastAPI on http://localhost:8000
+# Open http://localhost:5173 (dev) or http://localhost:8000 (prod build)
+# Register an account, then go to Settings → Connect Whoop to complete OAuth
+# Settings → Connect Garmin to enter your Garmin Connect credentials
 ```
 
-Garmin credentials are read from `.env`. After the first successful login, tokens are
-cached in `data/garmin_tokens/` and re-used on subsequent syncs — your password is not
-stored.
+**6. Run the initial sync** (pulls 30 days of data from both sources)
+```bash
+# From the Settings page, click "Sync Now" for each source
+# OR trigger via API:
+curl -X POST http://localhost:8000/api/sync/trigger/whoop \
+  -H "Authorization: Bearer <your-token>"
+curl -X POST http://localhost:8000/api/sync/trigger/garmin \
+  -H "Authorization: Bearer <your-token>"
+```
 
-**6. Run the dashboard**
+Garmin credentials are entered via the Settings page. The password is never stored —
+only the garth session token, persisted to the `token_store` database table.
+
+**7. Run the dashboard**
 
 Two options:
 
@@ -87,9 +101,37 @@ npm run typecheck  # TypeScript check only
 
 ---
 
+## Deployment
+
+**Push to `main` → Railway auto-deploys.** No manual steps required.
+
+Railway runs the startup sequence automatically:
+1. `scripts/start.sh` runs database migrations (idempotent)
+2. Resets PostgreSQL sequences to avoid PK conflicts
+3. Starts uvicorn on `$PORT`
+
+The built React `dist/` is included in the Docker image (multi-stage build). FastAPI
+serves the SPA at `/` and all API routes at `/api/*` from the same container.
+
+**Supabase connection**: Use the **Transaction mode pooler** URL (port **6543**), not
+the direct connection (port 5432). The direct host resolves to IPv6 on Railway, which
+doesn't support IPv6 egress.
+```
+postgresql+psycopg2://postgres.[ref]:[password]@aws-1-us-east-1.pooler.supabase.com:6543/postgres
+```
+
+---
+
 ## Garmin Setup
 
-Garmin authentication uses your Garmin Connect email and password. Set them in `.env`:
+Garmin authentication uses your Garmin Connect email and password.
+
+**Production / multi-user**: Credentials are entered per-user via the Settings page
+(Settings → Connect Garmin). Garth session tokens are stored in the `token_store`
+database table under the key `garmin_{user_id}`. Tokens are restored to the filesystem
+on each container start so garth can find them — no persistent volume needed.
+
+**Local dev**: Set credentials in `.env` for the primary account:
 
 ```env
 GARMIN_EMAIL=your@email.com
@@ -98,9 +140,8 @@ GARMIN_TOKEN_DIR=data/garmin_tokens   # default; tokens cached here after first 
 ```
 
 **Two-factor authentication**: If your account uses 2FA, the first login will prompt
-for a code on the terminal. Run `python scripts/initial_sync.py` interactively (not via
-`make`) so you can enter the code. Subsequent syncs use the cached token and do not
-need 2FA.
+for a code. Run the initial sync interactively so you can enter the code. Subsequent
+syncs use the cached token and do not need 2FA.
 
 **Rate limits**: The Garmin API rate-limits aggressively. The client enforces a 1.5-second
 delay between calls. Initial syncs covering many days may take a few minutes — this is
@@ -232,7 +273,7 @@ scripts/
   initial_sync.py      # Full sync: Whoop (async) then Garmin (sync)
   import_data.py       # Bulk CSV/ZIP import with auto-format detection
   schema_review.py     # Side-by-side data comparison tool
-tests/            # pytest (503 tests, unit + integration)
+tests/            # pytest (508 tests, unit + integration)
 ```
 
 ---
@@ -267,13 +308,15 @@ tests/            # pytest (503 tests, unit + integration)
 - Production build served directly from FastAPI (single container, single port)
 - Multi-stage Docker build: Node.js compiles React, Python image copies `dist/`
 
-**Phase 5 in progress** — Production infrastructure (tasks 5.1–5.9 complete):
-- PostgreSQL on Supabase; SQLite retained for local dev
-- JWT authentication (bcrypt + HS256); all routes protected; user-scoped data
+**Phase 5 complete** — Production infrastructure:
+- PostgreSQL on Supabase (Transaction mode pooler, port 6543); SQLite retained for local dev
+- JWT authentication (bcrypt + HS256, 24h access / 30d refresh); all routes protected; user-scoped data
+- Multi-user: open registration; every data table has `user_id`; all queries scoped per user
+- Garmin tokens stored in DB (`token_store`), not filesystem — survives container restarts
 - Deployed to Railway — auto-deploys on push to `main`; always-on 24/7
 - Background sync: Garmin every 15 min, Whoop every 30 min via APScheduler
-- Whoop OAuth redirect URI updated for production URL
 - Custom domain: **https://pulsebuilt.net** (Cloudflare Registrar + DNS, Railway TLS)
+- Smoke test: all 6 checklist items verified in production
 
 ---
 

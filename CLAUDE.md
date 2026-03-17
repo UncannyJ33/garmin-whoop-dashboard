@@ -12,9 +12,11 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Phase 5 IN PROGRESS** — Production infrastructure. Tasks 5.1–5.9 complete. Remaining: 5.10 (Whoop app submission), 5.11 (smoke test + docs).
+**Phase 5 COMPLETE** — Production infrastructure. All tasks 5.1–5.11 done.
 - Task 5.7 (custom domain): pulsebuilt.net is live on Railway
 - Multi-tenancy: complete — all data tables have user_id; all queries scoped to current user; migration 007 adds whoop_cycles.user_id
+- Task 5.11 (smoke test): all 6 checklist items verified in production (auth, Whoop OAuth, data display, background sync, mobile PWA, error handling)
+- Task 5.10 (Whoop app submission): pending Whoop developer portal approval — no code changes needed
 
 ## What's Built (Phase 1)
 - Database layer: SQLAlchemy models, WAL mode, migrations (src/database/)
@@ -27,7 +29,8 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 
 ## What's Built (Phase 2 — COMPLETE)
 - Garmin auth: GarminAuth class with token persistence via garth (src/clients/garmin_auth.py)
-  - Tokens stored at `data/garmin_tokens/` (GARMIN_TOKEN_DIR in .env)
+  - **Production**: tokens stored in `token_store` DB table (key: `garmin_{user_id}`) — restored to filesystem on each container start; survives Railway deploys
+  - **Local dev**: tokens also cached in `data/garmin_tokens/` (GARMIN_TOKEN_DIR in .env) as fallback
   - Re-auth on 401, clear error messages for 429/403
 - Garmin API client: GarminClient with rate limiting (1.5s default) + per-method error handling (src/clients/garmin_client.py)
   - Methods: get_activities, get_activity_detail, get_daily_summary, get_sleep, get_hrv, get_exercise_sets

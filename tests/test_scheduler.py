@@ -55,13 +55,14 @@ def test_start_scheduler_creates_and_starts(monkeypatch):
     monkeypatch.delenv("TESTING", raising=False)
     _reset_scheduler_module()
 
+    import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
     mock_scheduler = MagicMock()
     mock_scheduler.running = False
 
     with (
-        patch.object(sched_mod, "get_engine"),
+        patch.object(deps_mod, "_engine", MagicMock()),
         patch.object(sched_mod, "load_garmin_tokens_from_db", return_value=False),
         patch.object(sched_mod, "create_scheduler", return_value=mock_scheduler),
         patch.object(sched_mod, "_schedule_catchup_if_stale"),
@@ -202,10 +203,12 @@ def test_create_scheduler_default_whoop_interval():
 
 def test_run_garmin_sync_logs_and_suppresses_exceptions():
     """_run_garmin_sync must catch all exceptions and not propagate them."""
+    import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
     with (
-        patch("src.ingestion.scheduler.get_engine", side_effect=RuntimeError("DB down")),
+        patch.object(deps_mod, "_engine", MagicMock()),
+        patch.object(sched_mod, "_get_owner_user_id", side_effect=RuntimeError("DB down")),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
         sched_mod._run_garmin_sync()  # must NOT raise
@@ -216,6 +219,7 @@ def test_run_garmin_sync_logs_and_suppresses_exceptions():
 
 def test_run_garmin_sync_logs_completion_on_success():
     """_run_garmin_sync logs completion when the pipeline succeeds."""
+    import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
     mock_log = MagicMock()
@@ -232,8 +236,8 @@ def test_run_garmin_sync_logs_completion_on_success():
     mock_session_factory = MagicMock(return_value=mock_session)
 
     with (
-        patch("src.ingestion.scheduler.get_engine"),
-        patch("src.ingestion.scheduler.run_migrations"),
+        patch.object(deps_mod, "_engine", MagicMock()),
+        patch.object(sched_mod, "_get_owner_user_id", return_value="test-owner-id"),
         patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
         patch("src.ingestion.scheduler.GarminPipeline", return_value=mock_pipeline),
         patch("src.ingestion.scheduler.save_garmin_tokens_to_db"),
@@ -254,10 +258,12 @@ def test_run_garmin_sync_logs_completion_on_success():
 
 def test_run_whoop_sync_logs_and_suppresses_exceptions():
     """_run_whoop_sync must catch all exceptions and not propagate them."""
+    import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
     with (
-        patch("src.ingestion.scheduler.get_engine", side_effect=RuntimeError("DB down")),
+        patch.object(deps_mod, "_engine", MagicMock()),
+        patch.object(sched_mod, "_get_owner_user_id", side_effect=RuntimeError("DB down")),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
         sched_mod._run_whoop_sync()  # must NOT raise
@@ -268,6 +274,7 @@ def test_run_whoop_sync_logs_and_suppresses_exceptions():
 
 def test_run_whoop_sync_logs_completion_on_success():
     """_run_whoop_sync logs completion when the pipeline succeeds."""
+    import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
     mock_log = MagicMock()
@@ -283,7 +290,8 @@ def test_run_whoop_sync_logs_completion_on_success():
     mock_session_factory = MagicMock(return_value=mock_session)
 
     with (
-        patch("src.ingestion.scheduler.get_engine"),
+        patch.object(deps_mod, "_engine", MagicMock()),
+        patch.object(sched_mod, "_get_owner_user_id", return_value="test-owner-id"),
         patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
