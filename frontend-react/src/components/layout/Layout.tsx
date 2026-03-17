@@ -54,7 +54,7 @@ const NAV_TABS = [
     ),
   },
   {
-    path: '/workouts',
+    path: '/training',
     label: 'Training',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -63,7 +63,7 @@ const NAV_TABS = [
     ),
   },
   {
-    path: '/sleep',
+    path: '/recovery',
     label: 'Recovery',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -72,7 +72,7 @@ const NAV_TABS = [
     ),
   },
   {
-    path: '/trends',
+    path: '/insights',
     label: 'Insights',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

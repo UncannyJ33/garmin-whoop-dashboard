@@ -48,11 +48,11 @@ const Icons = {
 }
 
 const NAV_ITEMS = [
-  { path: '/',         label: 'Today',    icon: Icons.Today,    end: true  },
-  { path: '/workouts', label: 'Training', icon: Icons.Training, end: false },
-  { path: '/sleep',    label: 'Recovery', icon: Icons.Recovery, end: false },
-  { path: '/trends',   label: 'Insights', icon: Icons.Insights, end: false },
-  { path: '/settings', label: 'Settings', icon: Icons.Settings, end: false },
+  { path: '/',          label: 'Today',    icon: Icons.Today,    end: true  },
+  { path: '/training',  label: 'Training', icon: Icons.Training, end: false },
+  { path: '/recovery',  label: 'Recovery', icon: Icons.Recovery, end: false },
+  { path: '/insights',  label: 'Insights', icon: Icons.Insights, end: false },
+  { path: '/settings',  label: 'Settings', icon: Icons.Settings, end: false },
 ]
 
 interface SidebarProps {

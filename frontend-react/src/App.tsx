@@ -2,13 +2,11 @@ import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/layout/Layout'
-import { Readiness } from './pages/Readiness'
 import { Today } from './pages/Today'
-import { Workouts } from './pages/Workouts'
-import { Sleep } from './pages/Sleep'
-import { Trends } from './pages/Trends'
+import { Training } from './pages/Training'
+import { Recovery } from './pages/Recovery'
+import { Insights } from './pages/Insights'
 import { Settings } from './pages/Settings'
-import { RecoveryActivities } from './pages/RecoveryActivities'
 import { Login } from './pages/Login'
 import { Privacy } from './pages/Privacy'
 import { Showcase } from './pages/Showcase'
@@ -54,15 +52,21 @@ export function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route element={<ProtectedLayout />}>
+              {/* Current routes */}
               <Route path="/" element={<Today />} />
-              <Route path="/readiness" element={<Readiness />} />
-              <Route path="/workouts" element={<Workouts />} />
-              <Route path="/sleep" element={<Sleep />} />
-              <Route path="/trends" element={<Trends />} />
+              <Route path="/training" element={<Training />} />
+              <Route path="/recovery" element={<Recovery />} />
+              <Route path="/insights" element={<Insights />} />
               <Route path="/settings" element={<Settings />} />
-              <Route path="/recovery-activities" element={<RecoveryActivities />} />
+              {/* Dev / showcase */}
               <Route path="/showcase" element={<Showcase />} />
               <Route path="/dev/api-test" element={<ApiTest />} />
+              {/* Legacy redirects — preserve bookmarks from old URL structure */}
+              <Route path="/readiness" element={<Navigate to="/" replace />} />
+              <Route path="/workouts" element={<Navigate to="/training" replace />} />
+              <Route path="/sleep" element={<Navigate to="/recovery" replace />} />
+              <Route path="/trends" element={<Navigate to="/insights" replace />} />
+              <Route path="/recovery-activities" element={<Navigate to="/recovery" replace />} />
             </Route>
           </Routes>
         </AuthProvider>

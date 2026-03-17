@@ -1,5 +1,12 @@
 /**
- * Workout Analysis page — enriched Whoop + Garmin workout data.
+ * Training page — replaces /workouts.
+ *
+ * Sections:
+ *   1. Training Load Summary  — ACWRGauge + Workouts + Hours cards
+ *   2. Activity Breakdown     — clickable table, type-specific metric column
+ *   3. Workout Log            — WorkoutRow list with recovery-impact gutter indicator
+ *   4. Running Analytics      — Cadence+GCT dual-line by default, Advanced toggle
+ *   5. Strength               — PRs table (prominent), Volume, Strain+Duration
  */
 import { useMemo, useState } from 'react'
 import {
@@ -19,16 +26,23 @@ import {
 } from 'recharts'
 import { WorkoutRow } from '../components/WorkoutRow'
 import { MetricCard } from '../components/MetricCard'
+import { ACWRGauge } from '../components/ACWRGauge'
 import { ErrorState } from '../components/ErrorState'
 import { MetricCardSkeleton, WorkoutRowSkeleton } from '../components/LoadingState'
 import { useDateRangeContext } from '../context/DateRangeContext'
-import { useWorkouts, useWorkoutSummary, useStrengthMaxWeight, useStrengthVolume } from '../hooks/useApi'
-import type { EnrichedWorkout } from '../types/api'
+import {
+  useWorkouts,
+  useWorkoutSummary,
+  useStrengthMaxWeight,
+  useStrengthVolume,
+  useTrainingLoadRatio,
+} from '../hooks/useApi'
+import type { EnrichedWorkout, WorkoutTypeSummary } from '../types/api'
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 20
-const KG_TO_LB = 2.20462
+const KG_TO_LB  = 2.20462
 
 const TYPE_COLORS: Record<string, string> = {
   running:           '#60a5fa',
@@ -50,6 +64,12 @@ const STRENGTH_TYPES = new Set([
   'strength_training', 'weight_training', 'indoor_cardio', 'hiit', 'pilates', 'yoga',
 ])
 
+// Activity types that have meaningful distance metrics
+const DISTANCE_TYPES = new Set([
+  'running', 'cycling', 'walking', 'hiking', 'trail_running',
+  'road_cycling', 'mountain_biking', 'open_water_swimming', 'swimming',
+])
+
 const TRACKED_EXERCISES: Record<string, string> = {
   BARBELL_BACK_SQUAT:           'Back Squat',
   WEIGHTED_SQUAT:               'Back Squat',
@@ -61,31 +81,7 @@ const TRACKED_EXERCISES: Record<string, string> = {
   ROMANIAN_DEADLIFT:            'Romanian DL',
 }
 
-// Display order for the progression table
 const EXERCISE_ORDER = ['Back Squat', 'Front Squat', 'OHP', 'Bench Press', 'Incline Press', 'Deadlift', 'Romanian DL']
-
-
-type DynField =
-  | 'avg_cadence'
-  | 'avg_vertical_ratio_pct'
-  | 'avg_vertical_oscillation_cm'
-  | 'avg_ground_contact_time_ms'
-  | 'avg_stride_length'
-
-interface DynMetricConfig {
-  field: DynField
-  label: string
-  band: [number, number] | null
-  caption: string | null
-}
-
-const DYN_METRICS: DynMetricConfig[] = [
-  { field: 'avg_cadence',                  label: 'Cadence (spm)',           band: [170, 185], caption: 'Green band = optimal cadence zone (170–185 spm).' },
-  { field: 'avg_vertical_ratio_pct',       label: 'Vertical Ratio (%)',      band: null, caption: 'Lower is better — less energy lost to vertical movement.' },
-  { field: 'avg_vertical_oscillation_cm',  label: 'Vertical Oscillation (cm)', band: null, caption: 'Lower is better — less bounce means more forward propulsion.' },
-  { field: 'avg_ground_contact_time_ms',   label: 'Ground Contact (ms)',     band: null, caption: 'Lower is better — shorter contact time indicates more elastic running.' },
-  { field: 'avg_stride_length',            label: 'Stride Length (m)',       band: null, caption: null },
-]
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -115,11 +111,44 @@ function isoWeek(iso: string): string {
   return `${d.getFullYear()}-W${String(wk).padStart(2, '0')}`
 }
 
+/** Type-specific metric for the activity breakdown table.
+ *  Distance sports: strain/km — higher = more intense per km.
+ */
+function typeMetric(row: WorkoutTypeSummary): string {
+  const type = row.activity_type.toLowerCase()
+  const isDistance = DISTANCE_TYPES.has(type) || type.includes('run') || type.includes('cycl') || type.includes('hike') || type.includes('walk')
+  if (isDistance && row.avg_distance_m !== null && row.avg_distance_m > 0 && row.avg_strain !== null) {
+    const strainPerKm = row.avg_strain / (row.avg_distance_m / 1000)
+    return `${strainPerKm.toFixed(2)}/km`
+  }
+  return '—'
+}
+
+/** Recovery-impact gutter indicator: green ↑ / red ↓ / gray – */
+function RecoveryIndicator({ impact }: { impact: number | null }) {
+  if (impact === null) {
+    return (
+      <span style={{ color: 'var(--text-tertiary)', fontSize: 13, lineHeight: 1 }}>–</span>
+    )
+  }
+  if (impact > 2) {
+    return (
+      <span style={{ color: 'var(--status-excellent)', fontSize: 13, fontWeight: 600, lineHeight: 1 }}>↑</span>
+    )
+  }
+  if (impact < -2) {
+    return (
+      <span style={{ color: 'var(--status-alert)', fontSize: 13, fontWeight: 600, lineHeight: 1 }}>↓</span>
+    )
+  }
+  return (
+    <span style={{ color: 'var(--text-tertiary)', fontSize: 13, lineHeight: 1 }}>–</span>
+  )
+}
+
 // ── sub-components ────────────────────────────────────────────────────────────
 
-function DayButton({
-  n, active, onClick,
-}: { n: number; active: boolean; onClick: () => void }) {
+function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -134,44 +163,32 @@ function DayButton({
   )
 }
 
-function SummarySkeletons() {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      {Array.from({ length: 4 }).map((_, i) => <MetricCardSkeleton key={i} />)}
-    </div>
-  )
-}
-
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ title, size = 'sm' }: { title: string; size?: 'sm' | 'base' }) {
+  if (size === 'base') {
+    return (
+      <p className="text-base font-bold text-slate-800 dark:text-slate-100 mb-3">{title}</p>
+    )
+  }
   return (
     <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">{title}</p>
   )
 }
 
-// Scatter chart tooltip (strain vs recovery)
-function ScatterTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean
-  payload?: Array<{ payload: { x: number; y: number; type: string } }>
-}) {
-  if (!active || !payload?.length) return null
-  const { x, y, type } = payload[0].payload
+function EmptyChart({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
-      <p className="font-medium text-slate-500">{activityLabel(type)}</p>
-      <p className="text-slate-400">
-        Strain: <span className="font-mono text-slate-200">{x.toFixed(1)}</span>
-      </p>
-      <p className="text-slate-400">
-        Next-day recovery: <span className="font-mono text-slate-200">{y}%</span>
-      </p>
+    <div
+      className="flex items-center justify-center rounded-xl bg-surface-overlay text-sm text-slate-400"
+      style={{ height: 200 }}
+    >
+      {message}
     </div>
   )
 }
 
-// Common line chart tooltip
+function ChartCaption({ text }: { text: string }) {
+  return <p className="text-2xs text-slate-500 mt-1">{text}</p>
+}
+
 function LineTooltip({
   active, payload, label, yLabel, formatter,
 }: {
@@ -216,47 +233,30 @@ function BarTooltip({
   )
 }
 
-function EmptyChart({ message }: { message: string }) {
-  return (
-    <div
-      className="flex items-center justify-center rounded-xl bg-surface-overlay text-sm text-slate-400"
-      style={{ height: 200 }}
-    >
-      {message}
-    </div>
-  )
-}
-
-function ChartCaption({ text }: { text: string }) {
-  return <p className="text-2xs text-slate-500 mt-1">{text}</p>
-}
-
 // ── page ─────────────────────────────────────────────────────────────────────
 
-export function Workouts() {
+export function Training() {
   const { days, setDays, start, end } = useDateRangeContext()
-  const [filterType, setFilterType] = useState<string | null>(null)
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
-  const [dynMetricIdx, setDynMetricIdx] = useState(0)
+  const [filterType, setFilterType]       = useState<string | null>(null)
+  const [visibleCount, setVisibleCount]   = useState(PAGE_SIZE)
+  const [advancedDyn, setAdvancedDyn]     = useState(false)
+  const [dynMetricIdx, setDynMetricIdx]   = useState(0)
 
-  const workoutsQ     = useWorkouts(start, end)
-  const summaryQ      = useWorkoutSummary(start, end)
-  const maxWeightQ    = useStrengthMaxWeight(start, end)
-  const strengthVolQ  = useStrengthVolume(start, end)
+  const workoutsQ    = useWorkouts(start, end)
+  const summaryQ     = useWorkoutSummary(start, end)
+  const maxWeightQ   = useStrengthMaxWeight(start, end)
+  const strengthVolQ = useStrengthVolume(start, end)
+  const trainingLoadQ = useTrainingLoadRatio()
 
   const workouts = workoutsQ.data ?? []
 
-  // Summary stats
+  // Summary stats for header cards
   const stats = useMemo(() => {
     if (!workouts.length) return null
-    const withStrain = workouts.filter(w => w.strain !== null)
-    const totalStrain = withStrain.reduce((s, w) => s + (w.strain ?? 0), 0)
     const totalMins = workouts.reduce((s, w) => s + (w.duration_minutes ?? 0), 0)
     return {
-      count: workouts.length,
-      totalStrain,
+      count:      workouts.length,
       totalHours: totalMins / 60,
-      avgStrain: withStrain.length ? totalStrain / withStrain.length : null,
     }
   }, [workouts])
 
@@ -267,31 +267,16 @@ export function Workouts() {
   }, [workouts, filterType])
   const visible = filtered.slice(0, visibleCount)
 
-  // Scatter data grouped by type
-  const allTypes = useMemo(() => [...new Set(workouts.map(w => w.activity_type ?? 'unknown'))], [workouts])
-  const scatterByType = useMemo(() => {
-    const result: Record<string, Array<{ x: number; y: number; type: string }>> = {}
-    for (const w of workouts) {
-      if (w.strain === null || w.next_day_recovery === null) continue
-      const type = w.activity_type ?? 'unknown'
-      if (type === 'unknown') continue
-      if (!result[type]) result[type] = []
-      result[type].push({ x: w.strain, y: w.next_day_recovery, type })
-    }
-    return result
-  }, [workouts])
-  const scatterTypes = Object.keys(scatterByType)
-  const totalScatterPoints = scatterTypes.reduce((s, t) => s + scatterByType[t].length, 0)
-
-  // Activity summary for breakdown table
-  const summary = summaryQ.data ?? []
+  // Activity summary
+  const summary  = summaryQ.data ?? []
   const maxCount = summary[0]?.count ?? 1
+  const allTypes = useMemo(() => [...new Set(workouts.map(w => w.activity_type ?? 'unknown'))], [workouts])
 
-  // ── Running data ─────────────────────────────────────────────────────────
+  // ── Running data ───────────────────────────────────────────────────────────
   const runs = useMemo(
     () => workouts
       .filter(w => (w.activity_type ?? '').toLowerCase().includes('run'))
-      .sort((a, b) => a.date < b.date ? -1 : 1),
+      .sort((a, b) => (a.date < b.date ? -1 : 1)),
     [workouts],
   )
 
@@ -301,23 +286,40 @@ export function Workouts() {
       const wk = isoWeek(w.date)
       if (!byWeek.has(wk)) byWeek.set(wk, { week: wk, dist_km: 0, time_h: 0 })
       const entry = byWeek.get(wk)!
-      if (w.distance_m) entry.dist_km += w.distance_m / 1000
-      if (w.duration_minutes) entry.time_h += w.duration_minutes / 60
+      if (w.distance_m)       entry.dist_km += w.distance_m / 1000
+      if (w.duration_minutes) entry.time_h  += w.duration_minutes / 60
     }
-    return Array.from(byWeek.values()).sort((a, b) => a.week < b.week ? -1 : 1)
+    return Array.from(byWeek.values()).sort((a, b) => (a.week < b.week ? -1 : 1))
   }, [runs])
 
-  const selectedDyn = DYN_METRICS[dynMetricIdx]
-  const dynData = useMemo(() =>
+  // Default dynamics: Cadence + Ground Contact Time (dual Y-axis)
+  const dynDualData = useMemo(() =>
+    runs
+      .map(w => ({
+        date:    w.date,
+        cadence: w.avg_cadence,
+        gct:     w.avg_ground_contact_time_ms,
+      }))
+      .filter(r => r.cadence !== null || r.gct !== null),
+    [runs],
+  )
+
+  // Advanced dynamics metric options (vert osc / vert ratio / stride length)
+  const ADVANCED_METRICS = [
+    { field: 'avg_vertical_oscillation_cm' as keyof EnrichedWorkout, label: 'Vertical Oscillation (cm)', caption: 'Lower is better — less bounce means more forward propulsion.' },
+    { field: 'avg_vertical_ratio_pct'      as keyof EnrichedWorkout, label: 'Vertical Ratio (%)',        caption: 'Lower is better — less energy lost to vertical movement.' },
+    { field: 'avg_stride_length'           as keyof EnrichedWorkout, label: 'Stride Length (m)',         caption: null },
+  ]
+  const selectedAdv = ADVANCED_METRICS[dynMetricIdx]
+  const dynAdvData = useMemo(() =>
     runs
       .map(w => {
-        const raw = w[selectedDyn.field as keyof EnrichedWorkout] as number | null
-        // avg_stride_length is stored in cm — convert to metres for display
-        const value = raw !== null && selectedDyn.field === 'avg_stride_length' ? raw / 100 : raw
+        const raw = w[selectedAdv.field] as number | null
+        const value = raw !== null && selectedAdv.field === 'avg_stride_length' ? raw / 100 : raw
         return { date: w.date, value }
       })
       .filter((r): r is { date: string; value: number } => r.value !== null),
-    [runs, selectedDyn.field],
+    [runs, selectedAdv.field],
   )
 
   const paceCadenceData = useMemo(() =>
@@ -337,15 +339,14 @@ export function Workouts() {
     [runs],
   )
 
-  // ── Strength data ─────────────────────────────────────────────────────────
+  // ── Strength data ──────────────────────────────────────────────────────────
   const strengthWorkouts = useMemo(
     () => workouts
       .filter(w => STRENGTH_TYPES.has((w.activity_type ?? '').toLowerCase()))
-      .sort((a, b) => a.date < b.date ? -1 : 1),
+      .sort((a, b) => (a.date < b.date ? -1 : 1)),
     [workouts],
   )
 
-  // Per-exercise last-4-sessions progression for the table
   const strengthProgression = useMemo(() => {
     const raw = maxWeightQ.data ?? []
     const byExercise = new Map<string, { date: string; weight_lb: number }[]>()
@@ -358,7 +359,7 @@ export function Workouts() {
     return EXERCISE_ORDER
       .filter(ex => byExercise.has(ex))
       .map(ex => {
-        const entries = (byExercise.get(ex)!).sort((a, b) => a.date < b.date ? -1 : 1)
+        const entries = byExercise.get(ex)!.sort((a, b) => (a.date < b.date ? -1 : 1))
         return { exercise: ex, entries: entries.slice(-4) }
       })
   }, [maxWeightQ.data])
@@ -379,7 +380,7 @@ export function Workouts() {
   if (workoutsQ.isError) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Workouts</h1>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Training</h1>
         <ErrorState
           message="Could not load workouts. Make sure the backend is running on port 8000."
           onRetry={() => void workoutsQ.refetch()}
@@ -391,45 +392,56 @@ export function Workouts() {
   return (
     <div className="space-y-4 pb-16">
 
-      {/* ── SECTION 1: Date range + summary ──────────────────────────────── */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Workouts</h1>
-          <div className="flex gap-1.5">
-            {[7, 14, 30, 60].map(n => (
-              <DayButton
-                key={n}
-                n={n}
-                active={days === n}
-                onClick={() => { setDays(n); setVisibleCount(PAGE_SIZE) }}
-              />
-            ))}
-          </div>
+      {/* ── HEADER: date range selector ───────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Training</h1>
+        <div className="flex gap-1.5">
+          {[7, 14, 30, 60].map(n => (
+            <DayButton
+              key={n}
+              n={n}
+              active={days === n}
+              onClick={() => { setDays(n); setVisibleCount(PAGE_SIZE) }}
+            />
+          ))}
         </div>
+      </div>
 
-        {workoutsQ.isLoading ? (
-          <SummarySkeletons />
-        ) : stats ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <MetricCard label="Workouts" value={stats.count} status="neutral" />
-            <MetricCard
-              label="Total Strain"
-              value={stats.totalStrain.toFixed(1)}
-              status="neutral"
-            />
-            <MetricCard
-              label="Training Hours"
-              value={stats.totalHours.toFixed(1)}
-              unit="h"
-              status="neutral"
-            />
-            <MetricCard
-              label="Avg Strain"
-              value={stats.avgStrain !== null ? stats.avgStrain.toFixed(1) : null}
-              status="neutral"
-            />
+      {/* ── SECTION 1: Training Load Summary ─────────────────────────────── */}
+      <div className="card space-y-4">
+        <SectionHeader title="Training Load" />
+
+        {/* ACWRGauge — full width */}
+        {trainingLoadQ.isPending ? (
+          <div className="space-y-2">
+            <div className="skeleton h-5 w-20 rounded" />
+            <div className="skeleton h-3 w-full rounded-full" />
+            <div className="skeleton h-4 w-full rounded" />
           </div>
-        ) : null}
+        ) : trainingLoadQ.data ? (
+          <ACWRGauge
+            acwr={trainingLoadQ.data.acwr}
+            zone={trainingLoadQ.data.zone}
+            zoneDescription={trainingLoadQ.data.zone_description}
+          />
+        ) : (
+          <p className="text-sm text-slate-400">Not enough data to compute training load.</p>
+        )}
+
+        {/* 2-card row: Workouts + Training Hours */}
+        <div className="grid grid-cols-2 gap-3">
+          {workoutsQ.isPending ? (
+            <>
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+            </>
+          ) : stats ? (
+            <>
+              <MetricCard label="Workouts" value={stats.count} status="neutral" />
+              <MetricCard label="Training Hours" value={stats.totalHours.toFixed(1)} unit="h" status="neutral" />
+            </>
+          ) : null}
+        </div>
       </div>
 
       {/* ── SECTION 2: Activity type breakdown ───────────────────────────── */}
@@ -455,15 +467,15 @@ export function Workouts() {
             </div>
           ) : (
             <div className="space-y-1">
-              <div className="grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_56px] gap-2 px-2 pb-1 border-b border-surface-border">
+              <div className="grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 px-2 pb-1 border-b border-surface-border">
                 {['Type', 'Cnt', 'Strain', 'Dur'].map(h => (
                   <p key={h} className="metric-label text-right first:text-left">{h}</p>
                 ))}
-                <p className="metric-label text-right hidden sm:block">Effic</p>
+                <p className="metric-label text-right hidden sm:block">Str/km</p>
               </div>
 
               {summary.map(row => {
-                const color = colorForType(row.activity_type, allTypes)
+                const color    = colorForType(row.activity_type, allTypes)
                 const isActive = filterType === row.activity_type
                 return (
                   <button
@@ -472,7 +484,7 @@ export function Workouts() {
                       setFilterType(prev => prev === row.activity_type ? null : row.activity_type)
                       setVisibleCount(PAGE_SIZE)
                     }}
-                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_56px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right ${
+                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right ${
                       isActive ? 'bg-brand/10' : 'hover:bg-surface-overlay'
                     }`}
                   >
@@ -480,7 +492,7 @@ export function Workouts() {
                       <div
                         className="h-1.5 flex-shrink-0 rounded-full"
                         style={{
-                          width: `${Math.max(8, (row.count / maxCount) * 48)}px`,
+                          width:           `${Math.max(8, (row.count / maxCount) * 48)}px`,
                           backgroundColor: color,
                         }}
                       />
@@ -494,7 +506,7 @@ export function Workouts() {
                       {row.avg_duration_minutes !== null ? `${Math.round(row.avg_duration_minutes)}m` : '—'}
                     </span>
                     <span className="font-mono text-xs text-slate-400 hidden sm:block">
-                      {fmtNull(row.avg_efficiency_score, 0)}
+                      {typeMetric(row)}
                     </span>
                   </button>
                 )
@@ -504,7 +516,7 @@ export function Workouts() {
         </div>
       )}
 
-      {/* ── SECTION 3: Workout list ───────────────────────────────────────── */}
+      {/* ── SECTION 3: Workout Log ────────────────────────────────────────── */}
       <div>
         <p className="metric-label mb-2 px-0.5">
           {filterType ? `${activityLabel(filterType)} workouts` : 'All workouts'}
@@ -525,7 +537,25 @@ export function Workouts() {
           </div>
         ) : (
           <div className="space-y-2">
-            {visible.map(w => <WorkoutRow key={w.id} workout={w} />)}
+            {visible.map(w => (
+              /* Left-gutter recovery-impact indicator */
+              <div key={w.id} className="flex items-start gap-1.5">
+                <div
+                  className="flex items-center justify-center flex-shrink-0 pt-3.5"
+                  style={{ width: 16 }}
+                  title={
+                    w.recovery_impact !== null
+                      ? `Recovery impact: ${w.recovery_impact > 0 ? '+' : ''}${w.recovery_impact.toFixed(1)}`
+                      : 'No recovery data'
+                  }
+                >
+                  <RecoveryIndicator impact={w.recovery_impact} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <WorkoutRow workout={w} />
+                </div>
+              </div>
+            ))}
             {visibleCount < filtered.length && (
               <button
                 onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
@@ -538,80 +568,12 @@ export function Workouts() {
         )}
       </div>
 
-      {/* ── SECTION 4: Strain vs Recovery scatter ────────────────────────── */}
-      {(workoutsQ.isLoading || totalScatterPoints >= 3) && (
-        <div className="card">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
-            Strain vs Next-Day Recovery
-          </p>
-          <p className="text-2xs text-slate-500 mb-3">
-            How your body responds to workout intensity
-          </p>
-
-          {workoutsQ.isLoading ? (
-            <div className="skeleton rounded-xl" style={{ height: 220 }} />
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={220}>
-                <ScatterChart margin={{ top: 4, right: 8, bottom: 28, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="x"
-                    type="number"
-                    name="Strain"
-                    label={{ value: 'Strain', position: 'insideBottom', offset: -12, fontSize: 10, fill: '#64748b' }}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    dataKey="y"
-                    type="number"
-                    name="Recovery"
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={36}
-                    domain={[0, 100]}
-                  />
-                  <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                  {scatterTypes.map(type => (
-                    <Scatter
-                      key={type}
-                      name={activityLabel(type)}
-                      data={scatterByType[type]}
-                      fill={colorForType(type, allTypes)}
-                      fillOpacity={0.75}
-                      r={8}
-                    />
-                  ))}
-                </ScatterChart>
-              </ResponsiveContainer>
-
-              {scatterTypes.length > 1 && (
-                <div className="flex flex-wrap gap-3 mt-2">
-                  {scatterTypes.map(type => (
-                    <span key={type} className="flex items-center gap-1.5 text-2xs text-slate-500 whitespace-nowrap">
-                      <span
-                        className="inline-block h-2 w-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: colorForType(type, allTypes) }}
-                      />
-                      {activityLabel(type)}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── SECTION 5: Running ────────────────────────────────────────────── */}
+      {/* ── SECTION 4: Running Analytics ─────────────────────────────────── */}
       {!workoutsQ.isLoading && runs.length > 0 && (
         <div className="space-y-3">
           <p className="text-base font-bold text-slate-800 dark:text-slate-100 px-0.5">Running</p>
 
-          {/* 5a. Weekly Volume */}
+          {/* 4a. Weekly Volume */}
           <div className="card">
             <SectionHeader title="Weekly Volume" />
             {weeklyVolume.length < 1 ? (
@@ -629,7 +591,7 @@ export function Workouts() {
                         content={({ active, payload, label }) => (
                           active && payload?.length ? (
                             <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs">
-                              <p className="font-medium text-slate-500">{label}</p>
+                              <p className="font-medium text-slate-500">{label as string}</p>
                               <p className="text-slate-400">Distance: <span className="font-mono font-semibold">{(payload[0].value as number).toFixed(1)} km</span></p>
                             </div>
                           ) : null
@@ -650,7 +612,7 @@ export function Workouts() {
                         content={({ active, payload, label }) => (
                           active && payload?.length ? (
                             <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs">
-                              <p className="font-medium text-slate-500">{label}</p>
+                              <p className="font-medium text-slate-500">{label as string}</p>
                               <p className="text-slate-400">Time: <span className="font-mono font-semibold">{(payload[0].value as number).toFixed(1)} h</span></p>
                             </div>
                           ) : null
@@ -665,68 +627,151 @@ export function Workouts() {
             <ChartCaption text="Weekly totals across all runs in the selected period." />
           </div>
 
-          {/* 5b. Running Dynamics Trend */}
+          {/* 4b. Running Dynamics — Cadence + GCT dual-line (default), Advanced toggle */}
           <div className="card">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+            <div className="flex items-center justify-between mb-3">
               <SectionHeader title="Running Dynamics" />
-              <select
-                value={dynMetricIdx}
-                onChange={e => setDynMetricIdx(Number(e.target.value))}
-                className="text-xs rounded-lg border border-surface-border bg-surface-overlay px-2.5 py-1.5 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer sm:ml-auto"
+              <button
+                onClick={() => setAdvancedDyn(v => !v)}
+                className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors ${
+                  advancedDyn
+                    ? 'border-brand text-brand bg-brand/10'
+                    : 'border-surface-border text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
               >
-                {DYN_METRICS.map((m, i) => (
-                  <option key={m.field} value={i}>{m.label}</option>
-                ))}
-              </select>
+                Advanced
+              </button>
             </div>
 
-            {dynData.length < 2 ? (
-              <EmptyChart message="Not enough running dynamics data in this period." />
+            {advancedDyn ? (
+              /* Advanced: single metric dropdown */
+              <>
+                <div className="mb-3">
+                  <select
+                    value={dynMetricIdx}
+                    onChange={e => setDynMetricIdx(Number(e.target.value))}
+                    className="text-xs rounded-lg border border-surface-border bg-surface-overlay px-2.5 py-1.5 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                  >
+                    {ADVANCED_METRICS.map((m, i) => (
+                      <option key={m.field} value={i}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+                {dynAdvData.length < 2 ? (
+                  <EmptyChart message="Not enough data for this metric in the selected period." />
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={dynAdvData} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtDate} />
+                      <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={42} domain={['auto', 'auto']} />
+                      <Tooltip content={<LineTooltip yLabel={selectedAdv.label} />} />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        name={selectedAdv.label}
+                        stroke="#60a5fa"
+                        dot={{ r: 3, fill: '#60a5fa' }}
+                        activeDot={{ r: 5 }}
+                        strokeWidth={2}
+                        connectNulls={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+                {selectedAdv.caption && <ChartCaption text={selectedAdv.caption} />}
+              </>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={dynData} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={fmtDate}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={42}
-                    domain={selectedDyn.band ? [Math.min(selectedDyn.band[0] - 10, 155), selectedDyn.band[1] + 10] : ['auto', 'auto']}
-                  />
-                  <Tooltip content={<LineTooltip yLabel={selectedDyn.label} />} />
-                  {selectedDyn.band && (
-                    <ReferenceArea
-                      y1={selectedDyn.band[0]}
-                      y2={selectedDyn.band[1]}
-                      fill="#70AD47"
-                      fillOpacity={0.12}
-                      strokeOpacity={0}
-                    />
-                  )}
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    name={selectedDyn.label}
-                    stroke="#60a5fa"
-                    dot={{ r: 3, fill: '#60a5fa' }}
-                    activeDot={{ r: 5 }}
-                    strokeWidth={2}
-                    connectNulls={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              /* Default: Cadence + Ground Contact Time */
+              <>
+                {dynDualData.length < 2 ? (
+                  <EmptyChart message="Not enough running dynamics data in this period." />
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <ComposedChart data={dynDualData} margin={{ top: 4, right: 36, bottom: 0, left: -8 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtDate} />
+                        <YAxis
+                          yAxisId="cadence"
+                          tick={{ fontSize: 10 }}
+                          tickLine={false}
+                          axisLine={false}
+                          width={42}
+                          domain={[150, 200]}
+                          label={{ value: 'spm', angle: -90, position: 'insideLeft', offset: 8, fontSize: 9, fill: '#64748b' }}
+                        />
+                        <YAxis
+                          yAxisId="gct"
+                          orientation="right"
+                          tick={{ fontSize: 10 }}
+                          tickLine={false}
+                          axisLine={false}
+                          width={36}
+                          domain={['auto', 'auto']}
+                          label={{ value: 'ms', angle: 90, position: 'insideRight', offset: 4, fontSize: 9, fill: '#64748b' }}
+                        />
+                        <Tooltip
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null
+                            return (
+                              <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
+                                <p className="font-medium text-slate-500">{fmtDate(label as string)}</p>
+                                {payload.map((p, i) => (
+                                  p.value !== null && p.value !== undefined ? (
+                                    <p key={i} className="text-slate-400" style={{ color: p.color }}>
+                                      {p.name}: <span className="font-mono font-semibold">{Number(p.value).toFixed(0)}</span>
+                                    </p>
+                                  ) : null
+                                ))}
+                              </div>
+                            )
+                          }}
+                        />
+                        <ReferenceArea yAxisId="cadence" y1={170} y2={185} fill="#70AD47" fillOpacity={0.10} strokeOpacity={0} />
+                        <Line
+                          yAxisId="cadence"
+                          type="monotone"
+                          dataKey="cadence"
+                          name="Cadence (spm)"
+                          stroke="#60a5fa"
+                          dot={{ r: 3, fill: '#60a5fa' }}
+                          activeDot={{ r: 5 }}
+                          strokeWidth={2}
+                          connectNulls={false}
+                        />
+                        <Line
+                          yAxisId="gct"
+                          type="monotone"
+                          dataKey="gct"
+                          name="Ground Contact (ms)"
+                          stroke="#f97316"
+                          dot={{ r: 3, fill: '#f97316' }}
+                          activeDot={{ r: 5 }}
+                          strokeWidth={2}
+                          strokeDasharray="4 2"
+                          connectNulls={false}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                    <div className="flex gap-4 mt-1.5">
+                      <span className="flex items-center gap-1.5 text-2xs text-slate-500">
+                        <span className="inline-block h-0.5 w-4 rounded" style={{ background: '#60a5fa' }} />
+                        Cadence (spm)
+                      </span>
+                      <span className="flex items-center gap-1.5 text-2xs text-slate-500">
+                        <span className="inline-block h-0.5 w-4 rounded" style={{ background: '#f97316', opacity: 0.85 }} />
+                        Ground Contact (ms)
+                      </span>
+                    </div>
+                    <ChartCaption text="Green band = optimal cadence zone (170–185 spm). Lower ground contact = more elastic running." />
+                  </>
+                )}
+              </>
             )}
-            {selectedDyn.caption && <ChartCaption text={selectedDyn.caption} />}
           </div>
 
-          {/* 5c. Pace vs Cadence */}
+          {/* 4c. Pace vs Cadence */}
           {paceCadenceData.length >= 3 && (
             <div className="card">
               <SectionHeader title="Pace vs Cadence" />
@@ -768,14 +813,14 @@ export function Workouts() {
                     }}
                     cursor={{ strokeDasharray: '3 3' }}
                   />
-                  <Scatter data={paceCadenceData} fill="#4472CA" fillOpacity={0.75} r={12} />
+                  <Scatter data={paceCadenceData} fill="#4472CA" fillOpacity={0.75} r={8} />
                 </ScatterChart>
               </ResponsiveContainer>
               <ChartCaption text="Higher cadence + lower pace value = faster, more efficient running." />
             </div>
           )}
 
-          {/* 5d. Training Load */}
+          {/* 4d. Training Load */}
           {trainingLoadData.length >= 2 && (
             <div className="card">
               <SectionHeader title="Training Load Over Time" />
@@ -792,7 +837,7 @@ export function Workouts() {
             </div>
           )}
 
-          {/* 5e. VO2 Max Trend */}
+          {/* 4e. VO2 Max Trend */}
           {vo2Data.length >= 2 && (
             <div className="card">
               <SectionHeader title="VO2 Max Trend" />
@@ -819,17 +864,17 @@ export function Workouts() {
         </div>
       )}
 
-      {/* ── SECTION 6: Strength ───────────────────────────────────────────── */}
+      {/* ── SECTION 5: Strength ───────────────────────────────────────────── */}
       {!workoutsQ.isLoading && strengthWorkouts.length > 0 && (
         <div className="space-y-3">
           <p className="text-base font-bold text-slate-800 dark:text-slate-100 px-0.5">Strength Training</p>
 
-          {/* 6a. Max Weight Progressions */}
+          {/* 5a. Strength PRs — most prominent */}
           <div className="card">
-            <SectionHeader title="Max Weight Progressions" />
+            <p className="text-base font-bold text-slate-800 dark:text-slate-100 mb-3">Strength PRs</p>
             {maxWeightQ.isLoading ? (
               <div className="space-y-2">
-                {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-8 rounded-lg" />)}
+                {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-10 rounded-lg" />)}
               </div>
             ) : strengthProgression.length === 0 ? (
               <EmptyChart message="No tracked exercise data — run a sync to fetch strength set details." />
@@ -842,21 +887,23 @@ export function Workouts() {
                     const delta  = latest && prev ? latest.weight_lb - prev.weight_lb : null
                     return (
                       <tr key={exercise} className="border-b border-surface-border last:border-0">
-                        <td className="py-2.5 pr-4 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-28">
+                        <td className="py-3 pr-4 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap w-28">
                           {exercise}
                         </td>
-                        <td className="py-2.5">
+                        <td className="py-3">
                           <div className="flex items-center gap-3 flex-wrap">
                             {entries.map((e, i) => (
                               <span key={i} className="flex flex-col items-center gap-0.5">
-                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-100">
+                                <span
+                                  className={`font-mono font-bold ${i === entries.length - 1 ? 'text-base text-slate-100' : 'text-sm text-slate-400'}`}
+                                >
                                   {e.weight_lb.toFixed(0)} lb
                                 </span>
-                                <span className="text-2xs text-slate-400">{fmtDate(e.date)}</span>
+                                <span className="text-2xs text-slate-500">{fmtDate(e.date)}</span>
                               </span>
                             ))}
                             {delta !== null && (
-                              <span className={`text-2xs font-semibold ml-1 ${delta > 0 ? 'text-good' : delta < 0 ? 'text-poor' : 'text-slate-400'}`}>
+                              <span className={`text-sm font-bold ml-1 ${delta > 0 ? 'text-good' : delta < 0 ? 'text-poor' : 'text-slate-400'}`}>
                                 {delta > 0 ? `+${delta.toFixed(0)}` : delta.toFixed(0)} lb
                               </span>
                             )}
@@ -868,9 +915,10 @@ export function Workouts() {
                 </tbody>
               </table>
             )}
+            <ChartCaption text="Last 4 sessions per exercise. Delta = change from previous session." />
           </div>
 
-          {/* 6b. Total Volume Per Session */}
+          {/* 5b. Total Volume Per Session */}
           <div className="card">
             <SectionHeader title="Total Volume Per Session" />
             {strengthVolQ.isLoading ? (
@@ -900,7 +948,7 @@ export function Workouts() {
             <ChartCaption text="Total volume = sum of (weight × reps) across all sets in the session." />
           </div>
 
-          {/* 6c. Strain & Duration Per Session */}
+          {/* 5c. Strain & Duration Per Session */}
           {strainDurData.length > 0 && (
             <div className="card">
               <SectionHeader title="Strain & Duration Per Session" />
@@ -908,7 +956,7 @@ export function Workouts() {
                 <ComposedChart data={strainDurData} margin={{ top: 4, right: 28, bottom: 0, left: -8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtDate} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={36} />
+                  <YAxis yAxisId="left"  tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={36} />
                   <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={36} />
                   <Tooltip
                     content={({ active, payload, label }) => (
@@ -926,17 +974,10 @@ export function Workouts() {
                       ) : null
                     )}
                   />
-                  <Bar yAxisId="left" dataKey="strain" name="Strain" fill="#FF7A00" fillOpacity={0.8} radius={[3, 3, 0, 0]} />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="duration"
-                    name="Duration (min)"
-                    stroke="#4472CA"
-                    strokeDasharray="4 2"
-                    dot={{ r: 3, fill: '#4472CA' }}
-                    activeDot={{ r: 5 }}
-                    strokeWidth={2}
+                  <Bar  yAxisId="left"  dataKey="strain"   name="Strain"         fill="#FF7A00" fillOpacity={0.8} radius={[3, 3, 0, 0]} />
+                  <Line yAxisId="right" dataKey="duration" name="Duration (min)"
+                    type="monotone" stroke="#4472CA" strokeDasharray="4 2"
+                    dot={{ r: 3, fill: '#4472CA' }} activeDot={{ r: 5 }} strokeWidth={2}
                   />
                 </ComposedChart>
               </ResponsiveContainer>

@@ -63,11 +63,13 @@ function ptAt(t: number): [number, number] {
   ]
 }
 
-/** SVG arc path from t1 to t2 (counter-clockwise = through the top). */
+/** SVG arc path from t1 to t2 (clockwise through the top of the semicircle).
+ *  sweep-flag=1 (clockwise in SVG screen space) traces the upper half of the
+ *  circle from left endpoint → top → right endpoint, which is what we want. */
 function arcSeg(t1: number, t2: number): string {
   const [x1, y1] = ptAt(t1)
   const [x2, y2] = ptAt(t2)
-  return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${R} ${R} 0 0 0 ${x2.toFixed(2)} ${y2.toFixed(2)}`
+  return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${R} ${R} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`
 }
 
 // 4 background zone segments with ~1% gap between them
@@ -188,7 +190,7 @@ export function ReadinessArcGauge({
           className="absolute flex flex-col items-center gap-2"
           style={{
             left: '50%',
-            top:  '42%',
+            top:  '56%',
             transform: 'translate(-50%, -50%)',
           }}
         >

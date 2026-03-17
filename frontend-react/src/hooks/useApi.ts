@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { todayISO } from './useDateRange'
 import type {
+  AnomalyPoint,
   DataStats,
   EnrichedWorkout,
   ExerciseSet,
@@ -204,6 +205,40 @@ export function useAnomalies(start: string, end: string) {
       ),
     staleTime: 15 * 60 * 1000,
     retry: 1,
+    enabled: !!userId,
+  })
+}
+
+/** Enriched anomalies with AI-generated context.
+ * Falls back gracefully — page uses client-side context if endpoint returns 404. */
+export function useEnrichedAnomalies(start: string, end: string) {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['trends', 'anomalies', 'enriched', start, end, userId],
+    queryFn: ({ signal }) =>
+      api.get<Array<AnomalyPoint & { context: string; recommendation: string }>>(
+        `/api/trends/anomalies/enriched?start=${start}&end=${end}`,
+        signal,
+      ),
+    staleTime: 30 * 60 * 1000,
+    retry: 0, // Endpoint may not exist yet — don't retry
+    enabled: !!userId,
+  })
+}
+
+/** AI-generated weekly digest narrative. Falls back gracefully — Insights page
+ * generates client-side digest from useWeeklySummary() if this returns 404. */
+export function useWeeklyDigest(date?: string) {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['insights', 'weekly-digest', date ?? 'today', userId],
+    queryFn: ({ signal }) =>
+      api.get<Array<{ category: string; headline: string; detail: string; evidence: string }>>(
+        date ? `/api/insights/weekly-digest?end=${date}` : '/api/insights/weekly-digest',
+        signal,
+      ),
+    staleTime: 30 * 60 * 1000,
+    retry: 0, // Endpoint may not exist yet — don't retry
     enabled: !!userId,
   })
 }
