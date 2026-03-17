@@ -50,6 +50,7 @@ function levelToColor(level: ReadinessLevel): string {
     case 'Train normally':return 'var(--status-excellent)'
     case 'Go easy':       return 'var(--status-caution)'
     case 'Rest day':      return 'var(--status-alert)'
+    default:              return 'var(--text-primary)'
   }
 }
 
