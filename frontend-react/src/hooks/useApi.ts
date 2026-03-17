@@ -3,8 +3,8 @@ import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { todayISO } from './useDateRange'
 import type {
-  AnomalyPoint,
   DataStats,
+  EnrichedAnomalyPoint,
   EnrichedWorkout,
   ExerciseSet,
   LimitingFactor,
@@ -20,6 +20,7 @@ import type {
   SyncStatus,
   SyncTriggerResponse,
   TrainingLoadResponse,
+  WeeklyDigestResponse,
   WeeklySummary,
   WithWithoutResponse,
   WorkoutTypeSummary,
@@ -209,36 +210,35 @@ export function useAnomalies(start: string, end: string) {
   })
 }
 
-/** Enriched anomalies with AI-generated context.
- * Falls back gracefully — page uses client-side context if endpoint returns 404. */
+/** Enriched anomalies — includes surrounding context, co-anomalies, and training/sleep notes. */
 export function useEnrichedAnomalies(start: string, end: string) {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['trends', 'anomalies', 'enriched', start, end, userId],
     queryFn: ({ signal }) =>
-      api.get<Array<AnomalyPoint & { context: string; recommendation: string }>>(
+      api.get<EnrichedAnomalyPoint[]>(
         `/api/trends/anomalies/enriched?start=${start}&end=${end}`,
         signal,
       ),
     staleTime: 30 * 60 * 1000,
-    retry: 0, // Endpoint may not exist yet — don't retry
+    retry: 1,
     enabled: !!userId,
   })
 }
 
-/** AI-generated weekly digest narrative. Falls back gracefully — Insights page
- * generates client-side digest from useWeeklySummary() if this returns 404. */
+/** Server-generated weekly digest with takeaways and metrics snapshot. */
 export function useWeeklyDigest(date?: string) {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['insights', 'weekly-digest', date ?? 'today', userId],
     queryFn: ({ signal }) =>
-      api.get<Array<{ category: string; headline: string; detail: string; evidence: string }>>(
+      api.get<WeeklyDigestResponse>(
         date ? `/api/insights/weekly-digest?end=${date}` : '/api/insights/weekly-digest',
         signal,
       ),
-    staleTime: 30 * 60 * 1000,
-    retry: 0, // Endpoint may not exist yet — don't retry
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    refetchOnWindowFocus: true,
     enabled: !!userId,
   })
 }

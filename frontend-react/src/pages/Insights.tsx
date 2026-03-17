@@ -22,6 +22,7 @@ import {
 import {
   useAnomalies,
   useMetricTrend,
+  useWeeklyDigest,
   useWeeklySummary,
   useWorkouts,
 } from '../hooks/useApi'
@@ -378,6 +379,7 @@ export function Insights() {
   const exEnd   = today
 
   const summaryQ   = useWeeklySummary(today)
+  const digestQ    = useWeeklyDigest(today)
   const trendQ     = useMetricTrend(selectedMetric, exStart, exEnd)
   const anomaliesQ = useAnomalies(exStart, exEnd)
 
@@ -451,11 +453,21 @@ export function Insights() {
   const corrLoading = hrvQ.isLoading || recoveryQ.isLoading || strainQ.isLoading
     || batteryQ.isLoading || sleepQ.isLoading
 
-  // Section 1: digest items
-  const digestItems = useMemo(
-    () => (summaryQ.data ? buildDigest(summaryQ.data) : []),
-    [summaryQ.data],
-  )
+  // Section 1: digest items — prefer server takeaways, fall back to client-side buildDigest
+  const digestItems = useMemo(() => {
+    const serverTakeaways = digestQ.data?.takeaways
+    if (serverTakeaways && serverTakeaways.length > 0) {
+      // Map server strings → DigestItem shape with auto-detected category
+      return serverTakeaways.slice(0, 3).map((text): DigestItem => {
+        const lower = text.toLowerCase()
+        if (lower.includes('hrv') || lower.includes('recovery')) return { category: 'Recovery', insight: text, color: '#34d399', icon: Icons.Heart }
+        if (lower.includes('train') || lower.includes('session') || lower.includes('strain') || lower.includes('acwr')) return { category: 'Training', insight: text, color: '#fb923c', icon: Icons.Activity }
+        if (lower.includes('sleep')) return { category: 'Sleep', insight: text, color: '#60a5fa', icon: Icons.Moon }
+        return { category: 'This Week', insight: text, color: '#818cf8', icon: Icons.Zap }
+      })
+    }
+    return summaryQ.data ? buildDigest(summaryQ.data) : []
+  }, [digestQ.data, summaryQ.data])
 
   // Trend badge context sentence
   const trendContext = useMemo(() => {
@@ -472,12 +484,9 @@ export function Insights() {
 
       {/* ── SECTION 1: Weekly Digest ─────────────────────────────────────────── */}
       <div className="card space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">This Week</p>
-          <p className="text-2xs text-slate-500">Smarter insights coming soon</p>
-        </div>
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">This Week</p>
 
-        {summaryQ.isLoading ? (
+        {digestQ.isLoading || summaryQ.isLoading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="skeleton h-14 w-full rounded-xl" />

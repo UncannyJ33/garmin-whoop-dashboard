@@ -277,6 +277,35 @@ export interface LimitingFactor {
 }
 
 // ---------------------------------------------------------------------------
+// Insights
+// ---------------------------------------------------------------------------
+
+export interface WeeklyDigestMetrics {
+  avg_readiness: number | null
+  avg_recovery: number | null
+  avg_hrv: number | null
+  total_strain: number | null
+  workout_count: number
+  total_training_hours: number | null
+  avg_sleep_hours: number | null
+  avg_deep_sleep_minutes: number | null
+  acwr: number | null
+  acwr_zone: string | null
+}
+
+export interface WeeklyDigestResponse {
+  week_start: string
+  week_end: string
+  takeaways: string[]
+  metrics_snapshot: WeeklyDigestMetrics
+}
+
+export interface EnrichedAnomalyPoint extends AnomalyPoint {
+  context: string
+  recommendation: string
+}
+
+// ---------------------------------------------------------------------------
 // Recovery Activities
 // ---------------------------------------------------------------------------
 
