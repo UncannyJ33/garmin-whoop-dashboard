@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/layout/Layout'
 import { Readiness } from './pages/Readiness'
+import { Today } from './pages/Today'
 import { Workouts } from './pages/Workouts'
 import { Sleep } from './pages/Sleep'
 import { Trends } from './pages/Trends'
@@ -53,7 +54,8 @@ export function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route element={<ProtectedLayout />}>
-              <Route path="/" element={<Readiness />} />
+              <Route path="/" element={<Today />} />
+              <Route path="/readiness" element={<Readiness />} />
               <Route path="/workouts" element={<Workouts />} />
               <Route path="/sleep" element={<Sleep />} />
               <Route path="/trends" element={<Trends />} />

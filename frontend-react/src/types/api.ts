@@ -245,6 +245,38 @@ export interface StrengthMaxWeight {
 }
 
 // ---------------------------------------------------------------------------
+// Training Load
+// ---------------------------------------------------------------------------
+
+export interface WeeklyLoadItem {
+  week_start: string
+  total_strain: number | null
+}
+
+export interface TrainingLoadResponse {
+  acwr: number | null
+  acute_load: number
+  chronic_load: number
+  zone: string | null
+  zone_description: string | null
+  trend: string
+  weekly_loads: WeeklyLoadItem[]
+  confidence_note: string | null
+}
+
+export interface LimitingFactor {
+  factor_name: string
+  current_value: number
+  current_value_display: string
+  normalized_score: number
+  seven_day_avg: number
+  seven_day_avg_display: string
+  deviation_pct: number
+  explanation: string
+  severity: string
+}
+
+// ---------------------------------------------------------------------------
 // Recovery Activities
 // ---------------------------------------------------------------------------
 

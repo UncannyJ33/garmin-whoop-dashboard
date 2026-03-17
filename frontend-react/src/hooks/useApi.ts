@@ -6,6 +6,7 @@ import type {
   DataStats,
   EnrichedWorkout,
   ExerciseSet,
+  LimitingFactor,
   MetricTrend,
   ReadinessHistoryPoint,
   ReadinessResult,
@@ -17,6 +18,7 @@ import type {
   StrengthVolume,
   SyncStatus,
   SyncTriggerResponse,
+  TrainingLoadResponse,
   WeeklySummary,
   WithWithoutResponse,
   WorkoutTypeSummary,
@@ -201,6 +203,37 @@ export function useAnomalies(start: string, end: string) {
         signal,
       ),
     staleTime: 15 * 60 * 1000,
+    retry: 1,
+    enabled: !!userId,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Training Load
+// ---------------------------------------------------------------------------
+
+export function useLimitingFactors(topN = 2) {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['readiness', 'limiting-factors', topN, userId],
+    queryFn: ({ signal }) =>
+      api.get<LimitingFactor[]>(`/api/readiness/limiting-factors?top_n=${topN}`, signal),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    enabled: !!userId,
+  })
+}
+
+export function useTrainingLoadRatio(date?: string) {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['training', 'load-ratio', date ?? 'today', userId],
+    queryFn: ({ signal }) =>
+      api.get<TrainingLoadResponse>(
+        date ? `/api/training/load-ratio?date=${date}` : '/api/training/load-ratio',
+        signal,
+      ),
+    staleTime: 5 * 60 * 1000,
     retry: 1,
     enabled: !!userId,
   })
