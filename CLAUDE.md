@@ -12,20 +12,23 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Phase 5.5 COMPLETE** — Dashboard restructure (4-page consumer UX).
+**Phase 5.5 COMPLETE** — Dashboard restructure (4-page consumer UX) + post-launch polish.
 
 ### Phase 5.5 changes (frontend-react only):
 - **Page structure**: 6 pages → 4 pages + Settings
   - Today (`/`) — quick glance: readiness arc gauge, ACWR headline, limiting factors, weekly digest
-  - Training (`/training`) — deep training view: ACWR gauge, workout log, running dynamics, strength PRs
-  - Recovery (`/recovery`) — merged sleep + recovery activities: sleep hero, debt banner, variability, with/without comparison
-  - Insights (`/insights`) — deep analytics: weekly digest, metric explorer (9 metrics), anomaly feed, correlations with scatter
+  - Training (`/training`) — deep training view: ACWR gauge + stats, running analytics, strength PRs, activity breakdown, workout log
+  - Recovery (`/recovery`) — merged sleep + recovery activities: sleep hero, debt banner, variability, correlations, with/without comparison
+  - Insights (`/insights`) — deep analytics: weekly digest, metric explorer (9 metrics), correlations with scatter, anomaly feed
   - Settings (`/settings`) — unchanged
-- **Routing**: clean URLs (`/training`, `/recovery`, `/insights`) with legacy redirects for old URLs (`/workouts` → `/training`, `/sleep` → `/recovery`, `/trends` → `/insights`, `/readiness` → `/`, `/recovery-activities` → `/recovery`)
+- **Page section order** (Training): Training Load → Running Analytics → Strength → Activity Breakdown → Workout Log (charts-first)
+- **Page section order** (Insights): Weekly Digest → Metric Explorer → Correlations → Anomaly Feed (log at bottom)
+- **Routing**: clean URLs with legacy redirects (`/workouts`→`/training`, `/sleep`→`/recovery`, `/trends`→`/insights`, `/readiness`→`/`, `/recovery-activities`→`/recovery`)
 - **Deleted old pages**: Readiness.tsx, Workouts.tsx, Sleep.tsx, Trends.tsx, RecoveryActivities.tsx
-- **New hooks**: `useWeeklyDigest()` (pending backend endpoint `/api/insights/weekly-digest`), `useEnrichedAnomalies()` (pending backend endpoint `/api/trends/anomalies/enriched`) — both have `retry: 0` so they fail silently until implemented
+- **New hooks**: `useWeeklyDigest()` (`/api/insights/weekly-digest` — live on backend), `useEnrichedAnomalies()` (`/api/trends/anomalies/enriched` — live, returns [] when no enriched data), `useTrainingLoadRatio()`, `useLimitingFactors()`
 - **New components**: `ACWRGauge.tsx`, `ReadinessArcGauge.tsx` (SVG semicircle, sweep-flag=1), `LimitingFactorCard.tsx`
-- **Build**: `npm run build` passes clean; TypeScript strict check passes
+- **Bug fixes**: Sleep/deep-sleep anomaly context converts minutes→hours before display (`value/60`); Body Battery low-direction copy corrected; `formatValue` in metric explorer also divides by 60 for sleep metrics
+- **Build**: `npm run build` passes clean; TypeScript strict check passes; deployed to pulsebuilt.net
 
 ### Phase 5 milestones:
 - Task 5.7 (custom domain): pulsebuilt.net is live on Railway
