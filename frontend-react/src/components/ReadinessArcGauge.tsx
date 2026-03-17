@@ -21,35 +21,29 @@ const R  = 110        // radius
 const SW = 7          // stroke width
 const SEMI_C = Math.PI * R  // semi-circumference ≈ 345.6px
 
-// Score → status color and glow
-function scoreToStatus(score: number): {
-  color: string
-  glow: string
-  level: ReadinessLevel
-} {
-  if (score >= 80) return {
-    color: 'var(--status-excellent)',
-    glow:  'rgba(29,158,117,0.07)',
-    level: 'Push hard',
-  }
-  if (score >= 60) return {
-    color: 'var(--status-excellent)',
-    glow:  'rgba(29,158,117,0.07)',
-    level: 'Train normally',
-  }
-  if (score >= 40) return {
-    color: 'var(--status-caution)',
-    glow:  'rgba(186,117,23,0.07)',
-    level: 'Go easy',
-  }
-  return {
-    color: 'var(--status-alert)',
-    glow:  'rgba(216,90,48,0.08)',
-    level: 'Rest day',
-  }
+/**
+ * Arc fill color + glow per spec §3.1:
+ * ≥75 → teal, 50–74 → amber, <50 → coral
+ */
+function arcFillColor(score: number): { color: string; glow: string } {
+  if (score >= 75) return { color: 'var(--status-excellent)', glow: 'rgba(29,158,117,0.06)' }
+  if (score >= 50) return { color: 'var(--status-caution)',   glow: 'rgba(186,117,23,0.07)' }
+  return               { color: 'var(--status-alert)',        glow: 'rgba(216,90,48,0.08)' }
 }
 
-// Override the level if explicitly provided
+/**
+ * Fallback badge level when `recommendation` prop is not provided.
+ * Separate thresholds from arc fill: ≥80 Push hard, ≥60 Train normally,
+ * ≥40 Go easy, <40 Rest day.
+ */
+function fallbackLevel(score: number): ReadinessLevel {
+  if (score >= 80) return 'Push hard'
+  if (score >= 60) return 'Train normally'
+  if (score >= 40) return 'Go easy'
+  return 'Rest day'
+}
+
+/** Color of the score number and badge, driven by the recommendation level. */
 function levelToColor(level: ReadinessLevel): string {
   switch (level) {
     case 'Push hard':     return 'var(--status-excellent)'
@@ -101,8 +95,8 @@ export function ReadinessArcGauge({
   skipAnimation = false,
 }: ReadinessArcGaugeProps) {
   const displayScore = score ?? 0
-  const { color, glow, level } = scoreToStatus(displayScore)
-  const badgeLevel = recommendation ?? level
+  const { color: arcColor, glow } = arcFillColor(displayScore)
+  const badgeLevel = recommendation ?? fallbackLevel(displayScore)
 
   // Animated dashoffset: starts full (hidden), transitions to target
   const [dashOffset, setDashOffset] = useState(SEMI_C)
@@ -110,11 +104,9 @@ export function ReadinessArcGauge({
 
   useEffect(() => {
     if (skipAnimation || mounted.current) {
-      // Subsequent renders or skip: set immediately
       setDashOffset(SEMI_C * (1 - displayScore / 100))
       return
     }
-    // First mount: animate from 0 → target
     const id = requestAnimationFrame(() => {
       setDashOffset(SEMI_C * (1 - displayScore / 100))
     })
@@ -122,7 +114,8 @@ export function ReadinessArcGauge({
     return () => cancelAnimationFrame(id)
   }, [displayScore, skipAnimation])
 
-  const scoreColor = recommendation ? levelToColor(recommendation) : color
+  // Arc fill uses spec §3.1 thresholds; score number/badge use recommendation level
+  const scoreColor = levelToColor(badgeLevel)
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -171,11 +164,11 @@ export function ReadinessArcGauge({
             />
           ))}
 
-          {/* Progress fill */}
+          {/* Progress fill — color from spec §3.1 (≥75 teal, ≥50 amber, <50 coral) */}
           {score !== null && (
             <path
               d={arcSeg(0, 1)}
-              stroke={scoreColor}
+              stroke={arcColor}
               strokeWidth={SW}
               strokeLinecap="round"
               fill="none"

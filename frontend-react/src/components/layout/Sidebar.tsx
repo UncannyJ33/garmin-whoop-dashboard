@@ -100,7 +100,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             padding:      'max(env(safe-area-inset-top, 16px), 16px) 20px 14px',
           }}
         >
-          <PulseLogo width={128} />
+          <PulseLogo width={140} />
         </div>
 
         {/* Nav links */}

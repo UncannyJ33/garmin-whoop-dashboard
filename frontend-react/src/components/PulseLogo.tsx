@@ -36,8 +36,8 @@ export function PulseLogo({ width = 140, className = '' }: PulseLogoProps) {
         PULSE
       </text>
 
-      {/* 2px accent line between words */}
-      <rect x="58" y="9" width="2" height="10" fill="var(--status-excellent)" rx="1" />
+      {/* 2px × 16px accent line between words (spec §5) */}
+      <rect x="58" y="4" width="2" height="16" fill="var(--status-excellent)" rx="1" />
 
       {/* "ENGINE" — weight 300, text-secondary */}
       <text
