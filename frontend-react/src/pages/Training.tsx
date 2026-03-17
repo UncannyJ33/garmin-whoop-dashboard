@@ -3,10 +3,10 @@
  *
  * Sections:
  *   1. Training Load Summary  — ACWRGauge + Workouts + Hours cards
- *   2. Activity Breakdown     — clickable table, type-specific metric column
- *   3. Workout Log            — WorkoutRow list with recovery-impact gutter indicator
- *   4. Running Analytics      — Cadence+GCT dual-line by default, Advanced toggle
- *   5. Strength               — PRs table (prominent), Volume, Strain+Duration
+ *   2. Running Analytics      — Cadence+GCT dual-line by default, Advanced toggle
+ *   3. Strength               — PRs table (prominent), Volume, Strain+Duration
+ *   4. Activity Breakdown     — clickable table, type-specific metric column
+ *   5. Workout Log            — WorkoutRow list with recovery-impact gutter indicator
  */
 import { useMemo, useState } from 'react'
 import {
@@ -444,130 +444,6 @@ export function Training() {
         </div>
       </div>
 
-      {/* ── SECTION 2: Activity type breakdown ───────────────────────────── */}
-      {(summaryQ.isLoading || summary.length > 0) && (
-        <div className="card">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
-            Activity Breakdown
-            {filterType && (
-              <button
-                onClick={() => setFilterType(null)}
-                className="ml-2 text-xs font-normal text-brand hover:underline"
-              >
-                Clear filter ×
-              </button>
-            )}
-          </p>
-
-          {summaryQ.isLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="skeleton h-8 w-full rounded-lg" />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <div className="grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 px-2 pb-1 border-b border-surface-border">
-                {['Type', 'Cnt', 'Strain', 'Dur'].map(h => (
-                  <p key={h} className="metric-label text-right first:text-left">{h}</p>
-                ))}
-                <p className="metric-label text-right hidden sm:block">Str/km</p>
-              </div>
-
-              {summary.map(row => {
-                const color    = colorForType(row.activity_type, allTypes)
-                const isActive = filterType === row.activity_type
-                return (
-                  <button
-                    key={row.activity_type}
-                    onClick={() => {
-                      setFilterType(prev => prev === row.activity_type ? null : row.activity_type)
-                      setVisibleCount(PAGE_SIZE)
-                    }}
-                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right ${
-                      isActive ? 'bg-brand/10' : 'hover:bg-surface-overlay'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 text-left min-w-0">
-                      <div
-                        className="h-1.5 flex-shrink-0 rounded-full"
-                        style={{
-                          width:           `${Math.max(8, (row.count / maxCount) * 48)}px`,
-                          backgroundColor: color,
-                        }}
-                      />
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
-                        {activityLabel(row.activity_type)}
-                      </span>
-                    </div>
-                    <span className="font-mono text-xs text-slate-400">{row.count}</span>
-                    <span className="font-mono text-xs text-slate-400">{fmtNull(row.avg_strain)}</span>
-                    <span className="font-mono text-xs text-slate-400">
-                      {row.avg_duration_minutes !== null ? `${Math.round(row.avg_duration_minutes)}m` : '—'}
-                    </span>
-                    <span className="font-mono text-xs text-slate-400 hidden sm:block">
-                      {typeMetric(row)}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── SECTION 3: Workout Log ────────────────────────────────────────── */}
-      <div>
-        <p className="metric-label mb-2 px-0.5">
-          {filterType ? `${activityLabel(filterType)} workouts` : 'All workouts'}
-          {!workoutsQ.isLoading && (
-            <span className="ml-1 normal-case font-normal text-slate-500">
-              ({filtered.length})
-            </span>
-          )}
-        </p>
-
-        {workoutsQ.isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => <WorkoutRowSkeleton key={i} />)}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="card text-center text-sm text-slate-400 py-8">
-            No workouts in this period{filterType ? ` for ${activityLabel(filterType)}` : ''}.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {visible.map(w => (
-              /* Left-gutter recovery-impact indicator */
-              <div key={w.id} className="flex items-start gap-1.5">
-                <div
-                  className="flex items-center justify-center flex-shrink-0 pt-3.5"
-                  style={{ width: 16 }}
-                  title={
-                    w.recovery_impact !== null
-                      ? `Recovery impact: ${w.recovery_impact > 0 ? '+' : ''}${w.recovery_impact.toFixed(1)}`
-                      : 'No recovery data'
-                  }
-                >
-                  <RecoveryIndicator impact={w.recovery_impact} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <WorkoutRow workout={w} />
-                </div>
-              </div>
-            ))}
-            {visibleCount < filtered.length && (
-              <button
-                onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
-                className="w-full py-3 rounded-xl border border-surface-border text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-surface-overlay transition-colors"
-              >
-                Load more ({filtered.length - visibleCount} remaining)
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* ── SECTION 4: Running Analytics ─────────────────────────────────── */}
       {!workoutsQ.isLoading && runs.length > 0 && (
         <div className="space-y-3">
@@ -986,6 +862,130 @@ export function Training() {
           )}
         </div>
       )}
+
+      {/* ── SECTION 2: Activity type breakdown ───────────────────────────── */}
+      {(summaryQ.isLoading || summary.length > 0) && (
+        <div className="card">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
+            Activity Breakdown
+            {filterType && (
+              <button
+                onClick={() => setFilterType(null)}
+                className="ml-2 text-xs font-normal text-brand hover:underline"
+              >
+                Clear filter ×
+              </button>
+            )}
+          </p>
+
+          {summaryQ.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="skeleton h-8 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <div className="grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 px-2 pb-1 border-b border-surface-border">
+                {['Type', 'Cnt', 'Strain', 'Dur'].map(h => (
+                  <p key={h} className="metric-label text-right first:text-left">{h}</p>
+                ))}
+                <p className="metric-label text-right hidden sm:block">Str/km</p>
+              </div>
+
+              {summary.map(row => {
+                const color    = colorForType(row.activity_type, allTypes)
+                const isActive = filterType === row.activity_type
+                return (
+                  <button
+                    key={row.activity_type}
+                    onClick={() => {
+                      setFilterType(prev => prev === row.activity_type ? null : row.activity_type)
+                      setVisibleCount(PAGE_SIZE)
+                    }}
+                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right ${
+                      isActive ? 'bg-brand/10' : 'hover:bg-surface-overlay'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-left min-w-0">
+                      <div
+                        className="h-1.5 flex-shrink-0 rounded-full"
+                        style={{
+                          width:           `${Math.max(8, (row.count / maxCount) * 48)}px`,
+                          backgroundColor: color,
+                        }}
+                      />
+                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
+                        {activityLabel(row.activity_type)}
+                      </span>
+                    </div>
+                    <span className="font-mono text-xs text-slate-400">{row.count}</span>
+                    <span className="font-mono text-xs text-slate-400">{fmtNull(row.avg_strain)}</span>
+                    <span className="font-mono text-xs text-slate-400">
+                      {row.avg_duration_minutes !== null ? `${Math.round(row.avg_duration_minutes)}m` : '—'}
+                    </span>
+                    <span className="font-mono text-xs text-slate-400 hidden sm:block">
+                      {typeMetric(row)}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SECTION 3: Workout Log ────────────────────────────────────────── */}
+      <div>
+        <p className="metric-label mb-2 px-0.5">
+          {filterType ? `${activityLabel(filterType)} workouts` : 'All workouts'}
+          {!workoutsQ.isLoading && (
+            <span className="ml-1 normal-case font-normal text-slate-500">
+              ({filtered.length})
+            </span>
+          )}
+        </p>
+
+        {workoutsQ.isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => <WorkoutRowSkeleton key={i} />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="card text-center text-sm text-slate-400 py-8">
+            No workouts in this period{filterType ? ` for ${activityLabel(filterType)}` : ''}.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {visible.map(w => (
+              /* Left-gutter recovery-impact indicator */
+              <div key={w.id} className="flex items-start gap-1.5">
+                <div
+                  className="flex items-center justify-center flex-shrink-0 pt-3.5"
+                  style={{ width: 16 }}
+                  title={
+                    w.recovery_impact !== null
+                      ? `Recovery impact: ${w.recovery_impact > 0 ? '+' : ''}${w.recovery_impact.toFixed(1)}`
+                      : 'No recovery data'
+                  }
+                >
+                  <RecoveryIndicator impact={w.recovery_impact} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <WorkoutRow workout={w} />
+                </div>
+              </div>
+            ))}
+            {visibleCount < filtered.length && (
+              <button
+                onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+                className="w-full py-3 rounded-xl border border-surface-border text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-surface-overlay transition-colors"
+              >
+                Load more ({filtered.length - visibleCount} remaining)
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
     </div>
   )
