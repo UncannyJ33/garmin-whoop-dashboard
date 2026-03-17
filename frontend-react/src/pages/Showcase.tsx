@@ -2,14 +2,18 @@
  * Component showcase — visit /showcase to verify all components render correctly.
  * Delete this file after Task 4.2 sign-off.
  */
+import { ACWRGauge } from '../components/ACWRGauge'
 import { DataSourceBadge } from '../components/DataSourceBadge'
+import { DigestCard } from '../components/DigestCard'
 import { ErrorState } from '../components/ErrorState'
+import { LimitingFactorCard } from '../components/LimitingFactorCard'
 import {
   ChartSkeleton,
   MetricCardSkeleton,
   WorkoutRowSkeleton,
 } from '../components/LoadingState'
 import { MetricCard } from '../components/MetricCard'
+import { ReadinessArcGauge } from '../components/ReadinessArcGauge'
 import { SleepStageBar } from '../components/SleepStageBar'
 import { StatusBadge } from '../components/StatusBadge'
 import { TrendChart } from '../components/TrendChart'
@@ -283,6 +287,62 @@ export function Showcase() {
             onRetry={() => alert('retry clicked')}
           />
           <ErrorState message="No retry action (e.g. permanent data gap)." />
+        </div>
+      </Section>
+
+      {/* ── ReadinessArcGauge ──────────────────────────────────────────── */}
+      <Section title="ReadinessArcGauge — animates on mount, 4 zone backgrounds">
+        <div className="flex flex-wrap gap-6 items-end">
+          <ReadinessArcGauge score={88} recommendation="Push hard" />
+          <ReadinessArcGauge score={72} recommendation="Train normally" />
+          <ReadinessArcGauge score={45} recommendation="Go easy" />
+          <ReadinessArcGauge score={22} recommendation="Rest day" />
+        </div>
+      </Section>
+
+      {/* ── ACWRGauge ──────────────────────────────────────────────────── */}
+      <Section title="ACWRGauge — ACWR zones 0–2.2">
+        <div className="card space-y-4">
+          <ACWRGauge acwr={0.7} />
+          <ACWRGauge acwr={1.1} />
+          <ACWRGauge acwr={1.5} />
+          <ACWRGauge acwr={1.9} />
+        </div>
+      </Section>
+
+      {/* ── DigestCard ─────────────────────────────────────────────────── */}
+      <Section title="DigestCard — weekly insight takeaways">
+        <div className="space-y-2">
+          <DigestCard insight="Your recovery is trending up — 3-day high streak. Good time to push effort this week." supportingData="Avg 74% recovery · HRV +8ms vs last week" />
+          <DigestCard insight="Training load jumped 22% vs last week. Watch for signs of accumulation." supportingData="87.4 total strain · 5 sessions" />
+          <DigestCard insight="Sleep consistency improved — bedtime variance dropped to ±18 min." supportingData="7.3h avg · 94 min deep" />
+          <DigestCard insight="Anomaly detected: recovery dropped to 28% on Mar 12, likely due to high late-day strain." supportingData="Strain 16.1 · Next-day recovery –24%" />
+        </div>
+      </Section>
+
+      {/* ── LimitingFactorCard ─────────────────────────────────────────── */}
+      <Section title="LimitingFactorCard — status callouts">
+        <div className="space-y-2">
+          <LimitingFactorCard factorName="HRV" context="dropped 18% below your baseline — prioritise rest today." severity="alert" />
+          <LimitingFactorCard factorName="Sleep debt" context="accumulating — you're 2.1h below your 8h target this week." severity="caution" />
+        </div>
+      </Section>
+
+      {/* ── TrendChart sparkline ────────────────────────────────────────── */}
+      <Section title="TrendChart — sparkline variant">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {['Recovery', 'HRV', 'Strain', 'Sleep'].map((name, i) => (
+            <div key={name} className="card-sm">
+              <p className="metric-label mb-2">{name}</p>
+              <TrendChart
+                data={TREND_DATA.map(d => ({ ...d, value: d.value !== null ? d.value - i * 5 : null }))}
+                metricName={name}
+                unit=""
+                showRollingAvg={false}
+                sparkline
+              />
+            </div>
+          ))}
         </div>
       </Section>
     </div>

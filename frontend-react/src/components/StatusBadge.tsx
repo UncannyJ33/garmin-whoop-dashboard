@@ -1,4 +1,17 @@
-type ReadinessLevel = 'Push hard' | 'Train normally' | 'Go easy' | 'Rest day'
+/**
+ * StatusBadge — readiness level pill badge.
+ *
+ * Design spec §3.4 exact color values:
+ * | Level          | Background              | Border                  | Text     |
+ * | Push hard      | rgba(29,158,117,0.10)   | rgba(29,158,117,0.20)   | #7dd8b8  |
+ * | Train normally | rgba(29,158,117,0.08)   | rgba(29,158,117,0.15)   | #7dd8b8  |
+ * | Go easy        | rgba(186,117,23,0.10)   | rgba(186,117,23,0.25)   | #efb34e  |
+ * | Rest day       | rgba(216,90,48,0.10)    | rgba(216,90,48,0.20)    | #e8916e  |
+ *
+ * Style: 12-13px, weight 500, 6px radius, 4px 16px padding, 0.5px border.
+ */
+
+export type ReadinessLevel = 'Push hard' | 'Train normally' | 'Go easy' | 'Rest day'
 
 interface StatusBadgeProps {
   level: ReadinessLevel
@@ -6,38 +19,52 @@ interface StatusBadgeProps {
   size?: 'sm' | 'md' | 'lg'
 }
 
-const LEVEL_CONFIG: Record<
-  ReadinessLevel,
-  { color: string; bg: string; border: string; ring: string }
-> = {
-  'Push hard':     { color: 'text-good',     bg: 'bg-good/10',     border: 'border-good/40',     ring: 'ring-good/20' },
-  'Train normally':{ color: 'text-brand',    bg: 'bg-brand/10',    border: 'border-brand/40',    ring: 'ring-brand/20' },
-  'Go easy':       { color: 'text-moderate', bg: 'bg-moderate/10', border: 'border-moderate/40', ring: 'ring-moderate/20' },
-  'Rest day':      { color: 'text-poor',     bg: 'bg-poor/10',     border: 'border-poor/40',     ring: 'ring-poor/20' },
+interface LevelStyle {
+  bg:    string
+  border:string
+  color: string
 }
 
-const SIZE_CLASSES = {
-  sm: 'px-2.5 py-1 text-xs',
-  md: 'px-4 py-1.5 text-sm',
-  lg: 'px-6 py-2.5 text-base',
+const LEVEL_STYLES: Record<ReadinessLevel, LevelStyle> = {
+  'Push hard':      { bg: 'rgba(29,158,117,0.10)', border: 'rgba(29,158,117,0.20)', color: '#7dd8b8' },
+  'Train normally': { bg: 'rgba(29,158,117,0.08)', border: 'rgba(29,158,117,0.15)', color: '#7dd8b8' },
+  'Go easy':        { bg: 'rgba(186,117,23,0.10)', border: 'rgba(186,117,23,0.25)', color: '#efb34e' },
+  'Rest day':       { bg: 'rgba(216,90,48,0.10)',  border: 'rgba(216,90,48,0.20)',  color: '#e8916e' },
+}
+
+const SIZE_STYLE: Record<'sm' | 'md' | 'lg', { fontSize: number; padding: string }> = {
+  sm: { fontSize: 11, padding: '3px 10px' },
+  md: { fontSize: 12, padding: '4px 16px' },
+  lg: { fontSize: 13, padding: '6px 20px' },
 }
 
 export function StatusBadge({ level, score, size = 'md' }: StatusBadgeProps) {
-  const cfg = LEVEL_CONFIG[level]
+  const s = LEVEL_STYLES[level]
+  const z = SIZE_STYLE[size]
 
   return (
-    <div
-      className={`
-        inline-flex items-center gap-2 rounded-full border font-semibold
-        ring-4 tracking-wide
-        ${cfg.color} ${cfg.bg} ${cfg.border} ${cfg.ring}
-        ${SIZE_CLASSES[size]}
-      `}
+    <span
+      style={{
+        display:         'inline-flex',
+        alignItems:      'center',
+        gap:             6,
+        background:      s.bg,
+        border:          `0.5px solid ${s.border}`,
+        borderRadius:    6,
+        padding:         z.padding,
+        fontSize:        z.fontSize,
+        fontWeight:      500,
+        color:           s.color,
+        whiteSpace:      'nowrap',
+        fontFamily:      "'Geist', system-ui, sans-serif",
+      }}
     >
       {score !== undefined && (
-        <span className="font-mono tabular-nums">{score}</span>
+        <span style={{ fontFamily: "'Geist Mono', ui-monospace, monospace", fontVariantNumeric: 'tabular-nums' }}>
+          {score}
+        </span>
       )}
       {level}
-    </div>
+    </span>
   )
 }

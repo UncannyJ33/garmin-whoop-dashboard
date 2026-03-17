@@ -1,19 +1,30 @@
+/**
+ * SleepStageBar — horizontal stacked bar showing sleep architecture.
+ *
+ * Design spec §3.5:
+ * - Rounded segments, 2px gaps in bg-card color between stages
+ * - Compact (12-16px): Today page
+ * - Detailed (20-24px): Recovery page
+ * - Colors: Deep #4a3d8f, Light #6b7a99, REM #8b5fbf, Awake #4a4a50
+ */
+
 import { useState } from 'react'
 
 interface SleepStageBarProps {
-  deepMinutes: number | null
+  deepMinutes:  number | null
   lightMinutes: number | null
-  remMinutes: number | null
+  remMinutes:   number | null
   awakeMinutes: number | null
+  /** 'compact' (14px) for Today page, 'detailed' (22px) for Recovery page */
+  variant?: 'compact' | 'detailed'
 }
 
-interface Stage {
-  key: string
-  label: string
-  minutes: number
-  color: string
-  bg: string
-}
+const STAGE_CONFIG = [
+  { key: 'deep',  label: 'Deep',  color: '#4a3d8f' },
+  { key: 'light', label: 'Light', color: '#6b7a99' },
+  { key: 'rem',   label: 'REM',   color: '#8b5fbf' },
+  { key: 'awake', label: 'Awake', color: '#4a4a50' },
+]
 
 function fmtDur(min: number): string {
   const h = Math.floor(min / 60)
@@ -26,33 +37,43 @@ export function SleepStageBar({
   lightMinutes,
   remMinutes,
   awakeMinutes,
+  variant = 'compact',
 }: SleepStageBarProps) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
 
-  const stages: Stage[] = [
-    { key: 'deep',  label: 'Deep',  minutes: deepMinutes  ?? 0, color: '#4f46e5', bg: 'bg-indigo-500' },
-    { key: 'light', label: 'Light', minutes: lightMinutes ?? 0, color: '#60a5fa', bg: 'bg-blue-400' },
-    { key: 'rem',   label: 'REM',   minutes: remMinutes   ?? 0, color: '#c084fc', bg: 'bg-purple-400' },
-    { key: 'awake', label: 'Awake', minutes: awakeMinutes ?? 0, color: '#94a3b8', bg: 'bg-slate-400' },
-  ].filter(s => s.minutes > 0)
+  const rawValues: Record<string, number> = {
+    deep:  deepMinutes  ?? 0,
+    light: lightMinutes ?? 0,
+    rem:   remMinutes   ?? 0,
+    awake: awakeMinutes ?? 0,
+  }
 
-  const total = stages.reduce((s, st) => s + st.minutes, 0)
+  const stages = STAGE_CONFIG.filter(s => rawValues[s.key] > 0)
+  const total  = stages.reduce((sum, s) => sum + rawValues[s.key], 0)
+
+  const barHeight = variant === 'compact' ? 14 : 22
 
   if (total === 0) {
-    return <div className="h-6 rounded-full skeleton" />
+    return <div className="skeleton rounded-full" style={{ height: barHeight }} />
   }
 
   return (
     <div className="space-y-2">
-      {/* Stacked bar */}
-      <div className="flex h-6 w-full overflow-hidden rounded-full gap-px">
+      {/* Stacked bar with 2px gaps between segments */}
+      <div
+        className="flex w-full overflow-hidden rounded-full"
+        style={{ height: barHeight, gap: 2, backgroundColor: 'var(--bg-card)' }}
+      >
         {stages.map(stage => (
           <div
             key={stage.key}
-            className={`${stage.bg} cursor-default transition-opacity duration-150 relative`}
             style={{
-              width: `${(stage.minutes / total) * 100}%`,
-              opacity: hoveredKey && hoveredKey !== stage.key ? 0.4 : 1,
+              width:           `${(rawValues[stage.key] / total) * 100}%`,
+              backgroundColor: stage.color,
+              opacity:         hoveredKey && hoveredKey !== stage.key ? 0.4 : 1,
+              transition:      'opacity 150ms ease',
+              cursor:          'default',
+              flexShrink:      0,
             }}
             onMouseEnter={() => setHoveredKey(stage.key)}
             onMouseLeave={() => setHoveredKey(null)}
@@ -70,17 +91,27 @@ export function SleepStageBar({
             onMouseLeave={() => setHoveredKey(null)}
           >
             <span
-              className="h-2 w-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: stage.color }}
+              style={{
+                width: 6, height: 6,
+                borderRadius: '50%',
+                backgroundColor: stage.color,
+                display: 'block',
+                flexShrink: 0,
+              }}
             />
-            <span className="text-2xs text-slate-400">
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
               {stage.label}{' '}
               <span
-                className={`font-mono transition-colors ${
-                  hoveredKey === stage.key ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500'
-                }`}
+                style={{
+                  fontFamily:         "'Geist Mono', ui-monospace, monospace",
+                  fontVariantNumeric: 'tabular-nums',
+                  color:              hoveredKey === stage.key
+                    ? 'var(--text-primary)'
+                    : 'var(--text-tertiary)',
+                  transition:         'color 150ms ease',
+                }}
               >
-                {fmtDur(stage.minutes)}
+                {fmtDur(rawValues[stage.key])}
               </span>
             </span>
           </div>

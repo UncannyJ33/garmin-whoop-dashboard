@@ -1,3 +1,18 @@
+/**
+ * TrendChart — recharts LineChart styled to the design system.
+ *
+ * Design spec §3.3 + §7:
+ * - Transparent background (inherits card)
+ * - Horizontal-only grid at --chart-grid
+ * - No axis lines, no ticks
+ * - Primary line: --data-primary teal 2px
+ * - 7d avg: --data-secondary amber 1.5px
+ * - 30d avg: --data-tertiary 1px
+ * - Anomaly markers: --data-anomaly coral 6px circles
+ * - Custom tooltip: bg-card-elevated, border-hover, 8px radius
+ * - Sparkline variant: no axes/grid, 200×48px, value+arrow at right end
+ */
+
 import {
   CartesianGrid,
   Dot,
@@ -23,8 +38,11 @@ interface TrendChartProps {
   unit?: string
   showRollingAvg?: boolean
   height?: number
+  /** Primary line color — defaults to --data-primary teal */
   color?: string
   formatValue?: (v: number) => string
+  /** Renders a compact sparkline with no axes */
+  sparkline?: boolean
 }
 
 interface TooltipPayloadEntry {
@@ -32,6 +50,8 @@ interface TooltipPayloadEntry {
   value: number | null
   color: string
 }
+
+// ── Custom tooltip ─────────────────────────────────────────────────────────
 
 function CustomTooltip({
   active,
@@ -51,11 +71,30 @@ function CustomTooltip({
   const fmt = formatValue ?? ((v: number) => v.toFixed(1))
 
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
-      <p className="text-slate-400 font-medium">{label}</p>
-      {payload.map((entry) =>
+    <div
+      style={{
+        background:   'var(--bg-card-elevated)',
+        border:       '0.5px solid var(--border-hover)',
+        borderRadius: 8,
+        padding:      '8px 12px',
+        fontSize:     12,
+        minWidth:     100,
+        boxShadow:    '0 4px 16px rgba(0,0,0,0.4)',
+      }}
+    >
+      <p style={{ color: 'var(--text-secondary)', fontWeight: 500, marginBottom: 4 }}>
+        {label}
+      </p>
+      {payload.map(entry =>
         entry.value !== null && entry.value !== undefined ? (
-          <p key={entry.name} style={{ color: entry.color }} className="font-mono">
+          <p
+            key={entry.name}
+            style={{
+              color:              entry.color,
+              fontFamily:         "'Geist Mono', ui-monospace, monospace",
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
             {entry.name}: {fmt(entry.value)}{unit ?? ''}
           </p>
         ) : null,
@@ -64,7 +103,8 @@ function CustomTooltip({
   )
 }
 
-// Custom dot — red for anomalies, invisible otherwise (clean line)
+// ── Custom anomaly dot ─────────────────────────────────────────────────────
+
 function CustomDot(props: {
   cx?: number
   cy?: number
@@ -74,11 +114,79 @@ function CustomDot(props: {
   const { cx, cy, payload, color } = props
   if (!cx || !cy || !payload) return null
   if (payload.isAnomaly) {
-    return <Dot cx={cx} cy={cy} r={4} fill="#ef4444" stroke="#ef4444" strokeWidth={1} />
+    return (
+      <Dot
+        cx={cx}
+        cy={cy}
+        r={3}
+        fill="var(--data-anomaly)"
+        stroke="var(--data-anomaly)"
+        strokeWidth={0}
+      />
+    )
   }
-  // Invisible dot for hover hit area
-  return <Dot cx={cx} cy={cy} r={2} fill={color ?? '#60a5fa'} fillOpacity={0.3} stroke="none" />
+  return <Dot cx={cx} cy={cy} r={2} fill={color ?? 'var(--data-primary)'} fillOpacity={0.25} stroke="none" />
 }
+
+// ── Date formatter ─────────────────────────────────────────────────────────
+
+function formatDate(iso: string) {
+  const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// ── Sparkline variant ──────────────────────────────────────────────────────
+
+function Sparkline({
+  data,
+  color,
+  formatValue,
+  unit,
+}: {
+  data: TrendDataPoint[]
+  color: string
+  formatValue?: (v: number) => string
+  unit?: string
+}) {
+  const lastPoint = [...data].reverse().find(d => d.value !== null)
+  const secondLast = data.filter(d => d.value !== null).slice(-2)[0]
+
+  let arrow = '→'
+  let arrowColor = 'var(--text-tertiary)'
+  if (lastPoint && secondLast && lastPoint.value !== null && secondLast.value !== null) {
+    if (lastPoint.value > secondLast.value + 0.5) { arrow = '↑'; arrowColor = 'var(--data-primary)' }
+    else if (lastPoint.value < secondLast.value - 0.5) { arrow = '↓'; arrowColor = 'var(--data-anomaly)' }
+  }
+
+  const fmt = formatValue ?? ((v: number) => v.toFixed(1))
+
+  return (
+    <div className="flex items-center gap-2">
+      <ResponsiveContainer width={200} height={48}>
+        <LineChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={color}
+            strokeWidth={1.5}
+            dot={false}
+            connectNulls
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="flex items-center gap-1">
+        {lastPoint?.value !== null && lastPoint?.value !== undefined && (
+          <span style={{ fontSize: 13, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmt(lastPoint.value)}{unit ?? ''}
+          </span>
+        )}
+        <span style={{ fontSize: 13, color: arrowColor }}>{arrow}</span>
+      </div>
+    </div>
+  )
+}
+
+// ── Main chart ─────────────────────────────────────────────────────────────
 
 export function TrendChart({
   data,
@@ -86,39 +194,44 @@ export function TrendChart({
   unit,
   showRollingAvg = true,
   height = 220,
-  color = '#60a5fa',
+  color = 'var(--data-primary)',
   formatValue,
+  sparkline = false,
 }: TrendChartProps) {
   if (!data.length) {
     return (
       <div
-        className="flex items-center justify-center rounded-xl bg-surface-overlay text-slate-500 text-sm"
-        style={{ height }}
+        className="flex items-center justify-center rounded-xl text-sm"
+        style={{
+          height,
+          background: 'var(--bg-card-elevated)',
+          color:      'var(--text-tertiary)',
+        }}
       >
         No data
       </div>
     )
   }
 
-  const fmt = formatValue ?? ((v: number) => v.toFixed(1))
-
-  // Format date label: "Mar 9"
-  const formatDate = (iso: string) => {
-    // Append T12:00:00 so date-only strings are parsed as local noon, not UTC midnight.
-    // Without this, 'YYYY-MM-DD' parses as UTC 00:00 and shifts one day back in US timezones.
-    const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  if (sparkline) {
+    return <Sparkline data={data} color={color} formatValue={formatValue} unit={unit} />
   }
+
+  const fmt = formatValue ?? ((v: number) => v.toFixed(1))
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+      <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
+        <CartesianGrid
+          strokeDasharray="0"
+          vertical={false}
+          stroke="var(--chart-grid)"
+        />
 
         <XAxis
           dataKey="date"
           tickFormatter={formatDate}
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 11, fill: 'var(--chart-axis)', fontFamily: 'Geist, system-ui, sans-serif' }}
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
@@ -126,7 +239,7 @@ export function TrendChart({
         />
 
         <YAxis
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 11, fill: 'var(--chart-axis)', fontFamily: 'Geist, system-ui, sans-serif' }}
           tickLine={false}
           axisLine={false}
           tickFormatter={fmt}
@@ -134,48 +247,48 @@ export function TrendChart({
         />
 
         <Tooltip
-          content={
-            <CustomTooltip unit={unit} formatValue={formatValue} />
-          }
+          content={<CustomTooltip unit={unit} formatValue={formatValue} />}
           labelFormatter={formatDate}
+          cursor={{ stroke: 'var(--border-hover)', strokeWidth: 1 }}
         />
 
-        {/* 30d avg — subtle dashed */}
+        {/* 30d avg — subtle */}
         {showRollingAvg && (
           <Line
             type="monotone"
             dataKey="avg30d"
             name="30d avg"
-            stroke="#94a3b8"
-            strokeWidth={1.5}
+            stroke="var(--data-tertiary)"
+            strokeWidth={1}
             strokeDasharray="4 3"
             dot={false}
             connectNulls
           />
         )}
 
-        {/* 7d avg — prominent */}
+        {/* 7d avg — amber */}
         {showRollingAvg && (
           <Line
             type="monotone"
             dataKey="avg7d"
             name="7d avg"
-            stroke="#fb923c"
-            strokeWidth={2}
+            stroke="var(--data-secondary)"
+            strokeWidth={1.5}
             dot={false}
             connectNulls
           />
         )}
 
-        {/* Raw values */}
+        {/* Raw values — primary teal */}
         <Line
           type="monotone"
           dataKey="value"
           name={metricName}
           stroke={color}
-          strokeWidth={1.5}
+          strokeWidth={2}
+          strokeLinecap="round"
           dot={<CustomDot color={color} />}
-          activeDot={{ r: 4, fill: color }}
+          activeDot={{ r: 4, fill: color, stroke: 'var(--bg-card)', strokeWidth: 2 }}
           connectNulls={false}
         />
       </LineChart>

@@ -1,49 +1,12 @@
-import { createContext, useContext, useEffect, useState } from 'react'
-
-type Theme = 'dark' | 'light'
+/**
+ * ThemeContext — dark-only in v1.
+ * The toggle is a no-op; the interface is preserved so existing imports compile.
+ */
+import { createContext, useContext, useEffect } from 'react'
 
 interface ThemeContextValue {
-  theme: Theme
+  theme: 'dark'
   toggle: () => void
-}
-
-const DARK_VARS: Record<string, string> = {
-  '--color-surface': '#0d0f18',
-  '--color-surface-raised': '#161926',
-  '--color-surface-overlay': '#1e2235',
-  '--color-surface-border': 'rgba(255,255,255,0.07)',
-  '--color-text': '#f1f5f9',
-  '--color-text-muted': '#94a3b8',
-  '--recharts-grid': 'rgba(255,255,255,0.05)',
-  '--recharts-axis': '#64748b',
-}
-
-const LIGHT_VARS: Record<string, string> = {
-  '--color-surface': '#f1f5f9',
-  '--color-surface-raised': '#ffffff',
-  '--color-surface-overlay': '#e2e8f0',
-  '--color-surface-border': 'rgba(0,0,0,0.09)',
-  '--color-text': '#0f172a',
-  '--color-text-muted': '#475569',
-  '--recharts-grid': 'rgba(0,0,0,0.06)',
-  '--recharts-axis': '#64748b',
-}
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement
-  const vars = theme === 'dark' ? DARK_VARS : LIGHT_VARS
-  for (const [key, value] of Object.entries(vars)) {
-    root.style.setProperty(key, value)
-  }
-  if (theme === 'dark') {
-    root.classList.add('dark')
-  } else {
-    root.classList.remove('dark')
-  }
-  // Keep PWA theme-color in sync with the active palette
-  const themeColor = theme === 'dark' ? '#0d0f18' : '#f1f5f9'
-  document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', themeColor)
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -52,20 +15,15 @@ const ThemeContext = createContext<ThemeContextValue>({
 })
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const stored = localStorage.getItem('theme') as Theme | null
-    return stored ?? 'dark'
-  })
-
   useEffect(() => {
-    applyTheme(theme)
-    localStorage.setItem('theme', theme)
-  }, [theme])
-
-  const toggle = () => setTheme(t => (t === 'dark' ? 'light' : 'dark'))
+    // Always dark — ensure the class is set and theme-color meta matches
+    document.documentElement.classList.add('dark')
+    document.querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', '#0a0b0f')
+  }, [])
 
   return (
-    <ThemeContext.Provider value={{ theme, toggle }}>
+    <ThemeContext.Provider value={{ theme: 'dark', toggle: () => {} }}>
       {children}
     </ThemeContext.Provider>
   )

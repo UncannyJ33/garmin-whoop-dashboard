@@ -1,42 +1,88 @@
-/* ── Theme variables — outside @layer so they always win ─────────────────── */
+/* ── PulseEngine Design System — CSS Custom Properties ───────────────────── */
 
-/* Shared accent colors */
 :root {
-  --color-good: #22c55e;
-  --color-moderate: #f59e0b;
-  --color-poor: #ef4444;
-  --color-brand: #818cf8;
-}
+  /* Base palette */
+  --bg-primary: #0a0b0f;
+  --bg-card: #0f1117;
+  --bg-card-elevated: #13151d;
 
-/* Dark theme (default) */
-:root,
-.dark {
-  --color-surface: #0d0f18;
-  --color-surface-raised: #161926;
-  --color-surface-overlay: #1e2235;
-  --color-surface-border: rgba(255, 255, 255, 0.07);
-  --color-text: #f1f5f9;
-  --color-text-muted: #94a3b8;
-  --recharts-grid: rgba(255, 255, 255, 0.05);
-  --recharts-axis: #64748b;
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.10);
+
+  /* Text */
+  --text-primary: rgba(255, 255, 255, 0.88);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-tertiary: rgba(255, 255, 255, 0.30);
+  --text-muted: rgba(255, 255, 255, 0.18);
+
+  /* Status colors */
+  --status-excellent: #5dcaa5;
+  --status-excellent-muted: rgba(29, 158, 117, 0.10);
+  --status-good: #1d9e75;
+  --status-caution: #ef9f27;
+  --status-caution-muted: rgba(186, 117, 23, 0.10);
+  --status-alert: #e8775a;
+  --status-alert-dark: #d85a30;
+  --status-alert-muted: rgba(216, 90, 48, 0.10);
+
+  /* Data visualization */
+  --data-primary: #5dcaa5;
+  --data-secondary: #ef9f27;
+  --data-tertiary: rgba(255, 255, 255, 0.25);
+  --data-anomaly: #e8775a;
+  --chart-grid: rgba(255, 255, 255, 0.04);
+  --chart-axis: rgba(255, 255, 255, 0.18);
+
+  /* Skeleton */
   --skeleton-base: rgba(255, 255, 255, 0.04);
   --skeleton-shine: rgba(255, 255, 255, 0.09);
+
+  /* ── Backwards-compat aliases (used by unrewritten pages) ── */
+  --color-surface: #0a0b0f;
+  --color-surface-raised: #0f1117;
+  --color-surface-overlay: #13151d;
+  --color-surface-border: rgba(255, 255, 255, 0.06);
+  --color-text: rgba(255, 255, 255, 0.88);
+  --color-text-muted: rgba(255, 255, 255, 0.55);
+  --recharts-grid: rgba(255, 255, 255, 0.04);
+  --recharts-axis: rgba(255, 255, 255, 0.18);
+
   color-scheme: dark;
 }
 
-/* Light theme */
-html:not(.dark) {
-  --color-surface: #f1f5f9;
-  --color-surface-raised: #ffffff;
-  --color-surface-overlay: #e2e8f0;
-  --color-surface-border: rgba(0, 0, 0, 0.09);
-  --color-text: #0f172a;
-  --color-text-muted: #475569;
-  --recharts-grid: rgba(0, 0, 0, 0.06);
-  --recharts-axis: #94a3b8;
-  --skeleton-base: rgba(0, 0, 0, 0.05);
-  --skeleton-shine: rgba(0, 0, 0, 0.10);
-  color-scheme: light;
+/* ── Font faces ───────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/Geist-Italic-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/GeistMono-Italic-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
 }
 
 /* ── Tailwind ─────────────────────────────────────────────────────────────── */
@@ -53,43 +99,77 @@ html:not(.dark) {
   }
 
   body {
-    background-color: var(--color-surface);
-    color: var(--color-text);
-    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Geist', system-ui, sans-serif;
   }
 
-  /* Smooth theme transitions */
-  *, *::before, *::after {
-    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+  /* Card hover border transition */
+  * {
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease;
   }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { @apply bg-white/10 rounded-full; }
-  ::-webkit-scrollbar-thumb:hover { @apply bg-white/20; }
+  ::-webkit-scrollbar-thumb { @apply rounded-full; background-color: rgba(255,255,255,0.08); }
+  ::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.16); }
 }
 
 @layer components {
+  /* New design system card */
   .card {
-    @apply bg-surface-raised rounded-2xl border border-surface-border p-4 animate-fade-in;
+    background-color: var(--bg-card);
+    border: 0.5px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .card:hover {
+    border-color: var(--border-hover);
   }
 
   .card-sm {
-    @apply bg-surface-raised rounded-xl border border-surface-border p-3;
+    background-color: var(--bg-card);
+    border: 0.5px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 12px 16px;
+  }
+
+  .card-sm:hover {
+    border-color: var(--border-hover);
+  }
+
+  /* Metric typography */
+  .metric-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    line-height: 1.2;
   }
 
   .metric-value {
-    @apply font-mono text-2xl font-semibold tabular-nums leading-none;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 1.75rem; /* 28px */
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
 
   .metric-value-lg {
-    @apply font-mono text-4xl font-bold tabular-nums leading-none;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 2rem; /* 32px */
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
 
-  .metric-label {
-    @apply text-2xs font-semibold uppercase tracking-widest text-slate-500;
-  }
-
+  /* Skeleton loading state */
   .skeleton {
     background: linear-gradient(
       90deg,
@@ -101,78 +181,76 @@ html:not(.dark) {
     @apply animate-shimmer rounded-lg;
   }
 
-  .status-good     { @apply border-good/40 bg-good/5; }
-  .status-moderate { @apply border-moderate/40 bg-moderate/5; }
-  .status-poor     { @apply border-poor/40 bg-poor/5; }
+  /* Status left-border cards (for backwards compat with existing pages) */
+  .status-good     { border-left: 2px solid var(--status-excellent); background-color: var(--status-excellent-muted); }
+  .status-moderate { border-left: 2px solid var(--status-caution);   background-color: var(--status-caution-muted);   }
+  .status-poor     { border-left: 2px solid var(--status-alert);     background-color: var(--status-alert-muted);     }
 }
 
-/*
- * Override Tailwind's build-time-baked surface colors with live CSS vars.
- * Rules outside @layer always win over @layer utilities (CSS Cascade Layers spec).
- */
+/* ── CSS-var-backed surface overrides (backwards compat) ─────────────────── */
 .bg-surface         { background-color: var(--color-surface); }
 .bg-surface-raised  { background-color: var(--color-surface-raised); }
 .bg-surface-overlay { background-color: var(--color-surface-overlay); }
 .bg-surface-border  { background-color: var(--color-surface-border); }
 .border-surface-border { border-color: var(--color-surface-border); }
 
-/* PWA safe-area insets (iOS notch / home indicator) */
+/* ── PWA safe-area insets ─────────────────────────────────────────────────── */
 .safe-top    { padding-top:    env(safe-area-inset-top,    0px); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
-.safe-x      { padding-left:  env(safe-area-inset-left,   0px);
-               padding-right: env(safe-area-inset-right,  0px); }
+.safe-x      { padding-left:   env(safe-area-inset-left,   0px);
+               padding-right:  env(safe-area-inset-right,  0px); }
 
-/* Recharts dark-mode overrides */
+/* ── Recharts overrides ───────────────────────────────────────────────────── */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
-  stroke: var(--recharts-grid);
+  stroke: var(--chart-grid);
 }
 .recharts-text {
-  fill: var(--recharts-axis) !important;
+  fill: var(--chart-axis) !important;
   font-size: 11px;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Geist', sans-serif;
 }
 .recharts-tooltip-wrapper {
   outline: none !important;
 }
+/* Hide Recharts default axis lines and ticks */
+.recharts-xAxis .recharts-cartesian-axis-line,
+.recharts-yAxis .recharts-cartesian-axis-line,
+.recharts-xAxis .recharts-cartesian-axis-tick-line,
+.recharts-yAxis .recharts-cartesian-axis-tick-line {
+  display: none;
+}
+/* Vertical grid off by default */
+.recharts-cartesian-grid-vertical line {
+  display: none;
+}
 
-/* Privacy policy page typography */
+/* ── Prefers reduced motion ───────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Privacy policy page typography ──────────────────────────────────────── */
 .prose-policy {
-  color: #cbd5e1; /* slate-300 */
+  color: var(--text-secondary);
   line-height: 1.75;
   font-size: 0.9375rem;
 }
-.prose-policy section {
-  margin-bottom: 2.5rem;
-}
+.prose-policy section { margin-bottom: 2.5rem; }
 .prose-policy h2 {
   font-size: 1.0625rem;
   font-weight: 600;
-  color: #f1f5f9; /* slate-100 */
+  color: var(--text-primary);
   margin-bottom: 0.75rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid var(--border-subtle);
 }
-.prose-policy p {
-  margin-bottom: 1rem;
-}
-.prose-policy ul {
-  list-style: disc;
-  padding-left: 1.5rem;
-  margin-bottom: 1rem;
-}
-.prose-policy li {
-  margin-bottom: 0.5rem;
-}
-.prose-policy strong {
-  color: #e2e8f0; /* slate-200 */
-  font-weight: 500;
-}
-.prose-policy a {
-  color: #818cf8; /* brand */
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.prose-policy a:hover {
-  color: #a5b4fc;
-}
+.prose-policy p { margin-bottom: 1rem; }
+.prose-policy ul { list-style: disc; padding-left: 1.5rem; margin-bottom: 1rem; }
+.prose-policy li { margin-bottom: 0.5rem; }
+.prose-policy strong { color: var(--text-primary); font-weight: 500; }
+.prose-policy a { color: var(--status-excellent); text-decoration: underline; text-underline-offset: 2px; }
+.prose-policy a:hover { color: #7dd8b8; }

@@ -1,23 +1,47 @@
+/**
+ * MetricCard — workhorse metric display component.
+ *
+ * Design spec §3.2:
+ * - bg-card background, border-subtle border, 12px radius, 16px 20px padding
+ * - Label: 11px uppercase tracked text-secondary
+ * - Value: 28-32px weight 600 text-primary
+ * - Delta: 12px, teal=improvement, coral=decline
+ * - Compact variant: 12px 16px padding, 24px value
+ * - Status variant: 2px left border in status color, NOT colored background
+ */
+
+export type MetricStatus = 'good' | 'moderate' | 'poor' | 'neutral'
+
 interface MetricCardProps {
   label: string
   value: string | number | null
   unit?: string
-  delta?: number | null        // e.g. +5.2 or -3.1
-  deltaLabel?: string          // e.g. "vs yesterday"
-  status?: 'good' | 'moderate' | 'poor' | 'neutral'
-  subtext?: string             // secondary line below value
+  delta?: number | null
+  deltaLabel?: string
+  /** When set, adds a 2px left border in the status color */
+  status?: MetricStatus
+  subtext?: string
+  compact?: boolean
   className?: string
 }
 
-const STATUS_COLORS = {
-  good:     { value: 'text-good',     delta: 'text-good',     badge: 'bg-good/10 border-good/30' },
-  moderate: { value: 'text-moderate', delta: 'text-moderate', badge: 'bg-moderate/10 border-moderate/30' },
-  poor:     { value: 'text-poor',     delta: 'text-poor',     badge: 'bg-poor/10 border-poor/30' },
-  neutral:  { value: 'text-slate-800 dark:text-slate-100',delta: 'text-slate-400',badge: 'bg-surface-overlay border-surface-border' },
+const STATUS_BORDER: Record<MetricStatus, string> = {
+  good:     'var(--status-excellent)',
+  moderate: 'var(--status-caution)',
+  poor:     'var(--status-alert)',
+  neutral:  'transparent',
 }
 
-function deltaArrow(delta: number): string {
-  return delta > 0 ? '↑' : '↓'
+/** Positive delta = improvement for most metrics (teal). Negative = decline (coral). */
+function DeltaLine({ delta, unit }: { delta: number; unit?: string }) {
+  const isPositive = delta >= 0
+  const color = isPositive ? 'var(--status-excellent)' : 'var(--status-alert)'
+  const arrow = isPositive ? '↑' : '↓'
+  return (
+    <p style={{ fontSize: 12, color, lineHeight: 1.3 }}>
+      {arrow} {Math.abs(delta).toFixed(1)}{unit ?? ''}
+    </p>
+  )
 }
 
 export function MetricCard({
@@ -28,32 +52,98 @@ export function MetricCard({
   deltaLabel = 'vs yesterday',
   status = 'neutral',
   subtext,
+  compact = false,
   className = '',
 }: MetricCardProps) {
-  const colors = STATUS_COLORS[status]
+  const borderColor = STATUS_BORDER[status]
+  const padding = compact ? '12px 16px' : '16px 20px'
+  const valueSize = compact ? 24 : 28
 
   return (
-    <div className={`card-sm flex flex-col gap-1.5 ${colors.badge} border ${className}`}>
-      <p className="metric-label">{label}</p>
+    <div
+      className={className}
+      style={{
+        background:   'var(--bg-card)',
+        border:       '0.5px solid var(--border-subtle)',
+        borderLeft:   status !== 'neutral' ? `2px solid ${borderColor}` : '0.5px solid var(--border-subtle)',
+        borderRadius: status !== 'neutral' ? '0 12px 12px 0' : 12,
+        padding,
+        display:      'flex',
+        flexDirection:'column',
+        gap:          6,
+        transition:   'border-color 150ms ease',
+      }}
+      onMouseEnter={e => {
+        if (status === 'neutral') e.currentTarget.style.borderColor = 'var(--border-hover)'
+      }}
+      onMouseLeave={e => {
+        if (status === 'neutral') e.currentTarget.style.borderColor = 'var(--border-subtle)'
+      }}
+    >
+      {/* Label */}
+      <p
+        style={{
+          fontSize:      11,
+          fontWeight:    500,
+          letterSpacing: '0.07em',
+          textTransform: 'uppercase',
+          color:         'var(--text-secondary)',
+          lineHeight:    1.2,
+        }}
+      >
+        {label}
+      </p>
 
-      <div className="flex items-baseline gap-1">
+      {/* Value */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
         {value !== null && value !== undefined ? (
           <>
-            <span className={`metric-value ${colors.value}`}>{value}</span>
-            {unit && <span className="text-sm text-slate-400">{unit}</span>}
+            <span
+              style={{
+                fontSize:           valueSize,
+                fontWeight:         600,
+                color:              'var(--text-primary)',
+                lineHeight:         1,
+                fontFamily:         "'Geist', system-ui, sans-serif",
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {value}
+            </span>
+            {unit && (
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{unit}</span>
+            )}
           </>
         ) : (
-          <span className="metric-value text-slate-400">—</span>
+          <span
+            style={{
+              fontSize:   valueSize,
+              fontWeight: 600,
+              color:      'var(--text-tertiary)',
+              lineHeight: 1,
+            }}
+          >
+            —
+          </span>
         )}
       </div>
 
+      {/* Delta */}
       {delta !== null && delta !== undefined && (
-        <p className={`text-xs font-medium ${colors.delta}`}>
-          {deltaArrow(delta)} {Math.abs(delta).toFixed(1)}{unit ?? ''} {deltaLabel}
+        <DeltaLine delta={delta} unit={unit} />
+      )}
+      {deltaLabel && delta !== null && delta !== undefined && (
+        <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: -4 }}>
+          {deltaLabel}
         </p>
       )}
 
-      {subtext && <p className="text-2xs text-slate-500 leading-tight">{subtext}</p>}
+      {/* Subtext */}
+      {subtext && (
+        <p style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.4 }}>
+          {subtext}
+        </p>
+      )}
     </div>
   )
 }

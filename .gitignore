@@ -41,3 +41,6 @@ opus_plan_src_files/
 
 # Screenshots dumped to repo root
 *.png
+
+# Font source folder (fonts are copied to frontend-react/public/fonts/)
+geist-font-1.8.0/

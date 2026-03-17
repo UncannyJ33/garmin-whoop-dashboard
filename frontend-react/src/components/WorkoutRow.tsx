@@ -1,3 +1,13 @@
+/**
+ * WorkoutRow — expandable row in the workout log.
+ *
+ * Design spec §3.6:
+ * Collapsed: date (secondary), type (primary), duration, strain (colored), source badge, chevron.
+ * Expanded: sections with border-subtle dividers, running dynamics sub-section, HR zone bar.
+ * Source badge: 10px, 4px 8px padding, subtle tint, 4px radius.
+ * HR zone bar: blue→teal→green→amber→coral gradient, 8px height, rounded.
+ */
+
 import { useState } from 'react'
 import type { EnrichedWorkout } from '../types/api'
 import { DataSourceBadge } from './DataSourceBadge'
@@ -25,9 +35,70 @@ function fmtVal(v: number | null | undefined, digits = 1, suffix = ''): string {
   return v !== null && v !== undefined ? `${v.toFixed(digits)}${suffix}` : '—'
 }
 
-// HR Zone bar
+/** Colored strain value — brighter at higher intensity */
+function StrainValue({ strain }: { strain: number | null }) {
+  if (strain === null) return <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+  const color = strain >= 15
+    ? 'var(--status-alert)'
+    : strain >= 10
+    ? 'var(--status-caution)'
+    : 'var(--text-secondary)'
+  return (
+    <span
+      style={{
+        color,
+        fontFamily:         "'Geist Mono', ui-monospace, monospace",
+        fontVariantNumeric: 'tabular-nums',
+        fontSize:           12,
+        fontWeight:         600,
+      }}
+    >
+      {strain.toFixed(1)}
+    </span>
+  )
+}
+
+/** Inline detail cell in expanded sections */
+function DetailCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        background:   'var(--bg-card-elevated)',
+        borderRadius: 8,
+        padding:      '8px 10px',
+      }}
+    >
+      <p
+        style={{
+          fontSize:      10,
+          fontWeight:    500,
+          letterSpacing: '0.07em',
+          textTransform: 'uppercase',
+          color:         'var(--text-secondary)',
+          marginBottom:  2,
+        }}
+      >
+        {label}
+      </p>
+      <p
+        style={{
+          fontFamily:         "'Geist Mono', ui-monospace, monospace",
+          fontVariantNumeric: 'tabular-nums',
+          fontSize:           13,
+          color:              'var(--text-primary)',
+        }}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+// ── HR Zone bar ────────────────────────────────────────────────────────────
+
 function HRZoneBar({ zones }: { zones: EnrichedWorkout['hr_zone_minutes'] }) {
-  const ZONE_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#f97316', '#ef4444']
+  // Blue → Teal → Green → Amber → Coral
+  const ZONE_COLORS = ['#3b82f6', 'var(--status-excellent)', '#22c55e', 'var(--status-caution)', 'var(--status-alert)']
   const ZONE_LABELS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']
 
   const values = [
@@ -38,25 +109,34 @@ function HRZoneBar({ zones }: { zones: EnrichedWorkout['hr_zone_minutes'] }) {
     zones.zone5 ?? 0,
   ]
   const total = values.reduce((a, b) => a + b, 0)
-  if (total === 0) return <p className="text-xs text-slate-500">No HR zone data</p>
+  if (total === 0) {
+    return <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No HR zone data</p>
+  }
 
   return (
     <div className="space-y-1.5">
-      <div className="flex h-4 w-full overflow-hidden rounded gap-px">
+      <div
+        className="flex w-full overflow-hidden rounded-full"
+        style={{ height: 8, gap: 1 }}
+      >
         {values.map((v, i) =>
           v > 0 ? (
             <div
               key={i}
               title={`${ZONE_LABELS[i]}: ${v.toFixed(0)}m`}
-              style={{ width: `${(v / total) * 100}%`, backgroundColor: ZONE_COLORS[i] }}
+              style={{
+                width:           `${(v / total) * 100}%`,
+                backgroundColor: ZONE_COLORS[i],
+                flexShrink:      0,
+              }}
             />
           ) : null,
         )}
       </div>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         {values.map((v, i) =>
           v > 0 ? (
-            <span key={i} className="text-2xs text-slate-500">
+            <span key={i} style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
               <span style={{ color: ZONE_COLORS[i] }}>●</span> {ZONE_LABELS[i]} {v.toFixed(0)}m
             </span>
           ) : null,
@@ -66,6 +146,8 @@ function HRZoneBar({ zones }: { zones: EnrichedWorkout['hr_zone_minutes'] }) {
   )
 }
 
+// ── Exercise Sets ──────────────────────────────────────────────────────────
+
 function ExerciseSets({ workoutId }: { workoutId: string }) {
   const setsQ = useExerciseSets(workoutId, true)
 
@@ -73,10 +155,14 @@ function ExerciseSets({ workoutId }: { workoutId: string }) {
     return <div className="skeleton h-16 rounded-lg" />
   }
   if (!setsQ.data?.length) {
-    return <p className="text-xs text-slate-500">No exercise set data — run a sync to fetch strength set details.</p>
+    return (
+      <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+        No exercise set data — run a sync to fetch strength set details.
+      </p>
+    )
   }
 
-  // Group by exercise name (fall back to category or 'Unknown')
+  // Group by exercise name
   const grouped: Record<string, typeof setsQ.data> = {}
   for (const s of setsQ.data) {
     const key = (s.exercise_name || s.exercise_category || 'Unknown')
@@ -92,46 +178,46 @@ function ExerciseSets({ workoutId }: { workoutId: string }) {
     <div className="space-y-3">
       {Object.entries(grouped).map(([exName, sets]) => {
         const totalVolumeLb = sets.reduce((sum, s) => {
-          const reps = s.repetition_count ?? 0
-          const kg = s.weight_kg ?? 0
-          return sum + reps * kg * KG_TO_LB
+          return sum + (s.repetition_count ?? 0) * (s.weight_kg ?? 0) * KG_TO_LB
         }, 0)
         return (
           <div key={exName}>
-            <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+            <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 4 }}>
               {exName}
               {totalVolumeLb > 0 && (
-                <span className="ml-2 font-normal text-slate-500">
+                <span style={{ marginLeft: 8, fontWeight: 400, color: 'var(--text-tertiary)' }}>
                   · {totalVolumeLb.toFixed(0)} lb total
                 </span>
               )}
             </p>
-            <table className="w-full text-xs">
+            <table className="w-full" style={{ fontSize: 12 }}>
               <thead>
-                <tr className="text-left border-b border-surface-border">
-                  <th className="pb-1 pr-4 text-slate-500 font-medium">Set</th>
-                  <th className="pb-1 pr-4 text-slate-500 font-medium">Reps</th>
-                  <th className="pb-1 pr-4 text-slate-500 font-medium">Weight (lb)</th>
-                  <th className="pb-1 text-slate-500 font-medium hidden sm:table-cell">Volume (lb)</th>
+                <tr style={{ borderBottom: '0.5px solid var(--border-subtle)' }}>
+                  {['Set', 'Reps', 'Weight (lb)', 'Volume (lb)'].map(h => (
+                    <th
+                      key={h}
+                      className="pb-1 pr-4 text-left last:hidden sm:last:table-cell"
+                      style={{ fontWeight: 500, color: 'var(--text-tertiary)' }}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {sets.map((s, i) => {
-                  const lb = s.weight_kg !== null ? s.weight_kg * KG_TO_LB : null
+                  const lb  = s.weight_kg !== null ? s.weight_kg * KG_TO_LB : null
                   const vol = s.repetition_count !== null && lb !== null
                     ? s.repetition_count * lb : null
                   return (
-                    <tr key={i} className="border-b border-surface-border last:border-0">
-                      <td className="py-1.5 pr-4 font-mono text-slate-500">{i + 1}</td>
-                      <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
-                        {s.repetition_count ?? '—'}
-                      </td>
-                      <td className="py-1.5 pr-4 font-mono text-slate-700 dark:text-slate-300">
-                        {lb !== null ? lb.toFixed(1) : 'BW'}
-                      </td>
-                      <td className="py-1.5 font-mono text-slate-700 dark:text-slate-300 hidden sm:table-cell">
-                        {vol !== null ? vol.toFixed(0) : '—'}
-                      </td>
+                    <tr
+                      key={i}
+                      style={{ borderBottom: i < sets.length - 1 ? '0.5px solid var(--border-subtle)' : 'none' }}
+                    >
+                      <td className="py-1.5 pr-4" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-tertiary)' }}>{i + 1}</td>
+                      <td className="py-1.5 pr-4" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-primary)' }}>{s.repetition_count ?? '—'}</td>
+                      <td className="py-1.5 pr-4" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-primary)' }}>{lb !== null ? lb.toFixed(1) : 'BW'}</td>
+                      <td className="py-1.5 hidden sm:table-cell" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-primary)' }}>{vol !== null ? vol.toFixed(0) : '—'}</td>
                     </tr>
                   )
                 })}
@@ -144,6 +230,8 @@ function ExerciseSets({ workoutId }: { workoutId: string }) {
   )
 }
 
+// ── WorkoutRow ─────────────────────────────────────────────────────────────
+
 interface WorkoutRowProps {
   workout: EnrichedWorkout
 }
@@ -154,40 +242,67 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
   const source = w.matched ? 'both' : w.primary_source as 'whoop' | 'garmin' | 'both'
   const activityLabel = (w.activity_type ?? 'Unknown')
     .split('_').map(s => s[0].toUpperCase() + s.slice(1)).join(' ')
-  const isRun = (w.activity_type ?? '').toLowerCase().includes('run')
+  const isRun      = (w.activity_type ?? '').toLowerCase().includes('run')
   const isStrength = STRENGTH_TYPES.has((w.activity_type ?? '').toLowerCase())
 
   return (
-    <div className="card-sm border border-surface-border overflow-hidden">
-      {/* Collapsed row — always visible */}
+    <div
+      style={{
+        background:   'var(--bg-card)',
+        border:       `0.5px solid ${expanded ? 'var(--border-hover)' : 'var(--border-subtle)'}`,
+        borderRadius: 12,
+        overflow:     'hidden',
+        transition:   'border-color 150ms ease',
+      }}
+    >
+      {/* Collapsed row */}
       <button
         className="flex w-full items-center gap-3 text-left"
+        style={{ padding: '12px 16px' }}
         onClick={() => setExpanded(e => !e)}
       >
         {/* Date */}
-        <span className="font-mono text-xs text-slate-400 w-16 flex-shrink-0">
+        <span
+          style={{
+            fontFamily:         "'Geist Mono', ui-monospace, monospace",
+            fontSize:           11,
+            color:              'var(--text-tertiary)',
+            width:              52,
+            flexShrink:         0,
+          }}
+        >
           {new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </span>
 
         {/* Activity type */}
-        <span className="flex-1 text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{activityLabel}</span>
+        <span
+          className="flex-1 truncate"
+          style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}
+        >
+          {activityLabel}
+        </span>
 
         {/* Duration */}
-        <span className="text-xs text-slate-400 w-14 text-right flex-shrink-0">
+        <span
+          style={{ fontSize: 12, color: 'var(--text-secondary)', width: 52, textAlign: 'right', flexShrink: 0 }}
+        >
           {fmtDur(w.duration_minutes)}
         </span>
 
         {/* Strain */}
-        <span className="font-mono text-xs font-semibold text-chart-orange w-10 text-right flex-shrink-0">
-          {w.strain !== null ? w.strain.toFixed(1) : '—'}
+        <span style={{ width: 36, textAlign: 'right', flexShrink: 0 }}>
+          <StrainValue strain={w.strain} />
         </span>
 
         <DataSourceBadge source={source} />
 
         {/* Chevron */}
         <svg
-          className={`h-4 w-4 text-slate-500 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+          style={{ width: 16, height: 16, color: 'var(--text-tertiary)' }}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
@@ -195,92 +310,162 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="mt-3 pt-3 border-t border-surface-border space-y-4 animate-fade-in">
-          {/* Physiological */}
+        <div
+          className="animate-fade-in"
+          style={{
+            borderTop: '0.5px solid var(--border-subtle)',
+            padding:   '16px',
+            display:   'flex',
+            flexDirection: 'column',
+            gap: 16,
+          }}
+        >
+          {/* Physiological Load */}
           <div>
-            <p className="metric-label mb-2">Physiological Load</p>
+            <p
+              style={{
+                fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
+                textTransform: 'uppercase', color: 'var(--text-secondary)',
+                marginBottom: 8,
+              }}
+            >
+              Physiological Load
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                ['Strain', fmtVal(w.strain)],
-                ['Avg HR', w.avg_hr ? `${w.avg_hr} bpm` : '—'],
-                ['Max HR', w.max_hr ? `${w.max_hr} bpm` : '—'],
+                ['Strain',   fmtVal(w.strain)],
+                ['Avg HR',   w.avg_hr  ? `${w.avg_hr} bpm`  : '—'],
+                ['Max HR',   w.max_hr  ? `${w.max_hr} bpm`  : '—'],
                 ['Calories', fmtVal(w.calories_kj, 0, ' kJ')],
               ].map(([label, val]) => (
-                <div key={label} className="bg-surface-overlay rounded-lg p-2">
-                  <p className="metric-label">{label}</p>
-                  <p className="font-mono text-sm text-slate-800 dark:text-slate-200 mt-0.5">{val}</p>
-                </div>
+                <DetailCell key={label} label={label} value={val} />
               ))}
             </div>
           </div>
 
           {/* Performance */}
           <div>
-            <p className="metric-label mb-2">Performance</p>
+            <p
+              style={{
+                fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
+                textTransform: 'uppercase', color: 'var(--text-secondary)',
+                marginBottom: 8,
+              }}
+            >
+              Performance
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                ['Distance', fmtDist(w.distance_m)],
-                ['Pace', fmtVal(w.avg_pace_min_per_km, 2, ' /km')],
-                ['Elevation', fmtVal(w.elevation_gain_m, 0, ' m')],
-                ['Cadence', fmtVal(w.avg_cadence, 0, ' spm')],
-                ['Training Load', fmtVal(w.training_load)],
+                ['Distance',       fmtDist(w.distance_m)],
+                ['Pace',           fmtVal(w.avg_pace_min_per_km, 2, ' /km')],
+                ['Elevation',      fmtVal(w.elevation_gain_m, 0, ' m')],
+                ['Cadence',        fmtVal(w.avg_cadence, 0, ' spm')],
+                ['Training Load',  fmtVal(w.training_load)],
                 ['Aerobic Effect', fmtVal(w.training_effect_aerobic)],
-                ['VO2 Max', fmtVal(w.vo2_max)],
-                ['Intensity', w.strain_per_minute ? `${w.strain_per_minute.toFixed(3)}/min` : '—'],
+                ['VO2 Max',        fmtVal(w.vo2_max)],
+                ['Intensity',      w.strain_per_minute ? `${w.strain_per_minute.toFixed(3)}/min` : '—'],
               ].map(([label, val]) => (
-                <div key={label} className="bg-surface-overlay rounded-lg p-2">
-                  <p className="metric-label">{label}</p>
-                  <p className="font-mono text-sm text-slate-800 dark:text-slate-200 mt-0.5">{val}</p>
-                </div>
+                <DetailCell key={label} label={label} value={val} />
               ))}
             </div>
           </div>
 
-          {/* Running dynamics — only for runs */}
+          {/* Running Dynamics */}
           {isRun && (
             <div>
-              <p className="metric-label mb-2">Running Dynamics</p>
+              <p
+                style={{
+                  fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
+                  textTransform: 'uppercase', color: 'var(--text-secondary)',
+                  marginBottom: 8,
+                }}
+              >
+                Running Dynamics
+              </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
-                  ['Ground Contact', fmtVal(w.avg_ground_contact_time_ms, 0, ' ms')],
-                  ['Vert Oscillation', fmtVal(w.avg_vertical_oscillation_cm, 1, ' cm')],
-                  ['Vert Ratio', fmtVal(w.avg_vertical_ratio_pct, 1, '%')],
-                  ['Stride Length', fmtVal(w.avg_stride_length, 2, ' m')],
+                  ['Ground Contact',    fmtVal(w.avg_ground_contact_time_ms, 0, ' ms')],
+                  ['Vert Oscillation',  fmtVal(w.avg_vertical_oscillation_cm, 1, ' cm')],
+                  ['Vert Ratio',        fmtVal(w.avg_vertical_ratio_pct, 1, '%')],
+                  ['Stride Length',     fmtVal(w.avg_stride_length, 2, ' m')],
                 ].map(([label, val]) => (
-                  <div key={label} className="bg-surface-overlay rounded-lg p-2">
-                    <p className="metric-label">{label}</p>
-                    <p className="font-mono text-sm text-slate-800 dark:text-slate-200 mt-0.5">{val}</p>
-                  </div>
+                  <DetailCell key={label} label={label} value={val} />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Exercise Sets — only for strength */}
+          {/* Exercise Sets */}
           {isStrength && (
             <div>
-              <p className="metric-label mb-2">Exercise Sets</p>
+              <p
+                style={{
+                  fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
+                  textTransform: 'uppercase', color: 'var(--text-secondary)',
+                  marginBottom: 8,
+                }}
+              >
+                Exercise Sets
+              </p>
               <ExerciseSets workoutId={w.id} />
             </div>
           )}
 
           {/* HR Zones */}
           <div>
-            <p className="metric-label mb-2">HR Zones</p>
+            <p
+              style={{
+                fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
+                textTransform: 'uppercase', color: 'var(--text-secondary)',
+                marginBottom: 8,
+              }}
+            >
+              HR Zones
+            </p>
             <HRZoneBar zones={w.hr_zone_minutes} />
           </div>
 
-          {/* Recovery impact */}
+          {/* Recovery Impact */}
           {w.next_day_recovery !== null && (
-            <div className="rounded-lg bg-surface-overlay p-3">
-              <p className="metric-label mb-1">Recovery Impact</p>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+            <div
+              style={{
+                background:   'var(--bg-card-elevated)',
+                borderRadius: 8,
+                padding:      '12px',
+              }}
+            >
+              <p
+                style={{
+                  fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
+                  textTransform: 'uppercase', color: 'var(--text-secondary)',
+                  marginBottom: 4,
+                }}
+              >
+                Recovery Impact
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 Next-day recovery:{' '}
-                <span className="font-mono font-semibold text-slate-800 dark:text-slate-100">
-                  {w.next_day_recovery.toFixed(0)}
+                <span
+                  style={{
+                    fontFamily:         "'Geist Mono'",
+                    fontVariantNumeric: 'tabular-nums',
+                    fontWeight:         600,
+                    color:              'var(--text-primary)',
+                  }}
+                >
+                  {w.next_day_recovery.toFixed(0)}%
                 </span>
                 {w.recovery_impact !== null && (
-                  <span className={`ml-2 font-mono text-xs ${w.recovery_impact >= 0 ? 'text-good' : 'text-poor'}`}>
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      fontFamily: "'Geist Mono'",
+                      fontSize:   12,
+                      color:      w.recovery_impact >= 0
+                        ? 'var(--status-excellent)'
+                        : 'var(--status-alert)',
+                    }}
+                  >
                     ({w.recovery_impact >= 0 ? '+' : ''}{w.recovery_impact.toFixed(1)} vs 7d avg)
                   </span>
                 )}
