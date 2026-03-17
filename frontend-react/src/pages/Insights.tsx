@@ -4,7 +4,8 @@
  * Sections:
  *   1. Weekly Digest       — 2–3 programmatic DigestCards from WeeklySummary
  *   2. Metric Explorer     — TrendChart for any of 9 metrics, trend badge with context
- *   3. Anomaly Feed        — card-style enriched anomaly list, last 20, date desc
+ *   3. Correlations        — HRV↔Recovery, Strain↔Next-Day, Sleep↔Body Battery
+ *   4. Anomaly Feed        — card-style enriched anomaly list, last 20, date desc
  *   4. Correlations        — natural-language cards; Strain↔Recovery includes scatter
  *   5. (Future placeholder — LLM-powered personalized insights, not yet built)
  */
@@ -592,69 +593,6 @@ export function Insights() {
         )}
       </div>
 
-      {/* ── SECTION 3: Anomaly Feed ───────────────────────────────────────────── */}
-      <div className="card space-y-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Anomaly Feed</p>
-          <p className="text-2xs text-slate-500 mt-0.5">
-            Days that deviated ≥2σ from your rolling baseline — sorted by date
-          </p>
-        </div>
-
-        {anomaliesQ.isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="skeleton h-16 rounded-xl" />
-            ))}
-          </div>
-        ) : anomaliesQ.isError ? (
-          <p className="text-sm text-slate-400">Could not load anomaly data.</p>
-        ) : anomalies.length === 0 ? (
-          <p className="text-sm text-slate-400">
-            No anomalies in the last {explorerDays} days — your metrics are consistent.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {anomalies.map((a, i) => {
-              const sty = severityStyle(a.severity)
-              const dotColor = ANOMALY_COLORS[a.metric] ?? '#94a3b8'
-              const isLIB    = LOWER_IS_BETTER_ANOMALY.has(a.metric)
-              const isGood   = isLIB ? a.direction === 'low' : a.direction === 'high'
-              return (
-                <div
-                  key={i}
-                  className={`rounded-xl px-4 py-3 border ${sty.bg} ${sty.border}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="h-2 w-2 rounded-full flex-shrink-0 mt-0.5"
-                        style={{ backgroundColor: dotColor }}
-                      />
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
-                          {a.metric}
-                          <span className={`ml-1.5 font-semibold ${isGood ? 'text-good' : 'text-poor'}`}>
-                            {a.direction === 'high' ? '↑' : '↓'} {a.value.toFixed(1)}
-                          </span>
-                        </p>
-                        <p className="text-xs text-slate-500 mt-0.5 leading-snug">
-                          {anomalyContext(a.metric, a.direction, a.value)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      <span className="font-mono text-2xs text-slate-500">{fmtDate(a.date)}</span>
-                      <span className={`text-2xs font-semibold ${sty.text}`}>{sty.label}</span>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
       {/* ── SECTION 4: Correlations ──────────────────────────────────────────── */}
       <div className="space-y-3">
         <div className="px-0.5">
@@ -803,7 +741,70 @@ export function Insights() {
         )}
       </div>
 
-      {/* ── SECTION 5: Future — LLM-powered personalized insights ─────────────── */}
+      {/* ── SECTION 5: Anomaly Feed ───────────────────────────────────────────── */}
+      <div className="card space-y-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Anomaly Feed</p>
+          <p className="text-2xs text-slate-500 mt-0.5">
+            Days that deviated ≥2σ from your rolling baseline — sorted by date
+          </p>
+        </div>
+
+        {anomaliesQ.isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="skeleton h-16 rounded-xl" />
+            ))}
+          </div>
+        ) : anomaliesQ.isError ? (
+          <p className="text-sm text-slate-400">Could not load anomaly data.</p>
+        ) : anomalies.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            No anomalies in the last {explorerDays} days — your metrics are consistent.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {anomalies.map((a, i) => {
+              const sty = severityStyle(a.severity)
+              const dotColor = ANOMALY_COLORS[a.metric] ?? '#94a3b8'
+              const isLIB    = LOWER_IS_BETTER_ANOMALY.has(a.metric)
+              const isGood   = isLIB ? a.direction === 'low' : a.direction === 'high'
+              return (
+                <div
+                  key={i}
+                  className={`rounded-xl px-4 py-3 border ${sty.bg} ${sty.border}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="h-2 w-2 rounded-full flex-shrink-0 mt-0.5"
+                        style={{ backgroundColor: dotColor }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                          {a.metric}
+                          <span className={`ml-1.5 font-semibold ${isGood ? 'text-good' : 'text-poor'}`}>
+                            {a.direction === 'high' ? '↑' : '↓'} {a.value.toFixed(1)}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5 leading-snug">
+                          {anomalyContext(a.metric, a.direction, a.value)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      <span className="font-mono text-2xs text-slate-500">{fmtDate(a.date)}</span>
+                      <span className={`text-2xs font-semibold ${sty.text}`}>{sty.label}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── SECTION 6: Future — LLM-powered personalized insights ─────────────── */}
       {/* TODO: When /api/insights/weekly-digest endpoint is available, render
           an AI-generated insight feed here. Each item will include a headline,
           supporting evidence from the user's data, and a recommended action.
