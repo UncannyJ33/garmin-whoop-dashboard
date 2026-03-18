@@ -2,7 +2,7 @@
 
 ## Project
 Production fitness dashboard (PulseEngine) integrating Garmin + Whoop data. Multi-user, production-grade app — not a personal-only tool. Users register accounts, connect their own Whoop via OAuth, and see only their own data.
-Python + FastAPI + PostgreSQL (Supabase) + React 18 (TypeScript + Vite + TailwindCSS + Recharts). Deployed on Railway at pulsebuilt.net.
+Python + FastAPI + PostgreSQL (Supabase) + React 18 (TypeScript + Vite + TailwindCSS + Recharts). Deployed on Railway at engine.pulsebuilt.net.
 
 ## Reference Docs
 Full project planning docs are in opus_plan_src_files/. Read these when you need:
@@ -28,10 +28,10 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - **New hooks**: `useWeeklyDigest()` (`/api/insights/weekly-digest` — live on backend), `useEnrichedAnomalies()` (`/api/trends/anomalies/enriched` — live, returns [] when no enriched data), `useTrainingLoadRatio()`, `useLimitingFactors()`
 - **New components**: `ACWRGauge.tsx`, `ReadinessArcGauge.tsx` (SVG semicircle, sweep-flag=1), `LimitingFactorCard.tsx`
 - **Bug fixes**: Sleep/deep-sleep anomaly context converts minutes→hours before display (`value/60`); Body Battery low-direction copy corrected; `formatValue` in metric explorer also divides by 60 for sleep metrics
-- **Build**: `npm run build` passes clean; TypeScript strict check passes; deployed to pulsebuilt.net
+- **Build**: `npm run build` passes clean; TypeScript strict check passes; deployed to engine.pulsebuilt.net
 
 ### Phase 5 milestones:
-- Task 5.7 (custom domain): pulsebuilt.net is live on Railway
+- Task 5.7 (custom domain): engine.pulsebuilt.net is live on Railway (migrated from pulsebuilt.net)
 - Multi-tenancy: complete — all data tables have user_id; all queries scoped to current user; migration 007 adds whoop_cycles.user_id
 - Task 5.11 (smoke test): all 6 checklist items verified in production (auth, Whoop OAuth, data display, background sync, mobile PWA, error handling)
 - Task 5.10 (Whoop app submission): pending Whoop developer portal approval — no code changes needed
@@ -162,7 +162,7 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
   - Normalizer: `Normalizer(db, user_id)` — scopes source queries and output rows
   - Scheduler: `_get_owner_user_id()` queries first registered user for background syncs
   - Registration: open — any number of accounts can be created
-- **Railway deployment**: `https://pulsebuilt.net` (custom domain)
+- **Railway deployment**: `https://engine.pulsebuilt.net` (custom domain)
   - Single container: FastAPI serves React `dist/` at `/` + all `/api/*` routes
   - Auto-deploys on push to `main` branch
   - PORT env var set by Railway dynamically
@@ -234,13 +234,22 @@ These decisions were made during the schema review phase (comparison_tool.py) an
 
 Local `.env` should have `DATABASE_URL=sqlite:///data/fitness_dashboard.db` (or point at Supabase for prod-parity testing). `JWT_SECRET` must be set even locally.
 
+## Domain Structure
+- **pulsebuilt.net** — Pulse Built studio landing page (`landing/index.html`); deployed via Cloudflare Pages
+- **engine.pulsebuilt.net** — PulseEngine app; deployed via Railway (see below)
+- Both domains managed via Cloudflare DNS
+
 ## Production Deployment
-- **Platform**: Railway — `https://garmin-whoop-dashboard-production.up.railway.app`
+- **Platform**: Railway — `https://engine.pulsebuilt.net` (custom domain; Railway origin: `https://garmin-whoop-dashboard-production.up.railway.app`)
 - **Deploy**: push to `main` branch → Railway auto-builds Docker image and deploys
 - **Container**: multi-stage Dockerfile (node:20-slim builds React → python:3.11-slim runs FastAPI + serves `dist/`)
 - **Startup sequence**: migrations → sequence reset → uvicorn on `$PORT`
 - **FastAPI serves React**: `src/api/main.py` mounts `/assets` as StaticFiles + `spa_fallback` catch-all; active when `frontend-react/dist/` exists
 - **Same-origin**: `VITE_API_URL` not needed — empty string default means `/api/...` goes to same host
+- **Railway env vars to update for subdomain migration**:
+  - `WHOOP_REDIRECT_URI=https://engine.pulsebuilt.net/api/auth/whoop/callback`
+  - `CORS_ORIGINS=https://engine.pulsebuilt.net`
+- **Landing page deployment**: Cloudflare Pages → connect GitHub repo, set output directory to `landing/`, assign `pulsebuilt.net` custom domain
 
 ## Docker / Local Container Build
 - `docker compose up --build` → everything on port 8000
