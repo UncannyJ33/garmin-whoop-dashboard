@@ -199,6 +199,7 @@ class SyncStatusItem(BaseModel):
     error_message: str | None = None
     next_sync_at: str | None = None
     scheduler_running: bool | None = None
+    is_running: bool = False
 
 
 class SyncTriggerResponse(BaseModel):

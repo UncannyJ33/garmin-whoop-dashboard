@@ -197,11 +197,11 @@ export function ReadinessArcGauge({
           {score !== null ? (
             <span
               style={{
-                fontSize:   62,
-                fontWeight: 700,
-                lineHeight: 1,
-                color:      scoreColor,
-                fontFamily: "'Geist', system-ui, sans-serif",
+                fontSize:           62,
+                fontWeight:         700,
+                lineHeight:         1,
+                color:              scoreColor,
+                fontFamily:         "'Geist', system-ui, sans-serif",
                 fontVariantNumeric: 'tabular-nums',
               }}
             >

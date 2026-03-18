@@ -197,6 +197,7 @@ export interface SyncStatusItem {
   status: string | null
   records_stored: number | null
   error_message: string | null
+  is_running: boolean
 }
 
 // GET /api/sync/status returns list[SyncStatusItem]

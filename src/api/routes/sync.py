@@ -1,6 +1,7 @@
 """Sync status and trigger API routes."""
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +17,8 @@ from src.clients.whoop_auth import WhoopAuth
 from src.database.connection import get_session_factory as _get_session_factory
 from src.ingestion.scheduler import _get_owner_user_id, get_scheduler_status
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 _KNOWN_SOURCES = ("whoop", "garmin")
@@ -25,6 +28,15 @@ _SCHEDULER_JOB_IDS = {
     "garmin": "garmin_incremental_sync",
     "whoop": "whoop_incremental_sync",
 }
+
+# In-process state for manually triggered syncs (cleared when job completes/errors)
+_running_syncs: dict[str, bool] = {}
+
+# Per-user snapshot of the last DB-fetched sync rows — served directly while a sync
+# is running so the status endpoint never waits on a busy DB connection pool.
+# Keyed by user_id → source → row dict.  Cleared on sync completion so the next
+# poll always fetches fresh data from the DB.
+_status_cache: dict[str, dict[str, dict]] = {}
 
 
 @router.get(
@@ -37,6 +49,24 @@ async def sync_status(
     current_user: User = Depends(get_current_user),
 ) -> list[SyncStatusItem]:
     """Return the most recent completed sync record for Whoop and Garmin."""
+    uid = current_user.id
+    scheduler_status = get_scheduler_status()
+
+    # Fast path: while a sync is in flight serve the cached row snapshot so we
+    # never wait on a busy DB connection pool.  Cache is invalidated on completion.
+    if any(_running_syncs.values()) and uid in _status_cache:
+        result = []
+        for src in _KNOWN_SOURCES:
+            cached = _status_cache[uid].get(src)
+            item = SyncStatusItem(**cached) if cached else SyncStatusItem(source=src, status="never_synced")
+            job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
+            item.next_sync_at = job_info.get("next_run_at")
+            item.scheduler_running = scheduler_status["running"]
+            item.is_running = _running_syncs.get(src, False)
+            result.append(item)
+        return result
+
+    # Normal path: query DB, populate cache for next in-flight poll.
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -56,22 +86,23 @@ async def sync_status(
                 ORDER BY s.source
                 """
                 ),
-                {"uid": current_user.id},
+                {"uid": uid},
             )
             .mappings()
             .all()
         )
 
+    _status_cache[uid] = {r["source"]: dict(r) for r in rows}
     by_source = {r["source"]: SyncStatusItem(**dict(r)) for r in rows}
 
     # Enrich with scheduler metadata (next run time + running state)
-    scheduler_status = get_scheduler_status()
     result = []
     for src in _KNOWN_SOURCES:
         item = by_source.get(src, SyncStatusItem(source=src, status="never_synced"))
         job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
         item.next_sync_at = job_info.get("next_run_at")
         item.scheduler_running = scheduler_status["running"]
+        item.is_running = _running_syncs.get(src, False)
         result.append(item)
     return result
 
@@ -110,6 +141,38 @@ async def data_stats(
     )
 
 
+async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
+    """Background coroutine: run a full 30-day incremental sync and clear the running flag.
+
+    Errors are logged and suppressed so the caller is never blocked.
+    """
+    SessionFactory = _get_session_factory(engine)
+    db = SessionFactory()
+    try:
+        now = datetime.now(tz=UTC)
+        start = now - timedelta(days=30)
+        if source == "whoop":
+            from src.ingestion.whoop_pipeline import WhoopPipeline
+
+            await WhoopPipeline(db, user_id=user_id).run(start=start, end=now)
+        else:
+            from src.ingestion.garmin_pipeline import GarminPipeline
+
+            await asyncio.to_thread(
+                lambda: GarminPipeline(db, user_id=user_id).run(
+                    start=start.date(), end=now.date()
+                )
+            )
+        logger.info("Manual sync complete — source=%s user=%s", source, user_id)
+    except Exception:
+        logger.exception("Manual sync failed — source=%s user=%s", source, user_id)
+    finally:
+        db.close()
+        _running_syncs.pop(source, None)
+        # Invalidate cache so the next status poll fetches fresh data from DB
+        _status_cache.pop(user_id, None)
+
+
 @router.post(
     "/trigger/{source}",
     response_model=SyncTriggerResponse,
@@ -123,9 +186,10 @@ async def trigger_sync(
 ) -> SyncTriggerResponse:
     """Trigger a 30-day incremental sync for the specified source.
 
-    ``source`` must be ``whoop`` or ``garmin``.  Runs synchronously and
-    returns the sync log when complete.  Garmin syncs typically take
-    several minutes due to per-day API calls.
+    ``source`` must be ``whoop`` or ``garmin``.  Returns immediately with
+    ``status="running"``; the sync runs as a background task.  Poll
+    ``GET /api/sync/status`` — the ``is_running`` field transitions to
+    ``false`` when the job finishes.
 
     Authorization:
     - Garmin: only the primary account owner (first registered user) may trigger.
@@ -135,6 +199,12 @@ async def trigger_sync(
         raise HTTPException(
             status_code=400,
             detail=f"Unknown source '{source}'. Valid values: {list(_KNOWN_SOURCES)}",
+        )
+
+    if _running_syncs.get(source):
+        raise HTTPException(
+            status_code=409,
+            detail=f"A {source} sync is already in progress.",
         )
 
     # ── Per-source authorization checks ──────────────────────────────────────
@@ -156,36 +226,13 @@ async def trigger_sync(
             )
 
     now = datetime.now(tz=UTC)
-    start = now - timedelta(days=30)
-    SessionFactory = _get_session_factory(engine)
-    db = SessionFactory()
+    _running_syncs[source] = True
+    asyncio.create_task(_run_sync_task(source, engine, current_user.id))
 
-    try:
-        if source == "whoop":
-            from src.ingestion.whoop_pipeline import WhoopPipeline
-
-            log = await WhoopPipeline(db, user_id=current_user.id).run(start=start, end=now)
-        else:
-            from src.ingestion.garmin_pipeline import GarminPipeline
-
-            log = await asyncio.to_thread(
-                lambda: GarminPipeline(db, user_id=current_user.id).run(
-                    start=start.date(), end=now.date()
-                )
-            )
-        # Read all log fields while session is still open to avoid DetachedInstanceError
-        response = SyncTriggerResponse(
-            source=source,
-            status=log.status,
-            records_fetched=log.records_fetched,
-            records_stored=log.records_stored,
-            started_at=str(log.started_at),
-            completed_at=str(log.completed_at) if log.completed_at else None,
-            error_message=log.error_message,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    finally:
-        db.close()
-
-    return response
+    return SyncTriggerResponse(
+        source=source,
+        status="running",
+        records_fetched=0,
+        records_stored=0,
+        started_at=str(now),
+    )

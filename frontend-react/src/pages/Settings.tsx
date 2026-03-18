@@ -1,7 +1,7 @@
 /**
  * Settings page — sync status, data overview, preferences
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useDataStats, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
 import { api } from '../api/client'
@@ -130,10 +130,11 @@ export function Settings() {
   const whoopStatus = useWhoopStatus()
   const garminStatus = useGarminStatus()
 
-  // Track which source is currently being synced + which last succeeded/failed
-  const [syncingSource, setSyncingSource] = useState<string | null>(null)
+  // Track which sources last completed (for success banner) and any trigger errors
   const [lastSyncedSource, setLastSyncedSource] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<{ source: string; message: string } | null>(null)
+  // Ref tracking which sources were running on the previous render — used to detect completion
+  const prevRunning = useRef<Set<string>>(new Set())
   const [connectingWhoop, setConnectingWhoop] = useState(false)
 
   // Handle Whoop OAuth redirect-back params
@@ -158,14 +159,34 @@ export function Settings() {
   const [connectingGarmin, setConnectingGarmin] = useState(false)
   const [garminConnectError, setGarminConnectError] = useState<string | null>(null)
 
+  // Detect sync completion: when a source transitions from is_running → false
+  useEffect(() => {
+    if (!statusQ.data) return
+    const nowRunning = new Set(statusQ.data.filter((s) => s.is_running).map((s) => s.source))
+    for (const source of prevRunning.current) {
+      if (!nowRunning.has(source)) {
+        const item = statusQ.data.find((s) => s.source === source)
+        if (item?.status === 'error') {
+          setSyncError({ source, message: item.error_message ?? 'Sync failed' })
+        } else {
+          setLastSyncedSource(source)
+          // Refresh all data now that the sync has finished
+          void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId] })
+          void queryClient.invalidateQueries({ queryKey: ['readiness'] })
+          void queryClient.invalidateQueries({ queryKey: ['workouts'] })
+          void queryClient.invalidateQueries({ queryKey: ['sleep'] })
+          void queryClient.invalidateQueries({ queryKey: ['trends'] })
+        }
+      }
+    }
+    prevRunning.current = nowRunning
+  }, [statusQ.data, queryClient, userId])
+
   function handleSync(source: string) {
-    setSyncingSource(source)
     setLastSyncedSource(null)
     setSyncError(null)
     trigger.mutate(source, {
-      onSuccess: () => setLastSyncedSource(source),
       onError: (err) => setSyncError({ source, message: err instanceof Error ? err.message : 'Sync failed' }),
-      onSettled: () => setSyncingSource(null),
     })
   }
 
@@ -241,7 +262,7 @@ export function Settings() {
         )}
 
         {(statusQ.data ?? []).map(source => {
-          const isSyncing = syncingSource === source.source
+          const isSyncing = source.is_running || (trigger.isPending && trigger.variables === source.source)
           const label = source.source === 'whoop' ? 'Whoop' : 'Garmin'
           const isWhoop = source.source === 'whoop'
           const isGarmin = source.source === 'garmin'
@@ -290,9 +311,9 @@ export function Settings() {
                 ) : (
                   <button
                     onClick={() => handleSync(source.source)}
-                    disabled={isSyncing || trigger.isPending}
+                    disabled={isSyncing}
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      isSyncing || trigger.isPending
+                      isSyncing
                         ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
                         : 'bg-brand text-white'
                     }`}
@@ -346,9 +367,10 @@ export function Settings() {
               )}
 
               {/* Success toast after sync */}
-              {lastSyncedSource === source.source && !isSyncing && trigger.data && (
+              {lastSyncedSource === source.source && !isSyncing && (
                 <div className="rounded-lg bg-good/5 border border-good/20 px-3 py-2 text-xs text-good">
-                  Sync complete — {trigger.data.records_stored} records stored
+                  Sync complete
+                  {source.records_stored != null ? ` — ${source.records_stored} records stored` : ''}
                 </div>
               )}
 

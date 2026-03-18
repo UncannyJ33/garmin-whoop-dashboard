@@ -61,10 +61,10 @@ export function ACWRGauge({ acwr, zone, zoneDescription, className = '' }: ACWRG
           {acwr !== null ? (
             <span
               style={{
-                fontSize:   20,
-                fontWeight: 600,
-                color: zoneColor,
-                fontFamily: "'Geist Mono', ui-monospace, monospace",
+                fontSize:           20,
+                fontWeight:         600,
+                color:              zoneColor,
+                fontFamily:         "'Geist Mono', ui-monospace, monospace",
                 fontVariantNumeric: 'tabular-nums',
               }}
             >

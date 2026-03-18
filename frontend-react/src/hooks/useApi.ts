@@ -347,10 +347,16 @@ export function useSyncStatus() {
   return useQuery({
     queryKey: ['sync', 'status', userId],
     queryFn: ({ signal }) => api.get<SyncStatus>('/api/sync/status', signal),
-    staleTime: 60 * 1000, // 1 min — sync status should feel fresh
+    staleTime: 60 * 1000,
     retry: 1,
     refetchOnWindowFocus: true,
     enabled: !!userId,
+    // Poll every 3s while any source is actively syncing; stop when idle
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (Array.isArray(data) && data.some((s) => s.is_running)) return 3000
+      return false
+    },
   })
 }
 
@@ -361,12 +367,9 @@ export function useTriggerSync() {
     mutationFn: (source: string) =>
       api.post<SyncTriggerResponse>(`/api/sync/trigger/${source}`),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId] })
+      // Kick off status polling immediately — data queries are invalidated
+      // by Settings.tsx once the status transitions back to is_running=false.
       void queryClient.invalidateQueries({ queryKey: ['sync', 'status', userId] })
-      void queryClient.invalidateQueries({ queryKey: ['readiness'] })
-      void queryClient.invalidateQueries({ queryKey: ['workouts'] })
-      void queryClient.invalidateQueries({ queryKey: ['sleep'] })
-      void queryClient.invalidateQueries({ queryKey: ['trends'] })
     },
   })
 }
