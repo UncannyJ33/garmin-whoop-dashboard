@@ -12,6 +12,17 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
+**Pre-Phase 6 polish COMPLETE (Mar 18, 2026)** — All pre-Phase 6 items done. Ready to begin Phase 6.
+
+### Pre-Phase 6 completions:
+- Privacy contact: `privacy@pulsebuilt.net` active, Privacy.tsx updated
+- Sync UX: `/api/sync/status` serves from in-memory cache while running; frontend polls every 3s via `refetchInterval`
+- Supabase RLS: migration 009 enables RLS on all 15 public tables (blocks PostgREST, FastAPI unaffected)
+- Domain split: `pulsebuilt.net` → Pulse Built landing page (Cloudflare Pages); `engine.pulsebuilt.net` → PulseEngine (Railway)
+- Landing page: `landing/index.html` — GeistPixel-Square font, dark theme, links to engine.pulsebuilt.net
+- Railway env vars updated: `WHOOP_REDIRECT_URI` + `CORS_ORIGINS` → engine.pulsebuilt.net
+- Cloudflare proxy: disabled for `engine` CNAME (DNS only); enabled for `pulsebuilt.net` (Cloudflare Pages)
+
 **Phase 5.5 COMPLETE** — Dashboard restructure (4-page consumer UX) + post-launch polish.
 
 ### Phase 5.5 changes (frontend-react only):
