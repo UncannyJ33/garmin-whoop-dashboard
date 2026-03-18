@@ -116,7 +116,7 @@ export function Privacy() {
               <li>Export your data in CSV format.</li>
               <li>
                 Delete your account and all associated data — email{' '}
-                <a href="mailto:privacy@pulsebuilt.com">privacy@pulsebuilt.com</a>{' '}
+                <a href="mailto:privacy@pulsebuilt.net">privacy@pulsebuilt.net</a>{' '}
                 to request account deletion (self-serve deletion is coming soon).
               </li>
               <li>
@@ -150,7 +150,7 @@ export function Privacy() {
             <h2>Contact</h2>
             <p>
               For privacy questions or data requests:{' '}
-              <a href="mailto:privacy@pulsebuilt.com">privacy@pulsebuilt.com</a>
+              <a href="mailto:privacy@pulsebuilt.net">privacy@pulsebuilt.net</a>
             </p>
           </section>
 
