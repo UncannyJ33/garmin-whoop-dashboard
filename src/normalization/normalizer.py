@@ -236,9 +236,7 @@ class Normalizer:
             WhoopWorkout.sport_name != "driving",
         )
         if self.user_id is not None:
-            whoop_workouts_query = whoop_workouts_query.filter(
-                WhoopWorkout.user_id == self.user_id
-            )
+            whoop_workouts_query = whoop_workouts_query.filter(WhoopWorkout.user_id == self.user_id)
         whoop_workouts = whoop_workouts_query.all()
 
         garmin_activities_query = self._db.query(GarminActivity).filter(

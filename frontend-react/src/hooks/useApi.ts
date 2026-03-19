@@ -301,6 +301,19 @@ export function useRecoveryWithWithout(start: string, end: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Feature flags
+// ---------------------------------------------------------------------------
+
+export function useFeatureFlags() {
+  return useQuery({
+    queryKey: ['feature-flags'],
+    queryFn: ({ signal }) => api.get<{ whoop_oauth_enabled: boolean }>('/api/auth/feature-flags', signal),
+    staleTime: 60 * 60 * 1000, // flags rarely change — cache for 1h
+    retry: 1,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Whoop connection status
 // ---------------------------------------------------------------------------
 
@@ -315,6 +328,63 @@ export function useWhoopStatus() {
   })
 }
 
+export interface CSVImportResult {
+  imported: number
+  skipped_duplicates: number
+  skipped_errors: number
+  date_range: string | null
+  training_load_note: string
+  row_errors: string[]
+}
+
+export function useGarminCSVImport() {
+  const queryClient = useQueryClient()
+  const { userId } = useAuth()
+  return useMutation({
+    mutationFn: ({ file, units }: { file: File; units: 'miles' | 'km' }) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('units', units)
+      return api.postForm<CSVImportResult>('/api/garmin/csv-import', form)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workouts'] })
+      void queryClient.invalidateQueries({ queryKey: ['training'] })
+      void queryClient.invalidateQueries({ queryKey: ['readiness'] })
+      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId] })
+    },
+  })
+}
+
+export interface UploadResult {
+  imported: number
+  skipped_duplicates: number
+  skipped_errors: number
+  format_detected: string
+  date_range: string | null
+  warnings: string[]
+  training_load_note: string | null
+}
+
+export function useGarminUpload() {
+  const queryClient = useQueryClient()
+  const { userId } = useAuth()
+  return useMutation({
+    mutationFn: ({ file, units }: { file: File; units: 'miles' | 'km' }) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('units', units)
+      return api.postForm<UploadResult>('/api/garmin/upload', form)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workouts'] })
+      void queryClient.invalidateQueries({ queryKey: ['training'] })
+      void queryClient.invalidateQueries({ queryKey: ['readiness'] })
+      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId] })
+    },
+  })
+}
+
 export function useGarminStatus() {
   const { userId } = useAuth()
   return useQuery({
@@ -323,6 +393,48 @@ export function useGarminStatus() {
     staleTime: 5 * 60 * 1000,
     retry: 1,
     enabled: !!userId,
+  })
+}
+
+export interface GarminCredentialsStatus {
+  has_credentials: boolean
+  auto_sync_enabled: boolean
+  last_sync_at: string | null
+}
+
+export function useGarminCredentialsStatus() {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['garmin', 'credentials-status', userId],
+    queryFn: ({ signal }) => api.get<GarminCredentialsStatus>('/api/garmin/credentials/status', signal),
+    staleTime: 2 * 60 * 1000,
+    retry: 1,
+    enabled: !!userId,
+  })
+}
+
+export function useStoreGarminCredentials() {
+  const { userId } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { email: string; password: string; consent: boolean }) =>
+      api.post<{ has_credentials: boolean; auto_sync_enabled: boolean }>('/api/garmin/credentials', body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['garmin', 'credentials-status', userId] })
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
+    },
+  })
+}
+
+export function useDeleteGarminCredentials() {
+  const { userId } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.delete('/api/garmin/credentials'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['garmin', 'credentials-status', userId] })
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
+    },
   })
 }
 
@@ -357,6 +469,31 @@ export function useSyncStatus() {
       if (Array.isArray(data) && data.some((s) => s.is_running)) return 3000
       return false
     },
+  })
+}
+
+export function useDisconnectWhoop() {
+  const { userId } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.delete('/api/auth/whoop/disconnect'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'whoop-status', userId] })
+      void queryClient.invalidateQueries({ queryKey: ['sync', 'status', userId] })
+    },
+  })
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (body: { current_password: string; new_password: string }) =>
+      api.post('/api/auth/change-password', body),
+  })
+}
+
+export function useDeleteAccount() {
+  return useMutation({
+    mutationFn: () => api.delete('/api/account'),
   })
 }
 

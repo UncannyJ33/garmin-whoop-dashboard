@@ -7,7 +7,12 @@ from sqlalchemy import Engine
 
 from src.analytics.trends import get_enriched_anomalies, get_metric_trend, get_weekly_summary
 from src.api.dependencies import get_engine_dep
-from src.api.models import AnomalyItem, EnrichedAnomalyResponse, MetricTrendResponse, WeeklySummaryResponse
+from src.api.models import (
+    AnomalyItem,
+    EnrichedAnomalyResponse,
+    MetricTrendResponse,
+    WeeklySummaryResponse,
+)
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 

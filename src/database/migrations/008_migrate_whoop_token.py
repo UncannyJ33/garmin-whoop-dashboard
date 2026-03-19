@@ -59,15 +59,16 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
         ).one_or_none()
 
         if already_migrated is not None:
-            print(f"  ✓ Token row '{new_key}' already exists — removing legacy 'whoop' row if present")
+            print(
+                f"  ✓ Token row '{new_key}' already exists — removing legacy 'whoop' row if present"
+            )
             conn.execute(text("DELETE FROM token_store WHERE service = 'whoop'"))
             return
 
         # Rename the legacy row to the new key and tag it with the owner's user_id
         conn.execute(
             text(
-                "UPDATE token_store SET service = :new_key, user_id = :uid"
-                " WHERE service = 'whoop'"
+                "UPDATE token_store SET service = :new_key, user_id = :uid WHERE service = 'whoop'"
             ),
             {"new_key": new_key, "uid": owner_id},
         )

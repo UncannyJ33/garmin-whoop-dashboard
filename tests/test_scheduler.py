@@ -197,28 +197,29 @@ def test_create_scheduler_default_whoop_interval():
 
 
 # ---------------------------------------------------------------------------
-# _run_garmin_sync error handling
+# _run_garmin_multi_user error handling
 # ---------------------------------------------------------------------------
 
 
-def test_run_garmin_sync_logs_and_suppresses_exceptions():
-    """_run_garmin_sync must catch all exceptions and not propagate them."""
+def test_run_garmin_multi_user_suppresses_exceptions():
+    """_run_garmin_multi_user must not propagate exceptions from get_users_to_sync."""
     import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
     with (
         patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(sched_mod, "_get_owner_user_id", side_effect=RuntimeError("DB down")),
+        patch.object(
+            sched_mod, "get_users_to_sync", side_effect=RuntimeError("DB down")
+        ),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
-        sched_mod._run_garmin_sync()  # must NOT raise
+        sched_mod._run_garmin_multi_user()  # must NOT raise
 
-    mock_logger.exception.assert_called_once()
-    assert "failed" in mock_logger.exception.call_args[0][0]
+    mock_logger.exception.assert_called()
 
 
-def test_run_garmin_sync_logs_completion_on_success():
-    """_run_garmin_sync logs completion when the pipeline succeeds."""
+def test_run_garmin_multi_user_logs_completion_on_success():
+    """_run_garmin_multi_user logs completion when the pipeline succeeds."""
     import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
@@ -232,48 +233,52 @@ def test_run_garmin_sync_logs_completion_on_success():
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
-
     mock_session_factory = MagicMock(return_value=mock_session)
+
+    # One user with a garth token (no credentials — simulates legacy owner)
+    users = [{"user_id": "owner-id", "garmin_auto_sync": False, "garmin_has_token": True}]
 
     with (
         patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(sched_mod, "_get_owner_user_id", return_value="test-owner-id"),
+        patch.object(sched_mod, "get_users_to_sync", return_value=users),
         patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
-        patch("src.ingestion.scheduler.GarminPipeline", return_value=mock_pipeline),
         patch("src.ingestion.scheduler.save_garmin_tokens_to_db"),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
-        sched_mod._run_garmin_sync()
+        import src.ingestion.garmin_pipeline as gp_mod
+
+        with patch.object(gp_mod, "GarminPipeline", return_value=mock_pipeline):
+            sched_mod._run_garmin_multi_user()
 
     mock_pipeline.run.assert_called_once()
-    mock_logger.info.assert_called()
     completion_calls = [str(c) for c in mock_logger.info.call_args_list]
     assert any("7" in c for c in completion_calls)
 
 
 # ---------------------------------------------------------------------------
-# _run_whoop_sync error handling
+# _run_whoop_multi_user error handling
 # ---------------------------------------------------------------------------
 
 
-def test_run_whoop_sync_logs_and_suppresses_exceptions():
-    """_run_whoop_sync must catch all exceptions and not propagate them."""
+def test_run_whoop_multi_user_suppresses_exceptions():
+    """_run_whoop_multi_user must not propagate exceptions from get_users_to_sync."""
     import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
     with (
         patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(sched_mod, "_get_owner_user_id", side_effect=RuntimeError("DB down")),
+        patch.object(
+            sched_mod, "get_users_to_sync", side_effect=RuntimeError("DB down")
+        ),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
-        sched_mod._run_whoop_sync()  # must NOT raise
+        sched_mod._run_whoop_multi_user()  # must NOT raise
 
-    mock_logger.exception.assert_called_once()
-    assert "failed" in mock_logger.exception.call_args[0][0]
+    mock_logger.exception.assert_called()
 
 
-def test_run_whoop_sync_logs_completion_on_success():
-    """_run_whoop_sync logs completion when the pipeline succeeds."""
+def test_run_whoop_multi_user_logs_completion_on_success():
+    """_run_whoop_multi_user logs completion when the pipeline succeeds."""
     import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
 
@@ -289,17 +294,18 @@ def test_run_whoop_sync_logs_completion_on_success():
     mock_session.__exit__ = MagicMock(return_value=False)
     mock_session_factory = MagicMock(return_value=mock_session)
 
+    users = [{"user_id": "user-abc", "whoop_connected": True}]
+
     with (
         patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(sched_mod, "_get_owner_user_id", return_value="test-owner-id"),
+        patch.object(sched_mod, "get_users_to_sync", return_value=users),
         patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
         patch("src.ingestion.scheduler.logger") as mock_logger,
     ):
-        # Patch WhoopPipeline inside the function's import scope
         import src.ingestion.whoop_pipeline as wp_mod
 
         with patch.object(wp_mod, "WhoopPipeline", return_value=mock_pipeline):
-            sched_mod._run_whoop_sync()
+            sched_mod._run_whoop_multi_user()
 
     mock_logger.info.assert_called()
     completion_calls = [str(c) for c in mock_logger.info.call_args_list]

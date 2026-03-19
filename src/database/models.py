@@ -332,6 +332,24 @@ class SyncLog(Base):
     user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
+class GarminCredentials(Base):
+    """Encrypted Garmin Connect credentials for per-user auto-sync.
+
+    The raw email and password are NEVER stored.  Both fields contain
+    Fernet ciphertext produced by ``src.auth.encryption.encrypt_credential``.
+    """
+
+    __tablename__ = "garmin_credentials"
+
+    user_id = Column(Text, primary_key=True)  # app user UUID
+    encrypted_email = Column(Text, nullable=False)
+    encrypted_password = Column(Text, nullable=False)
+    auto_sync_enabled = Column(Boolean, default=True, nullable=False)
+    consent_given_at = Column(String, nullable=False)  # ISO 8601
+    created_at = Column(String, nullable=False)  # ISO 8601
+    updated_at = Column(String, nullable=False)  # ISO 8601
+
+
 class TokenStore(Base):
     """OAuth token storage for external API services."""
 

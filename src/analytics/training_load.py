@@ -339,7 +339,9 @@ def get_training_load_ratio(
 
     # --- Trend: 7 daily ACWR values ending on target_date ---
     trend_start = max(0, target_idx - _ACUTE_DAYS + 1)
-    trend_acwrs: list[float | None] = [_acwr_at(daily, i) for i in range(trend_start, target_idx + 1)]
+    trend_acwrs: list[float | None] = [
+        _acwr_at(daily, i) for i in range(trend_start, target_idx + 1)
+    ]
     trend = _trend_direction(trend_acwrs)
 
     # --- Weekly loads for the 28-day chronic window ---

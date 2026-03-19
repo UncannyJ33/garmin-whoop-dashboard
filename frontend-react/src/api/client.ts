@@ -22,8 +22,10 @@ export function setAuthToken(token: string | null) {
 let consecutiveFailures = 0
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  // Do NOT set Content-Type for FormData — the browser must set it with the multipart boundary.
+  const isFormData = options?.body instanceof FormData
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     'ngrok-skip-browser-warning': 'true',
     ...(options?.headers as Record<string, string>),
   }
@@ -81,4 +83,17 @@ export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal }),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+  /** Upload multipart/form-data (e.g. CSV file upload). */
+  postForm: <T>(path: string, form: FormData) =>
+    request<T>(path, { method: 'POST', body: form }),
+  delete: <T = void>(path: string) =>
+    request<T>(path, { method: 'DELETE' }),
+  /** Download a file — returns a Blob (bypasses JSON parsing). */
+  download: async (path: string): Promise<Blob> => {
+    const headers: Record<string, string> = { 'ngrok-skip-browser-warning': 'true' }
+    if (_authToken) headers['Authorization'] = `Bearer ${_authToken}`
+    const res = await fetch(`${BASE_URL}${path}`, { credentials: 'same-origin', headers })
+    if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)
+    return res.blob()
+  },
 }

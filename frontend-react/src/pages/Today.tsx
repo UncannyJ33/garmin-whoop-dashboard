@@ -18,6 +18,7 @@ import { ReadinessArcGauge } from '../components/ReadinessArcGauge'
 import { SleepStageBar } from '../components/SleepStageBar'
 import type { ReadinessLevel } from '../components/StatusBadge'
 import { TrendChart } from '../components/TrendChart'
+import { NoDataState } from '../components/LoadingState'
 import {
   useLimitingFactors,
   useMetricTrend,
@@ -239,6 +240,13 @@ export function Today() {
   ]
 
   // ---------------------------------------------------------------------------
+  // Empty state — all main queries settled with no data
+  const allSettled = readiness.isSuccess && sleepData.isSuccess && recentWorkouts.isSuccess
+  const hasNoData  = allSettled && (readinessData?.confidence ?? 0) === 0 && sleepArr.length === 0
+  if (hasNoData) {
+    return <NoDataState />
+  }
+
   return (
     <div
       style={{

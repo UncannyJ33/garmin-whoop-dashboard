@@ -355,7 +355,11 @@ def get_enriched_workouts(
     """
     if user_id is not None:
         uid_clause = "AND uw.user_id = :uid"
-        params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat(), "uid": user_id}
+        params: dict = {
+            "start": start_date.isoformat(),
+            "end": end_date.isoformat(),
+            "uid": user_id,
+        }
     else:
         uid_clause = "AND uw.user_id IS NULL"
         params = {"start": start_date.isoformat(), "end": end_date.isoformat()}

@@ -30,8 +30,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from src.analytics.training_load import (
-    TrainingLoadResult,
-    WeeklyLoad,
     _acwr_at,
     _classify_zone,
     _fill_zeros,
@@ -188,8 +186,8 @@ class TestSweetSpot:
 
     def test_loads(self, engine):
         result = get_training_load_ratio(engine, "user1", self.ANCHOR)
-        assert math.isclose(result.acute_load, 70.0, abs_tol=0.1)   # 7 × 10
-        assert math.isclose(result.chronic_load, 280.0, abs_tol=0.1) # 28 × 10
+        assert math.isclose(result.acute_load, 70.0, abs_tol=0.1)  # 7 × 10
+        assert math.isclose(result.chronic_load, 280.0, abs_tol=0.1)  # 28 × 10
 
     def test_no_confidence_note(self, engine):
         result = get_training_load_ratio(engine, "user1", self.ANCHOR)
@@ -412,7 +410,9 @@ class TestLoadHistory:
     def test_all_sweet_spot(self, engine):
         result = get_training_load_history(engine, "user_hist", self.START, self.ANCHOR)
         for row in result:
-            assert row["zone"] == "sweet_spot", f"Expected sweet_spot on {row['date']}, got {row['zone']}"
+            assert row["zone"] == "sweet_spot", (
+                f"Expected sweet_spot on {row['date']}, got {row['zone']}"
+            )
 
     def test_acwr_near_one(self, engine):
         result = get_training_load_history(engine, "user_hist", self.START, self.ANCHOR)
@@ -440,15 +440,17 @@ class TestMultipleWorkoutsPerDay:
                 d = (self.ANCHOR - timedelta(days=27 - i)).isoformat()
                 s.merge(_workout(d, 5.0, "user_multi"))
             # On ANCHOR day: add a second workout (total for that day = 10)
-            s.merge(UnifiedWorkout(
-                id=f"w_{self.ANCHOR.isoformat()}_5.0_user_multi_b",
-                date=self.ANCHOR.isoformat(),
-                start_time=f"{self.ANCHOR.isoformat()}T10:00:00",
-                whoop_strain=5.0,
-                primary_source="whoop",
-                last_updated=NOW_ISO,
-                user_id="user_multi",
-            ))
+            s.merge(
+                UnifiedWorkout(
+                    id=f"w_{self.ANCHOR.isoformat()}_5.0_user_multi_b",
+                    date=self.ANCHOR.isoformat(),
+                    start_time=f"{self.ANCHOR.isoformat()}T10:00:00",
+                    whoop_strain=5.0,
+                    primary_source="whoop",
+                    last_updated=NOW_ISO,
+                    user_id="user_multi",
+                )
+            )
             s.commit()
 
     def test_strain_summed(self, engine):

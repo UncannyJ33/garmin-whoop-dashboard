@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 
 // Skeleton shapes
 
@@ -34,6 +35,25 @@ export function WorkoutRowSkeleton() {
         <SkeletonBlock className="h-3 w-10" />
         <SkeletonBlock className="h-3 w-8" />
       </div>
+    </div>
+  )
+}
+
+/** Full-page empty state shown when a user has no synced data yet. */
+export function NoDataState({ message }: { message?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-center px-4">
+      <div className="mb-4 text-4xl select-none">📡</div>
+      <h2 className="text-lg font-semibold text-slate-200 mb-1">No data yet</h2>
+      <p className="text-sm text-slate-400 max-w-xs leading-relaxed">
+        {message ?? 'Connect a device from Settings to start seeing your insights here.'}
+      </p>
+      <Link
+        to="/settings"
+        className="mt-5 inline-block bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors"
+      >
+        Go to Settings
+      </Link>
     </div>
   )
 }

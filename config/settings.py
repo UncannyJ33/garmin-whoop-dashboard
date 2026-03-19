@@ -36,6 +36,15 @@ class Settings:
     # Logging
     log_level: str
 
+    # Feature flags
+    whoop_public_oauth_enabled: bool
+
+    # Encryption key for stored Garmin credentials (Fernet base64 key)
+    garmin_encryption_key: str
+
+    # Admin email for protected admin endpoints
+    admin_email: str
+
 
 settings = Settings(
     whoop_client_id=os.getenv("WHOOP_CLIENT_ID", ""),
@@ -54,4 +63,7 @@ settings = Settings(
     jwt_secret=os.getenv("JWT_SECRET", ""),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
+    whoop_public_oauth_enabled=os.getenv("WHOOP_PUBLIC_OAUTH_ENABLED", "false").lower() == "true",
+    garmin_encryption_key=os.getenv("GARMIN_ENCRYPTION_KEY", ""),
+    admin_email=os.getenv("ADMIN_EMAIL", ""),
 )

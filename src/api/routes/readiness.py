@@ -13,7 +13,12 @@ from src.analytics.readiness_score import (
     get_readiness_history,
 )
 from src.api.dependencies import get_engine_dep
-from src.api.models import ContributingFactor, LimitingFactorResponse, ReadinessHistoryItem, ReadinessResponse
+from src.api.models import (
+    ContributingFactor,
+    LimitingFactorResponse,
+    ReadinessHistoryItem,
+    ReadinessResponse,
+)
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 
@@ -38,7 +43,11 @@ def _to_response(r: ReadinessResult) -> ReadinessResponse:
     summary="Today's readiness score",
 )
 async def readiness_today(
-    local_date: date | None = Query(None, alias="date", description="User's local date (YYYY-MM-DD); defaults to server UTC date if omitted"),
+    local_date: date | None = Query(
+        None,
+        alias="date",
+        description="User's local date (YYYY-MM-DD); defaults to server UTC date if omitted",
+    ),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> Response | ReadinessResponse:

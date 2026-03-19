@@ -26,7 +26,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from src.analytics.limiting_factors import (
-    LimitingFactor,
     _avg,
     _build_explanation,
     _classify_severity,
@@ -188,8 +187,13 @@ class TestExplanationTemplates:
 
     def test_training_load_with_acwr(self):
         msg = _build_explanation(
-            "training_load", 105.0, 60.0, -35.0, "significant",
-            acute_load=105.0, chronic_load=240.0,
+            "training_load",
+            105.0,
+            60.0,
+            -35.0,
+            "significant",
+            acute_load=105.0,
+            chronic_load=240.0,
         )
         assert "high" in msg
         assert "105.0" in msg

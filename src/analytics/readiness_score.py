@@ -328,7 +328,11 @@ def _fetch_data_window(
     """
     if user_id is not None:
         uid_clause = "AND user_id = :uid"
-        params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat(), "uid": user_id}
+        params: dict = {
+            "start": start_date.isoformat(),
+            "end": end_date.isoformat(),
+            "uid": user_id,
+        }
     else:
         uid_clause = "AND user_id IS NULL"
         params = {"start": start_date.isoformat(), "end": end_date.isoformat()}

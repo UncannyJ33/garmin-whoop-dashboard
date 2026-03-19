@@ -20,9 +20,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text  # noqa: E402
 
-from src.database.connection import get_engine
+from src.database.connection import get_engine  # noqa: E402
 
 EXPECTED_TABLES = {
     "whoop_cycles": {
@@ -242,7 +242,6 @@ def main() -> None:
             continue
 
         existing_cols = {c["name"] for c in inspector.get_columns(table)}
-        existing_indexes = {idx["name"] for idx in inspector.get_indexes(table)}
         # Also collect columns that are indexed (via index=True on Column)
         indexed_col_names: set[str] = set()
         for idx in inspector.get_indexes(table):

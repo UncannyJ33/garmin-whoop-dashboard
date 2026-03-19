@@ -252,13 +252,9 @@ def get_limiting_factors(
         return []
 
     # Build 7-day prior baseline of normalized scores per factor
-    prior_norm: dict[str, list[float | None]] = {
-        k: [] for k in today_result.contributing_factors
-    }
+    prior_norm: dict[str, list[float | None]] = {k: [] for k in today_result.contributing_factors}
     for i in range(1, 8):
-        prior = _compute_from_data(
-            target_date - timedelta(days=i), daily_by_date, sleep_by_date
-        )
+        prior = _compute_from_data(target_date - timedelta(days=i), daily_by_date, sleep_by_date)
         for key in prior_norm:
             prior_norm[key].append(prior.contributing_factors[key]["normalized_value"])
 
@@ -335,9 +331,7 @@ def get_limiting_factors(
                     seven_day_avg=round(raw_avg, 2),
                     seven_day_avg_display=_fmt(key, raw_avg),
                     deviation_pct=round(deviation, 1),
-                    explanation=_build_explanation(
-                        key, raw_today, raw_avg, deviation, severity
-                    ),
+                    explanation=_build_explanation(key, raw_today, raw_avg, deviation, severity),
                     severity=severity,
                 )
             )

@@ -7,8 +7,11 @@ import { Training } from './pages/Training'
 import { Recovery } from './pages/Recovery'
 import { Insights } from './pages/Insights'
 import { Settings } from './pages/Settings'
+import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
+import { Onboarding } from './pages/Onboarding'
 import { Privacy } from './pages/Privacy'
+import { GarminHelp } from './pages/GarminHelp'
 import { Showcase } from './pages/Showcase'
 import { ApiTest } from './pages/ApiTest'
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -42,6 +45,17 @@ function ProtectedLayout() {
   return <Layout />
 }
 
+/**
+ * Home route: shows the landing page when not authenticated, Today when logged in.
+ * Holds rendering while a silent token refresh is in progress.
+ */
+function HomeRoute() {
+  const { isAuthenticated, isInitializing } = useAuth()
+  if (isInitializing) return null
+  if (!isAuthenticated) return <Landing />
+  return <Today />
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -49,11 +63,14 @@ export function App() {
         <AuthProvider>
           <TokenSync />
           <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<HomeRoute />} />
             <Route path="/login" element={<Login />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/help/garmin-export" element={<GarminHelp />} />
             <Route element={<ProtectedLayout />}>
-              {/* Current routes */}
-              <Route path="/" element={<Today />} />
+              {/* Authenticated routes */}
+              <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/training" element={<Training />} />
               <Route path="/recovery" element={<Recovery />} />
               <Route path="/insights" element={<Insights />} />

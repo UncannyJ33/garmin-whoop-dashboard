@@ -401,7 +401,9 @@ class GarminPipeline:
                 try:
                     self._user_auth.save_for_user(self.user_id, self._db)
                 except Exception:  # noqa: BLE001
-                    logger.warning("Garmin: could not save refreshed tokens for user %s", self.user_id)
+                    logger.warning(
+                        "Garmin: could not save refreshed tokens for user %s", self.user_id
+                    )
 
         except Exception as exc:
             log.status = "error"

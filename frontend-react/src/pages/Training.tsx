@@ -28,7 +28,7 @@ import { WorkoutRow } from '../components/WorkoutRow'
 import { MetricCard } from '../components/MetricCard'
 import { ACWRGauge } from '../components/ACWRGauge'
 import { ErrorState } from '../components/ErrorState'
-import { MetricCardSkeleton, WorkoutRowSkeleton } from '../components/LoadingState'
+import { MetricCardSkeleton, NoDataState, WorkoutRowSkeleton } from '../components/LoadingState'
 import { useDateRangeContext } from '../context/DateRangeContext'
 import {
   useWorkouts,
@@ -387,6 +387,10 @@ export function Training() {
         />
       </div>
     )
+  }
+
+  if (workoutsQ.isSuccess && workouts.length === 0 && !summaryQ.isLoading) {
+    return <NoDataState message="No workouts found for this period. Connect Garmin or Whoop to start tracking." />
   }
 
   return (

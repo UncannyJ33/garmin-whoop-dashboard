@@ -44,3 +44,8 @@ opus_plan_src_files/
 
 # Font source folder (fonts are copied to frontend-react/public/fonts/)
 geist-font-1.8.0/
+
+# Personal Garmin CSV exports (contain personal health data — never commit)
+Activities.csv
+activities.csv
+*.garmin.csv

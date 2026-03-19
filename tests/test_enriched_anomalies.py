@@ -79,7 +79,7 @@ def _sleep(
     date_str: str,
     performance: float = 75.0,
     total_min: float = 420.0,  # 7 hours
-    deep_min: float = 84.0,   # 20% deep
+    deep_min: float = 84.0,  # 20% deep
 ) -> UnifiedSleep:
     return UnifiedSleep(
         date=date_str,
@@ -183,14 +183,13 @@ class TestBuildEnrichedExplanation:
 
     def _ctx(self, **kwargs) -> dict:
         import copy
+
         ctx = copy.deepcopy(self._BASE_CTX)
         ctx.update(kwargs)
         return ctx
 
     def test_hrv_drop_with_strain_uses_training_context(self):
-        ctx = self._ctx(
-            training_48h={"total_strain": 42.5, "workout_count": 3}
-        )
+        ctx = self._ctx(training_48h={"total_strain": 42.5, "workout_count": 3})
         msg = _build_enriched_explanation("hrv", "HRV", 42.0, "low", 3.0, ctx)
         assert "42.5 strain" in msg
         assert "3 sessions" in msg
@@ -212,17 +211,13 @@ class TestBuildEnrichedExplanation:
         assert "night before" in msg
 
     def test_resting_hr_high_uses_training_context(self):
-        ctx = self._ctx(
-            training_48h={"total_strain": 30.0, "workout_count": 2}
-        )
+        ctx = self._ctx(training_48h={"total_strain": 30.0, "workout_count": 2})
         msg = _build_enriched_explanation("resting_hr", "Resting HR", 58.0, "high", 2.5, ctx)
         assert "elevated" in msg
         assert "30.0 strain" in msg
 
     def test_co_anomalies_used_when_no_strong_context(self):
-        ctx = self._ctx(
-            co_anomalies=["HRV", "Body Battery"]
-        )
+        ctx = self._ctx(co_anomalies=["HRV", "Body Battery"])
         msg = _build_enriched_explanation("resting_hr", "Resting HR", 60.0, "high", 2.1, ctx)
         assert "HRV" in msg
         assert "flagged" in msg
@@ -238,9 +233,7 @@ class TestBuildEnrichedExplanation:
         assert "spiked" in msg
 
     def test_training_single_session_grammar(self):
-        ctx = self._ctx(
-            training_48h={"total_strain": 18.0, "workout_count": 1}
-        )
+        ctx = self._ctx(training_48h={"total_strain": 18.0, "workout_count": 1})
         msg = _build_enriched_explanation("hrv", "HRV", 38.0, "low", 2.8, ctx)
         assert "1 session" in msg
         assert "sessions" not in msg
@@ -338,7 +331,9 @@ class TestRecoverySpikeWithSleep:
             s.merge(_daily(self.ANCHOR.isoformat(), recovery=98.0))
             # Excellent sleep the night before
             prev = (self.ANCHOR - timedelta(days=1)).isoformat()
-            s.merge(_sleep(prev, performance=95.0, total_min=510.0, deep_min=153.0))  # 8.5h, 30% deep
+            s.merge(
+                _sleep(prev, performance=95.0, total_min=510.0, deep_min=153.0)
+            )  # 8.5h, 30% deep
             s.commit()
 
     def test_recovery_anomaly_detected(self, engine):
@@ -350,13 +345,17 @@ class TestRecoverySpikeWithSleep:
     def test_direction_is_high(self, engine):
         start = self.ANCHOR - timedelta(days=14)
         results = get_enriched_anomalies(engine, None, start, self.ANCHOR)
-        rec_r = next(r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat())
+        rec_r = next(
+            r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat()
+        )
         assert rec_r.direction == "high"
 
     def test_sleep_context_populated(self, engine):
         start = self.ANCHOR - timedelta(days=14)
         results = get_enriched_anomalies(engine, None, start, self.ANCHOR)
-        rec_r = next(r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat())
+        rec_r = next(
+            r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat()
+        )
         ctx = rec_r.context["sleep_prior_night"]
         assert ctx["duration_hours"] == pytest.approx(8.5, abs=0.1)
         assert ctx["deep_pct"] is not None
@@ -364,13 +363,17 @@ class TestRecoverySpikeWithSleep:
     def test_explanation_mentions_sleep_hours(self, engine):
         start = self.ANCHOR - timedelta(days=14)
         results = get_enriched_anomalies(engine, None, start, self.ANCHOR)
-        rec_r = next(r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat())
+        rec_r = next(
+            r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat()
+        )
         assert "8.5h" in rec_r.explanation
 
     def test_explanation_mentions_deep_sleep(self, engine):
         start = self.ANCHOR - timedelta(days=14)
         results = get_enriched_anomalies(engine, None, start, self.ANCHOR)
-        rec_r = next(r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat())
+        rec_r = next(
+            r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat()
+        )
         assert "deep sleep" in rec_r.explanation.lower()
 
 
@@ -407,18 +410,14 @@ class TestCoAnomalies:
     def test_hrv_lists_recovery_as_co_anomaly(self, engine):
         start = self.ANCHOR - timedelta(days=14)
         results = get_enriched_anomalies(engine, None, start, self.ANCHOR)
-        hrv_r = next(
-            r for r in results
-            if r.metric == "hrv" and r.date == self.ANCHOR.isoformat()
-        )
+        hrv_r = next(r for r in results if r.metric == "hrv" and r.date == self.ANCHOR.isoformat())
         assert "Recovery Score" in hrv_r.context["co_anomalies"]
 
     def test_recovery_lists_hrv_as_co_anomaly(self, engine):
         start = self.ANCHOR - timedelta(days=14)
         results = get_enriched_anomalies(engine, None, start, self.ANCHOR)
         rec_r = next(
-            r for r in results
-            if r.metric == "recovery" and r.date == self.ANCHOR.isoformat()
+            r for r in results if r.metric == "recovery" and r.date == self.ANCHOR.isoformat()
         )
         assert "HRV" in rec_r.context["co_anomalies"]
 

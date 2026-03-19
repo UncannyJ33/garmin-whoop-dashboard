@@ -58,7 +58,7 @@ export function Login() {
       }
       const tokens = (await loginRes.json()) as LoginResponse
       login(tokens)
-      navigate('/', { replace: true })
+      navigate(mode === 'register' ? '/onboarding' : '/', { replace: true })
     } catch {
       setError('Could not reach the server. Check your connection.')
     } finally {

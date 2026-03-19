@@ -811,9 +811,7 @@ def _fmt_anomaly_value(metric: str, value: float) -> str:
     return f"{value:.1f}"
 
 
-def _fetch_training_ctx(
-    engine: Engine, user_id: str | None, anomaly_date: date
-) -> dict:
+def _fetch_training_ctx(engine: Engine, user_id: str | None, anomaly_date: date) -> dict:
     """Return total strain and workout count in the 2 days prior to anomaly_date."""
     start_iso = (anomaly_date - timedelta(days=2)).isoformat()
     end_iso = (anomaly_date - timedelta(days=1)).isoformat()
@@ -837,9 +835,7 @@ def _fetch_training_ctx(
     return {"total_strain": total_strain, "workout_count": workout_count}
 
 
-def _fetch_sleep_ctx(
-    engine: Engine, user_id: str | None, anomaly_date: date
-) -> dict:
+def _fetch_sleep_ctx(engine: Engine, user_id: str | None, anomaly_date: date) -> dict:
     """Return sleep duration, quality, and deep-sleep % for the night before anomaly_date."""
     prev_iso = (anomaly_date - timedelta(days=1)).isoformat()
     if user_id is not None:
@@ -874,9 +870,7 @@ def _fetch_sleep_ctx(
     }
 
 
-def _fetch_recovery_ctx(
-    engine: Engine, user_id: str | None, anomaly_date: date
-) -> str:
+def _fetch_recovery_ctx(engine: Engine, user_id: str | None, anomaly_date: date) -> str:
     """Return recovery trend direction over the 7 days ending on anomaly_date."""
     start = anomaly_date - timedelta(days=6)
     raw = _fetch_raw(
@@ -902,8 +896,10 @@ def _build_enriched_explanation(
 ) -> str:
     """Build a natural-language explanation for an enriched anomaly."""
     sev_label = _enriched_severity_label(severity)
-    verb = "elevated" if (metric == "resting_hr" and direction == "high") else (
-        "spiked" if direction == "high" else "dropped"
+    verb = (
+        "elevated"
+        if (metric == "resting_hr" and direction == "high")
+        else ("spiked" if direction == "high" else "dropped")
     )
     fmt_val = _fmt_anomaly_value(metric, value)
     base = f"{metric_label} {verb} to {fmt_val} ({sev_label})"
@@ -917,9 +913,8 @@ def _build_enriched_explanation(
     workout_count = training.get("workout_count", 0)
 
     # High training load explains fatigue signals (low hrv/recovery/bb, high resting_hr)
-    fatigue_signal = (
-        (metric in ("hrv", "recovery", "body_battery") and direction == "low")
-        or (metric == "resting_hr" and direction == "high")
+    fatigue_signal = (metric in ("hrv", "recovery", "body_battery") and direction == "low") or (
+        metric == "resting_hr" and direction == "high"
     )
     if fatigue_signal and strain and strain > 0 and workout_count > 0:
         sessions = f"{workout_count} session{'s' if workout_count != 1 else ''}"
@@ -931,7 +926,9 @@ def _build_enriched_explanation(
     if good_signal and dur is not None:
         deep_pct = sleep.get("deep_pct")
         if deep_pct is not None:
-            return f"{base} — follows {dur:.1f}h of sleep with {deep_pct:.0f}% deep sleep proportion"
+            return (
+                f"{base} — follows {dur:.1f}h of sleep with {deep_pct:.0f}% deep sleep proportion"
+            )
         return f"{base} — follows {dur:.1f}h of sleep the night before"
 
     # Co-occurring anomalies on the same day
@@ -1057,8 +1054,7 @@ def get_enriched_anomalies(
 
     # 3. Enrich each anomaly
     enriched: list[EnrichedAnomaly] = [
-        enrich_anomaly(engine, user_id, metric, a, co_map)
-        for metric, a in raw_pairs
+        enrich_anomaly(engine, user_id, metric, a, co_map) for metric, a in raw_pairs
     ]
 
     # 4. Sort: date descending, severity descending within same date

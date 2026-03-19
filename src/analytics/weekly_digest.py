@@ -59,7 +59,7 @@ class WeeklyDigest:
 @dataclass
 class _Candidate:
     text: str
-    score: float   # higher = more important; used for ordering
+    score: float  # higher = more important; used for ordering
     category: str  # "readiness" | "training" | "sleep" | "recovery" | "anomaly"
 
 
@@ -128,8 +128,7 @@ def _training_candidate(
 
     if zone in ("overreaching", "danger"):
         text = (
-            f"Training load is in the overreaching zone "
-            f"(ACWR {acwr_str}). Consider a lighter week."
+            f"Training load is in the overreaching zone (ACWR {acwr_str}). Consider a lighter week."
         )
         return _Candidate(text, score=100.0, category="training")
 
@@ -150,8 +149,9 @@ def _training_candidate(
     if prev_n > 0 and workout_count < prev_n * 0.75:
         text = (
             f"Lighter training week — {sessions} vs {prev_n}. "
-            f"Your ACWR moved to {acwr_str} ({zone})." if zone else
-            f"Lighter training week — {sessions} vs {prev_n}. {acwr_context}"
+            f"Your ACWR moved to {acwr_str} ({zone})."
+            if zone
+            else f"Lighter training week — {sessions} vs {prev_n}. {acwr_context}"
         )
         return _Candidate(text, score=50.0, category="training")
     text = f"You trained {sessions} this week. {acwr_context}"
@@ -209,15 +209,11 @@ def _recovery_candidate(
         return None
     if delta_pct is not None and delta_pct <= -_BIG_DELTA:
         drag = f" — {limiting_factor} appears to be the main drag." if limiting_factor else "."
-        text = (
-            f"Recovery has been sluggish at {avg_recovery:.0f}% avg"
-            f"{drag}"
-        )
+        text = f"Recovery has been sluggish at {avg_recovery:.0f}% avg{drag}"
         return _Candidate(text, score=85.0, category="recovery")
     if delta_pct is not None and delta_pct >= _BIG_DELTA:
         text = (
-            f"Recovery averaged {avg_recovery:.0f}% this week, "
-            f"up {delta_pct:.0f}% from last week."
+            f"Recovery averaged {avg_recovery:.0f}% this week, up {delta_pct:.0f}% from last week."
         )
         return _Candidate(text, score=60.0, category="recovery")
     # Low-delta recovery already covered by readiness — skip duplicate
@@ -343,9 +339,7 @@ def get_weekly_digest(
 
     candidates: list[_Candidate] = []
 
-    c = _readiness_candidate(
-        avg_readiness, comparison.get("avg_readiness"), limiting_factor_name
-    )
+    c = _readiness_candidate(avg_readiness, comparison.get("avg_readiness"), limiting_factor_name)
     if c:
         candidates.append(c)
 
@@ -358,15 +352,11 @@ def get_weekly_digest(
     if c:
         candidates.append(c)
 
-    c = _sleep_candidate(
-        avg_sleep_duration, avg_deep_sleep, comparison.get("avg_sleep_duration")
-    )
+    c = _sleep_candidate(avg_sleep_duration, avg_deep_sleep, comparison.get("avg_sleep_duration"))
     if c:
         candidates.append(c)
 
-    c = _recovery_candidate(
-        avg_recovery, comparison.get("avg_recovery"), limiting_factor_name
-    )
+    c = _recovery_candidate(avg_recovery, comparison.get("avg_recovery"), limiting_factor_name)
     if c:
         candidates.append(c)
 
@@ -400,12 +390,8 @@ def get_weekly_digest(
         "total_training_hours": (
             round(total_training_minutes / 60.0, 1) if total_training_minutes else None
         ),
-        "avg_sleep_hours": (
-            round(avg_sleep_duration / 60.0, 1) if avg_sleep_duration else None
-        ),
-        "avg_deep_sleep_minutes": (
-            round(avg_deep_sleep, 1) if avg_deep_sleep else None
-        ),
+        "avg_sleep_hours": (round(avg_sleep_duration / 60.0, 1) if avg_sleep_duration else None),
+        "avg_deep_sleep_minutes": (round(avg_deep_sleep, 1) if avg_deep_sleep else None),
         "acwr": getattr(acwr_result, "acwr", None),
         "acwr_zone": getattr(acwr_result, "zone", None),
     }

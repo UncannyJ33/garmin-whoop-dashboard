@@ -27,9 +27,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text  # noqa: E402
 
-from src.database.connection import get_engine
+from src.database.connection import get_engine  # noqa: E402
 
 # Migration order: parents before children (FK dependency order).
 TABLE_ORDER = [

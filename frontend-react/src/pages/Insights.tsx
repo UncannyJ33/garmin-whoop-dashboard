@@ -29,6 +29,7 @@ import {
 } from '../hooks/useApi'
 import { TrendChart } from '../components/TrendChart'
 import type { TrendDataPoint } from '../components/TrendChart'
+import { NoDataState } from '../components/LoadingState'
 import type { WeeklySummary } from '../types/api'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -476,6 +477,10 @@ export function Insights() {
     if (!dir || dir === 'insufficient_data') return null
     return TREND_CONTEXT[selectedMetric]?.[dir as keyof typeof TREND_CONTEXT[string]] ?? null
   }, [trendQ.data, selectedMetric])
+
+  if (summaryQ.isSuccess && !summaryQ.data && trendQ.isSuccess && (trendQ.data?.values.every(v => v === null) ?? true)) {
+    return <NoDataState message="No insights yet. Sync at least a week of data to unlock trends, anomalies, and correlations." />
+  }
 
   return (
     <div className="space-y-4 pb-16">

@@ -395,7 +395,9 @@ class TestRecoveryDecline:
     def test_recovery_takeaway_is_first(self, engine):
         # Recovery decline (score=85) should beat training stable (score=20)
         result = get_weekly_digest(engine, None, self.ANCHOR)
-        assert "sluggish" in result.takeaways[0].lower() or "recovery" in result.takeaways[0].lower()
+        assert (
+            "sluggish" in result.takeaways[0].lower() or "recovery" in result.takeaways[0].lower()
+        )
 
     def test_at_most_three_takeaways(self, engine):
         result = get_weekly_digest(engine, None, self.ANCHOR)
@@ -431,6 +433,7 @@ class TestOverreachingWarning:
         combined = " ".join(result.takeaways)
         # Just check a number resembling 2.0x is present
         import re
+
         assert re.search(r"\d+\.\d+", combined), "Expected numeric ACWR in takeaway"
 
     def test_returns_at_most_three(self, engine):

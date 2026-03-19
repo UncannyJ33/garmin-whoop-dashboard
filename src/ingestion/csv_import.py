@@ -110,6 +110,7 @@ class GarminImporter:
         db: Active SQLAlchemy session.
         normalize: If True (default), run normalization after import.
         mappings_path: Optional override for field_mappings.yaml path.
+        user_id: App user UUID; written into every stored row.
     """
 
     def __init__(
@@ -117,10 +118,12 @@ class GarminImporter:
         db: Session,
         normalize: bool = True,
         mappings_path: Path | None = None,
+        user_id: str | None = None,
     ) -> None:
         self._db = db
         self._normalize = normalize
         self._mappings_path = mappings_path
+        self._user_id = user_id
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -163,7 +166,7 @@ class GarminImporter:
                 self._import_csv_dir(path.parent, summary, fetched_at, only=path)
 
             if self._normalize and summary.date_range:
-                norm = Normalizer(self._db, self._mappings_path)
+                norm = Normalizer(self._db, mappings_path=self._mappings_path, user_id=self._user_id)
                 summary.norm_counts = norm.normalize_all(*summary.date_range)
                 logger.info("Normalization after import: %s", summary.norm_counts)
 
@@ -290,6 +293,8 @@ class GarminImporter:
         for record in activities:
             try:
                 data = transform_activity(record, fetched_at)
+                if self._user_id:
+                    data["user_id"] = self._user_id
                 self._upsert(GarminActivity, "activity_id", data)
                 stored += 1
                 d = _date_from_gmt(data.get("start_time_gmt") or data.get("start_time"))
@@ -346,6 +351,8 @@ class GarminImporter:
                 data = _coerce_row(row, int_cols, float_cols, known)
                 data["fetched_at"] = fetched_at
                 data["raw_json"] = json.dumps(row)
+                if self._user_id:
+                    data["user_id"] = self._user_id
 
                 d = _date_from_row(data, table_name)
                 if d:

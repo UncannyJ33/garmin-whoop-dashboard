@@ -2,8 +2,9 @@
  * Settings page — sync status, data overview, preferences
  */
 import { useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { useDataStats, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useChangePassword, useDataStats, useDeleteAccount, useDeleteGarminCredentials, useDisconnectWhoop, useGarminCredentialsStatus, useGarminStatus, useStoreGarminCredentials, useSyncStatus, useTriggerSync, useWhoopStatus, type UploadResult } from '../hooks/useApi'
+import { GarminUpload } from '../components/GarminUpload'
 import { api } from '../api/client'
 import { useTheme } from '../context/ThemeContext'
 import { useQueryClient } from '@tanstack/react-query'
@@ -121,14 +122,21 @@ function useSleepTarget() {
 export function Settings() {
   const { theme, toggle } = useTheme()
   const { hours: sleepTarget, setHours: setSleepTarget } = useSleepTarget()
-  const { userId } = useAuth()
+  const { userId, logout } = useAuth()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const statusQ = useSyncStatus()
   const statsQ  = useDataStats()
   const trigger = useTriggerSync()
   const whoopStatus = useWhoopStatus()
   const garminStatus = useGarminStatus()
+  const garminCredsStatus = useGarminCredentialsStatus()
+  const storeCredentials = useStoreGarminCredentials()
+  const deleteCredentials = useDeleteGarminCredentials()
+  const disconnectWhoop = useDisconnectWhoop()
+  const changePassword = useChangePassword()
+  const deleteAccount = useDeleteAccount()
 
   // Track which sources last completed (for success banner) and any trigger errors
   const [lastSyncedSource, setLastSyncedSource] = useState<string | null>(null)
@@ -136,6 +144,26 @@ export function Settings() {
   // Ref tracking which sources were running on the previous render — used to detect completion
   const prevRunning = useRef<Set<string>>(new Set())
   const [connectingWhoop, setConnectingWhoop] = useState(false)
+
+  // Whoop disconnect confirmation
+  const [showDisconnectWhoop, setShowDisconnectWhoop] = useState(false)
+
+  // Data export
+  const [exportLoading, setExportLoading] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  // Change password
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [passwordSuccess, setPasswordSuccess] = useState(false)
+
+  // Delete account
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // Handle Whoop OAuth redirect-back params
   const [searchParams, setSearchParams] = useSearchParams()
@@ -152,12 +180,17 @@ export function Settings() {
     }
   }, [searchParams, setSearchParams, queryClient, userId])
 
-  // Garmin connect modal state
-  const [showGarminModal, setShowGarminModal] = useState(false)
+  // Garmin upload modal
+  const [showCSVModal, setShowCSVModal] = useState(false)
+  const [csvResult, setCsvResult] = useState<UploadResult | null>(null)
+
+  // Garmin credential modal state
+  type GarminModalMode = 'connect' | 'update' | 'remove-confirm' | null
+  const [garminModal, setGarminModal] = useState<GarminModalMode>(null)
   const [garminEmail, setGarminEmail] = useState('')
   const [garminPassword, setGarminPassword] = useState('')
-  const [connectingGarmin, setConnectingGarmin] = useState(false)
-  const [garminConnectError, setGarminConnectError] = useState<string | null>(null)
+  const [garminConsent, setGarminConsent] = useState(false)
+  const [garminCredError, setGarminCredError] = useState<string | null>(null)
 
   // Detect sync completion: when a source transitions from is_running → false
   useEffect(() => {
@@ -201,20 +234,101 @@ export function Settings() {
     }
   }
 
-  async function handleConnectGarmin() {
-    setConnectingGarmin(true)
-    setGarminConnectError(null)
+  async function handleExportData() {
+    setExportLoading(true)
+    setExportError(null)
     try {
-      await api.post('/api/auth/garmin/connect', { email: garminEmail, password: garminPassword })
-      setShowGarminModal(false)
-      setGarminEmail('')
-      setGarminPassword('')
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
-    } catch (err) {
-      setGarminConnectError(err instanceof Error ? err.message : 'Could not connect Garmin. Check your credentials.')
+      const blob = await api.download('/api/account/export')
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      a.href = url
+      a.download = `pulseengine_export_${today}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      setExportError('Export failed. Please try again.')
     } finally {
-      setConnectingGarmin(false)
+      setExportLoading(false)
     }
+  }
+
+  function handleChangePassword() {
+    setPasswordError(null)
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match.')
+      return
+    }
+    if (newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters.')
+      return
+    }
+    changePassword.mutate(
+      { current_password: currentPassword, new_password: newPassword },
+      {
+        onSuccess: () => {
+          setPasswordSuccess(true)
+          setCurrentPassword('')
+          setNewPassword('')
+          setConfirmPassword('')
+          setTimeout(() => {
+            setShowChangePassword(false)
+            setPasswordSuccess(false)
+          }, 1500)
+        },
+        onError: (err) => {
+          setPasswordError(err instanceof Error ? err.message : 'Could not change password.')
+        },
+      },
+    )
+  }
+
+  function handleDeleteAccount() {
+    setDeleteError(null)
+    deleteAccount.mutate(undefined, {
+      onSuccess: () => {
+        logout()
+        navigate('/login')
+      },
+      onError: (err) => {
+        setDeleteError(err instanceof Error ? err.message : 'Could not delete account.')
+      },
+    })
+  }
+
+  function openGarminCredModal(mode: 'connect' | 'update') {
+    setGarminEmail('')
+    setGarminPassword('')
+    setGarminConsent(false)
+    setGarminCredError(null)
+    setGarminModal(mode)
+  }
+
+  function handleStoreCredentials() {
+    setGarminCredError(null)
+    storeCredentials.mutate(
+      { email: garminEmail, password: garminPassword, consent: garminConsent },
+      {
+        onSuccess: () => {
+          setGarminModal(null)
+          setGarminEmail('')
+          setGarminPassword('')
+          setGarminConsent(false)
+        },
+        onError: (err) => {
+          setGarminCredError(err instanceof Error ? err.message : 'Could not save credentials.')
+        },
+      },
+    )
+  }
+
+  function handleDeleteCredentials() {
+    deleteCredentials.mutate(undefined, {
+      onSuccess: () => setGarminModal(null),
+      onError: (err) => setGarminCredError(err instanceof Error ? err.message : 'Could not remove credentials.'),
+    })
   }
 
   return (
@@ -295,7 +409,7 @@ export function Settings() {
                   <button
                     onClick={() => {
                       if (isWhoop) void handleConnectWhoop()
-                      else { setGarminConnectError(null); setShowGarminModal(true) }
+                      else openGarminCredModal('connect')
                     }}
                     disabled={isWhoop ? connectingWhoop : false}
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
@@ -323,11 +437,85 @@ export function Settings() {
                 )}
               </div>
 
-              {/* Garmin: brief note about what Connect Garmin does */}
-              {isGarmin && !garminConnected && (
-                <p className="text-2xs text-slate-400">
-                  Connect your Garmin Connect account to sync activities, sleep, and daily stats.
-                </p>
+              {/* Whoop: disconnect option when connected */}
+              {isWhoop && isConnected && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setShowDisconnectWhoop(true)}
+                    className="text-2xs text-slate-500 hover:text-poor underline transition-colors"
+                  >
+                    Disconnect Whoop
+                  </button>
+                </div>
+              )}
+
+              {/* Garmin: credential management */}
+              {isGarmin && (
+                <div className="space-y-2">
+                  {/* Auto-sync status when credentials stored */}
+                  {garminCredsStatus.data?.has_credentials ? (
+                    <div className="rounded-lg bg-good/5 border border-good/20 px-3 py-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-good">Auto-sync enabled ✓</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openGarminCredModal('update')}
+                            className="text-2xs text-slate-400 hover:text-slate-200 underline transition-colors"
+                          >
+                            Update
+                          </button>
+                          <button
+                            onClick={() => { setGarminCredError(null); setGarminModal('remove-confirm') }}
+                            className="text-2xs text-poor hover:text-red-300 underline transition-colors"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      {garminCredsStatus.data.last_sync_at && (
+                        <p className="text-2xs text-slate-500">
+                          Last auto-sync: {fmtDatetime(garminCredsStatus.data.last_sync_at)}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    /* No credentials — show enable option */
+                    !garminConnected && (
+                      <button
+                        onClick={() => openGarminCredModal('connect')}
+                        className="w-full rounded-lg border border-dashed border-blue-500/30 px-3 py-2 text-xs text-blue-400 hover:text-blue-300 hover:border-blue-400/50 transition-colors text-left"
+                      >
+                        Enable auto-sync →
+                      </button>
+                    )
+                  )}
+
+                  {/* File import option */}
+                  {!garminConnected && !garminCredsStatus.data?.has_credentials ? (
+                    <div className="space-y-1.5">
+                      <button
+                        onClick={() => { setCsvResult(null); setShowCSVModal(true) }}
+                        className="w-full rounded-lg border border-dashed border-surface-border px-3 py-2 text-xs text-slate-400 hover:text-slate-200 hover:border-blue-500/50 transition-colors text-left"
+                      >
+                        Or import activities (CSV, JSON, or ZIP export) →
+                      </button>
+                      {csvResult && (
+                        <div className="rounded-lg bg-good/5 border border-good/20 px-3 py-2 text-xs text-good">
+                          Imported {csvResult.imported} records
+                          {csvResult.date_range ? ` (${csvResult.date_range})` : ''}
+                          {csvResult.skipped_duplicates > 0 ? `, ${csvResult.skipped_duplicates} duplicates skipped` : ''}
+                        </div>
+                      )}
+                    </div>
+                  ) : garminConnected && (
+                    <button
+                      onClick={() => { setCsvResult(null); setShowCSVModal(true) }}
+                      className="text-2xs text-slate-500 hover:text-slate-300 underline transition-colors"
+                    >
+                      Import historical activities from file
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Stats grid */}
@@ -486,13 +674,141 @@ export function Settings() {
             description="Daily readiness alerts and anomaly notifications"
           />
           <PlaceholderRow
-            label="Export data"
-            description="Download your fitness data as CSV or JSON"
-          />
-          <PlaceholderRow
             label="Training zones"
             description="Custom heart rate zone thresholds"
           />
+        </div>
+      </div>
+
+      {/* ── SECTION 4: Data Export ───────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">
+          Data Export
+        </p>
+        <div className="card space-y-3">
+          <div>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Export My Data</p>
+            <p className="text-2xs text-slate-500 mt-0.5 leading-relaxed">
+              Download all your fitness data as a ZIP file containing CSV files for workouts, sleep, daily metrics, and recovery.
+            </p>
+          </div>
+          {exportError && (
+            <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+              {exportError}
+            </div>
+          )}
+          <button
+            onClick={() => void handleExportData()}
+            disabled={exportLoading}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${
+              exportLoading
+                ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                : 'bg-brand text-white'
+            }`}
+          >
+            {exportLoading ? <><Spinner /> Preparing export…</> : 'Download ZIP'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── SECTION 5: Account Management ────────────────────────────────────── */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">
+          Account Management
+        </p>
+        <div className="card divide-y divide-surface-border">
+
+          {/* Change password */}
+          <div className="py-3 first:pt-0 last:pb-0 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Password</p>
+                <p className="text-2xs text-slate-500 mt-0.5">Update your login password</p>
+              </div>
+              <button
+                onClick={() => {
+                  setCurrentPassword('')
+                  setNewPassword('')
+                  setConfirmPassword('')
+                  setPasswordError(null)
+                  setPasswordSuccess(false)
+                  setShowChangePassword(!showChangePassword)
+                }}
+                className="text-xs text-brand hover:text-brand/80 underline transition-colors"
+              >
+                {showChangePassword ? 'Cancel' : 'Change'}
+              </button>
+            </div>
+            {showChangePassword && (
+              <div className="space-y-2.5">
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={e => setCurrentPassword(e.target.value)}
+                  placeholder="Current password"
+                  autoComplete="current-password"
+                  className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="New password (min 8 chars)"
+                  autoComplete="new-password"
+                  className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
+                  autoComplete="new-password"
+                  className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && currentPassword && newPassword && confirmPassword && !changePassword.isPending)
+                      handleChangePassword()
+                  }}
+                />
+                {passwordError && (
+                  <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+                    {passwordError}
+                  </div>
+                )}
+                {passwordSuccess && (
+                  <div className="rounded-lg bg-good/5 border border-good/20 px-3 py-2 text-xs text-good">
+                    Password updated successfully.
+                  </div>
+                )}
+                <button
+                  onClick={handleChangePassword}
+                  disabled={changePassword.isPending || !currentPassword || !newPassword || !confirmPassword}
+                  className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                    changePassword.isPending || !currentPassword || !newPassword || !confirmPassword
+                      ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                      : 'bg-brand text-white'
+                  }`}
+                >
+                  {changePassword.isPending ? <><Spinner /> Saving…</> : 'Save New Password'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Delete account */}
+          <div className="py-3 first:pt-0 last:pb-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Delete Account</p>
+                <p className="text-2xs text-slate-500 mt-0.5">Permanently delete your account and all data</p>
+              </div>
+              <button
+                onClick={() => { setDeleteConfirmText(''); setDeleteError(null); setShowDeleteAccount(true) }}
+                className="text-xs text-poor hover:text-red-400 underline transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -503,65 +819,267 @@ export function Settings() {
         </Link>
       </p>
 
-      {/* ── Garmin Connect Modal ─────────────────────────────────────────────── */}
-      {showGarminModal && (
+      {/* ── Garmin Upload Modal ──────────────────────────────────────────────── */}
+      {showCSVModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Connect Garmin</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Enter your Garmin Connect credentials. Your password is never stored — only the session token.
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Import Garmin Data</h2>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Upload a CSV, JSON, or ZIP export. No credentials required.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCSVModal(false)}
+                className="text-slate-500 hover:text-slate-200 transition-colors mt-0.5 flex-shrink-0"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <GarminUpload
+              onSuccess={(result) => {
+                setCsvResult(result)
+                setShowCSVModal(false)
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Garmin Credential Modal (connect / update) ───────────────────────── */}
+      {(garminModal === 'connect' || garminModal === 'update') && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                  {garminModal === 'update' ? 'Update Garmin Credentials' : 'Enable Garmin Auto-Sync'}
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  {garminModal === 'update'
+                    ? 'Enter your new Garmin Connect email and password.'
+                    : 'Sync your Garmin data automatically every 15 minutes.'}
+                </p>
+              </div>
+              <button
+                onClick={() => setGarminModal(null)}
+                className="text-slate-500 hover:text-slate-200 transition-colors mt-0.5 flex-shrink-0"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Disclosure callout */}
+            <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 px-3 py-2.5 text-xs text-slate-400 leading-relaxed space-y-1">
+              <p className="font-semibold text-blue-400">How your credentials are protected</p>
+              <p>
+                Your Garmin email and password are encrypted using AES-128-CBC + HMAC-SHA256 (Fernet)
+                before being stored. The encryption key is separate from your data and never logged.
+                Your credentials are used only to authenticate with Garmin Connect on your behalf
+                during scheduled syncs.
               </p>
+              <p>You can remove your credentials at any time from this page.</p>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Email</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Garmin Connect Email
+                </label>
                 <input
                   type="email"
                   value={garminEmail}
                   onChange={e => setGarminEmail(e.target.value)}
                   placeholder="you@example.com"
+                  autoComplete="username"
                   className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Password</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Garmin Connect Password
+                </label>
                 <input
                   type="password"
                   value={garminPassword}
                   onChange={e => setGarminPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand"
-                  onKeyDown={e => { if (e.key === 'Enter' && !connectingGarmin) void handleConnectGarmin() }}
+                  onKeyDown={e => { if (e.key === 'Enter' && garminConsent && garminEmail && garminPassword && !storeCredentials.isPending) handleStoreCredentials() }}
                 />
               </div>
             </div>
 
-            {garminConnectError && (
+            {/* Consent checkbox */}
+            <label className="flex items-start gap-2.5 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={garminConsent}
+                onChange={e => setGarminConsent(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-surface-border accent-brand flex-shrink-0"
+              />
+              <span className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors leading-relaxed">
+                I consent to my encrypted Garmin credentials being stored for automatic background sync.
+              </span>
+            </label>
+
+            {garminCredError && (
               <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
-                {garminConnectError}
+                {garminCredError}
               </div>
             )}
 
             <div className="flex gap-2 pt-1">
               <button
-                onClick={() => setShowGarminModal(false)}
-                disabled={connectingGarmin}
+                onClick={() => setGarminModal(null)}
+                disabled={storeCredentials.isPending}
                 className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
               >
                 Cancel
               </button>
               <button
-                onClick={() => { void handleConnectGarmin() }}
-                disabled={connectingGarmin || !garminEmail || !garminPassword}
+                onClick={handleStoreCredentials}
+                disabled={storeCredentials.isPending || !garminEmail || !garminPassword || !garminConsent}
                 className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                  connectingGarmin || !garminEmail || !garminPassword
+                  storeCredentials.isPending || !garminEmail || !garminPassword || !garminConsent
                     ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
                     : 'bg-blue-600 text-white'
                 }`}
               >
-                {connectingGarmin ? <><Spinner /> Connecting…</> : 'Connect'}
+                {storeCredentials.isPending ? <><Spinner /> Saving…</> : garminModal === 'update' ? 'Update' : 'Enable Auto-Sync'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Whoop Disconnect Confirmation Modal ──────────────────────────────── */}
+      {showDisconnectWhoop && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Disconnect Whoop?</h2>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Your Whoop authorization token will be removed. Automatic sync will stop and your Whoop data will remain in PulseEngine.
+                You can reconnect at any time.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDisconnectWhoop(false)}
+                disabled={disconnectWhoop.isPending}
+                className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => disconnectWhoop.mutate(undefined, { onSuccess: () => setShowDisconnectWhoop(false) })}
+                disabled={disconnectWhoop.isPending}
+                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                  disconnectWhoop.isPending
+                    ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                }`}
+              >
+                {disconnectWhoop.isPending ? <><Spinner /> Disconnecting…</> : 'Disconnect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Account Modal ──────────────────────────────────────────────── */}
+      {showDeleteAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Delete Account</h2>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                This will permanently delete your account, all synced data, credentials, and tokens.
+                <span className="text-poor font-semibold"> This action cannot be undone.</span>
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                Type <span className="font-mono font-bold text-poor">DELETE</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+                className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-poor"
+              />
+            </div>
+            {deleteError && (
+              <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+                {deleteError}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteAccount(false)}
+                disabled={deleteAccount.isPending}
+                className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteAccount.isPending || deleteConfirmText !== 'DELETE'}
+                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                  deleteAccount.isPending || deleteConfirmText !== 'DELETE'
+                    ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                }`}
+              >
+                {deleteAccount.isPending ? <><Spinner /> Deleting…</> : 'Delete My Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Garmin Remove Confirmation Modal ─────────────────────────────────── */}
+      {garminModal === 'remove-confirm' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Remove Garmin Credentials?</h2>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Your encrypted credentials will be permanently deleted and automatic sync will stop.
+                You can re-enable auto-sync at any time by adding your credentials again.
+              </p>
+            </div>
+
+            {garminCredError && (
+              <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+                {garminCredError}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setGarminModal(null)}
+                disabled={deleteCredentials.isPending}
+                className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteCredentials}
+                disabled={deleteCredentials.isPending}
+                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                  deleteCredentials.isPending
+                    ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                }`}
+              >
+                {deleteCredentials.isPending ? <><Spinner /> Removing…</> : 'Remove Credentials'}
               </button>
             </div>
           </div>

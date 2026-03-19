@@ -15,7 +15,7 @@ from src.auth.models import User
 from src.clients.garmin_auth import has_garmin_token
 from src.clients.whoop_auth import WhoopAuth
 from src.database.connection import get_session_factory as _get_session_factory
-from src.ingestion.scheduler import _get_owner_user_id, get_scheduler_status
+from src.ingestion.scheduler import get_scheduler_status
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,9 @@ _SCHEDULER_JOB_IDS = {
     "whoop": "whoop_incremental_sync",
 }
 
-# In-process state for manually triggered syncs (cleared when job completes/errors)
+# Per-user running state for manually triggered syncs.
+# Keyed by "{source}:{user_id}" so concurrent syncs for different users
+# don't block each other.
 _running_syncs: dict[str, bool] = {}
 
 # Per-user snapshot of the last DB-fetched sync rows — served directly while a sync
@@ -37,6 +39,11 @@ _running_syncs: dict[str, bool] = {}
 # Keyed by user_id → source → row dict.  Cleared on sync completion so the next
 # poll always fetches fresh data from the DB.
 _status_cache: dict[str, dict[str, dict]] = {}
+
+
+def _sync_key(source: str, user_id: str) -> str:
+    """Return the per-user key used in ``_running_syncs``."""
+    return f"{source}:{user_id}"
 
 
 @router.get(
@@ -52,17 +59,24 @@ async def sync_status(
     uid = current_user.id
     scheduler_status = get_scheduler_status()
 
-    # Fast path: while a sync is in flight serve the cached row snapshot so we
-    # never wait on a busy DB connection pool.  Cache is invalidated on completion.
-    if any(_running_syncs.values()) and uid in _status_cache:
+    # Fast path: while this user's sync is in flight serve the cached row
+    # snapshot so we never wait on a busy DB connection pool.
+    user_has_running = any(
+        _running_syncs.get(_sync_key(src, uid), False) for src in _KNOWN_SOURCES
+    )
+    if user_has_running and uid in _status_cache:
         result = []
         for src in _KNOWN_SOURCES:
             cached = _status_cache[uid].get(src)
-            item = SyncStatusItem(**cached) if cached else SyncStatusItem(source=src, status="never_synced")
+            item = (
+                SyncStatusItem(**cached)
+                if cached
+                else SyncStatusItem(source=src, status="never_synced")
+            )
             job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
             item.next_sync_at = job_info.get("next_run_at")
             item.scheduler_running = scheduler_status["running"]
-            item.is_running = _running_syncs.get(src, False)
+            item.is_running = _running_syncs.get(_sync_key(src, uid), False)
             result.append(item)
         return result
 
@@ -102,7 +116,7 @@ async def sync_status(
         job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
         item.next_sync_at = job_info.get("next_run_at")
         item.scheduler_running = scheduler_status["running"]
-        item.is_running = _running_syncs.get(src, False)
+        item.is_running = _running_syncs.get(_sync_key(src, uid), False)
         result.append(item)
     return result
 
@@ -119,10 +133,7 @@ async def data_stats(
     """Return total days, workouts, matched workouts, and date range from unified tables."""
     with engine.connect() as conn:
         daily = conn.execute(
-            text(
-                "SELECT COUNT(*), MIN(date), MAX(date) FROM unified_daily"
-                " WHERE user_id = :uid"
-            ),
+            text("SELECT COUNT(*), MIN(date), MAX(date) FROM unified_daily WHERE user_id = :uid"),
             {"uid": current_user.id},
         ).one()
         workouts = conn.execute(
@@ -144,8 +155,11 @@ async def data_stats(
 async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
     """Background coroutine: run a full 30-day incremental sync and clear the running flag.
 
+    For Garmin, if the user has stored credentials the session is refreshed
+    before the pipeline runs so stale garth tokens don't cause spurious failures.
     Errors are logged and suppressed so the caller is never blocked.
     """
+    key = _sync_key(source, user_id)
     SessionFactory = _get_session_factory(engine)
     db = SessionFactory()
     try:
@@ -158,6 +172,10 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
         else:
             from src.ingestion.garmin_pipeline import GarminPipeline
 
+            # Re-authenticate via stored credentials before running the pipeline
+            # so sessions that lapsed since the last sync are refreshed automatically.
+            _try_garmin_reauth(user_id, engine, db)
+
             await asyncio.to_thread(
                 lambda: GarminPipeline(db, user_id=user_id).run(
                     start=start.date(), end=now.date()
@@ -168,9 +186,56 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
         logger.exception("Manual sync failed — source=%s user=%s", source, user_id)
     finally:
         db.close()
-        _running_syncs.pop(source, None)
+        _running_syncs.pop(key, None)
         # Invalidate cache so the next status poll fetches fresh data from DB
         _status_cache.pop(user_id, None)
+
+
+def _try_garmin_reauth(user_id: str, engine: Engine, db: Session) -> None:
+    """Re-authenticate with Garmin using stored credentials if available.
+
+    This is a best-effort operation: if credentials don't exist or decryption
+    fails the function returns silently and the pipeline uses the existing
+    garth session (which may still be valid).
+
+    Args:
+        user_id: App user UUID.
+        engine: Engine for the credential lookup query.
+        db: Active session passed to ``authenticate_user_garmin``.
+    """
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT encrypted_email, encrypted_password "
+                    "FROM garmin_credentials WHERE user_id = :uid"
+                ),
+                {"uid": user_id},
+            ).one_or_none()
+        if row is None:
+            return
+        from src.auth.encryption import decrypt_credential
+        from src.clients.garmin_auth import authenticate_user_garmin
+
+        email = decrypt_credential(row[0])
+        password = decrypt_credential(row[1])
+        authenticate_user_garmin(user_id, email, password, db)
+    except Exception:
+        logger.warning(
+            "Garmin re-auth skipped for user %s — using existing session", user_id
+        )
+
+
+def _user_has_garmin_access(user_id: str, db: Session, engine: Engine) -> bool:
+    """Return True if the user has a Garmin session token *or* stored credentials."""
+    if has_garmin_token(user_id, db):
+        return True
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT user_id FROM garmin_credentials WHERE user_id = :uid"),
+            {"uid": user_id},
+        ).one_or_none()
+    return row is not None
 
 
 @router.post(
@@ -192,7 +257,8 @@ async def trigger_sync(
     ``false`` when the job finishes.
 
     Authorization:
-    - Garmin: only the primary account owner (first registered user) may trigger.
+    - Garmin: the calling user must have either a garth session token or stored
+      credentials.
     - Whoop: the calling user must have connected their Whoop account first.
     """
     if source not in _KNOWN_SOURCES:
@@ -201,7 +267,8 @@ async def trigger_sync(
             detail=f"Unknown source '{source}'. Valid values: {list(_KNOWN_SOURCES)}",
         )
 
-    if _running_syncs.get(source):
+    key = _sync_key(source, current_user.id)
+    if _running_syncs.get(key):
         raise HTTPException(
             status_code=409,
             detail=f"A {source} sync is already in progress.",
@@ -209,11 +276,13 @@ async def trigger_sync(
 
     # ── Per-source authorization checks ──────────────────────────────────────
     if source == "garmin":
-        owner_id = _get_owner_user_id(engine)
-        if owner_id != current_user.id and not has_garmin_token(current_user.id, db_check):
+        if not _user_has_garmin_access(current_user.id, db_check, engine):
             raise HTTPException(
                 status_code=403,
-                detail="Garmin not connected. Go to Settings → Connect Garmin to link your account.",
+                detail=(
+                    "Garmin not connected. Go to Settings → Connect Garmin "
+                    "or enable auto-sync to link your account."
+                ),
             )
 
     if source == "whoop":
@@ -221,12 +290,13 @@ async def trigger_sync(
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    "Whoop not connected. Go to Settings → Connect Whoop to authorize your account."
+                    "Whoop not connected. Go to Settings → Connect Whoop "
+                    "to authorize your account."
                 ),
             )
 
     now = datetime.now(tz=UTC)
-    _running_syncs[source] = True
+    _running_syncs[key] = True
     asyncio.create_task(_run_sync_task(source, engine, current_user.id))
 
     return SyncTriggerResponse(

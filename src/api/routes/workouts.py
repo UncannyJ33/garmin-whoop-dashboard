@@ -172,8 +172,7 @@ async def get_exercise_sets(
     with engine.connect() as conn:
         row = conn.execute(
             text(
-                "SELECT garmin_activity_id FROM unified_workouts"
-                " WHERE id = :id AND user_id = :uid"
+                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
             ),
             {"id": workout_id, "uid": current_user.id},
         ).one_or_none()

@@ -33,7 +33,7 @@ import {
   useRecoveryWithWithout,
 } from '../hooks/useApi'
 import { useDateRangeContext } from '../context/DateRangeContext'
-import { MetricCardSkeleton } from '../components/LoadingState'
+import { MetricCardSkeleton, NoDataState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { MetricCard } from '../components/MetricCard'
 import { SleepStageBar } from '../components/SleepStageBar'
@@ -305,6 +305,10 @@ export function Recovery() {
         />
       </div>
     )
+  }
+
+  if (insightsQ.isSuccess && insights.length === 0 && activitiesQ.isSuccess) {
+    return <NoDataState message="No sleep or recovery data found. Connect Whoop to start tracking." />
   }
 
   return (

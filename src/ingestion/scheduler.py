@@ -4,15 +4,23 @@ Runs incremental syncs on configurable intervals using APScheduler's
 BackgroundScheduler.  The scheduler is a no-op when the TESTING environment
 variable is set so it never runs during the test suite.
 
+Multi-user design
+-----------------
+``get_users_to_sync()`` queries the database for every user that has a live
+Whoop token *or* enabled Garmin auto-sync credentials, returning a registry
+list consumed by the two scheduled jobs.  One user's failure never blocks
+other users from syncing — each user is wrapped in its own try/except.
+
 On Railway (ephemeral filesystem), Garmin OAuth tokens are persisted to and
 restored from the ``token_store`` PostgreSQL table so they survive container
-restarts.  Catchup syncs are scheduled automatically if either source has
-not synced within the last hour.
+restarts.  Catchup syncs are scheduled automatically on startup for any user
+not synced within the last ``_STALE_THRESHOLD_HOURS`` hours.
 """
 
 import asyncio
 import logging
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -21,7 +29,6 @@ from sqlalchemy import Engine, text
 from config.settings import settings
 from src.clients.garmin_auth import load_garmin_tokens_from_db, save_garmin_tokens_to_db
 from src.database.connection import get_session_factory
-from src.ingestion.garmin_pipeline import GarminPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -31,27 +38,59 @@ _scheduler: BackgroundScheduler | None = None
 _STALE_THRESHOLD_HOURS = 1
 
 
-def _get_owner_user_id(engine: Engine) -> str | None:
-    """Return the ID of the first registered user (by created_at), or None.
+# ---------------------------------------------------------------------------
+# Sync registry
+# ---------------------------------------------------------------------------
 
-    The scheduler runs without a request context, so it targets the primary
-    account — the earliest-registered user in the database.
+
+def get_users_to_sync(engine: Engine) -> list[dict]:
+    """Return all users eligible for background sync.
+
+    Queries ``token_store`` and ``garmin_credentials`` to build the complete
+    set of users that should be included in each scheduled sync job.
 
     Args:
         engine: SQLAlchemy engine for DB queries.
 
     Returns:
-        User ID string, or None if no users exist yet.
+        List of dicts, each with keys:
+        - ``user_id`` (str)
+        - ``whoop_connected`` (bool) — has an active Whoop token in token_store
+        - ``garmin_auto_sync`` (bool) — has auto_sync_enabled=1 credentials
+        - ``garmin_has_token`` (bool) — has a garth session token (legacy/owner)
     """
     try:
         with engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT id FROM users ORDER BY created_at ASC LIMIT 1")
-            ).one_or_none()
-        return str(row[0]) if row is not None else None
+            whoop_rows = conn.execute(
+                text("SELECT service FROM token_store WHERE service LIKE 'whoop_%'")
+            ).fetchall()
+            garmin_cred_rows = conn.execute(
+                text(
+                    "SELECT user_id FROM garmin_credentials WHERE auto_sync_enabled = 1"
+                )
+            ).fetchall()
+            garmin_token_rows = conn.execute(
+                text("SELECT service FROM token_store WHERE service LIKE 'garmin_%'")
+            ).fetchall()
     except Exception:
-        logger.exception("Could not look up owner user_id for scheduled sync")
-        return None
+        logger.exception("get_users_to_sync: DB error — returning empty registry")
+        return []
+
+    whoop_user_ids = {r[0].removeprefix("whoop_") for r in whoop_rows}
+    garmin_cred_user_ids = {r[0] for r in garmin_cred_rows}
+    garmin_token_user_ids = {r[0].removeprefix("garmin_") for r in garmin_token_rows}
+
+    all_user_ids = whoop_user_ids | garmin_cred_user_ids | garmin_token_user_ids
+
+    return [
+        {
+            "user_id": uid,
+            "whoop_connected": uid in whoop_user_ids,
+            "garmin_auto_sync": uid in garmin_cred_user_ids,
+            "garmin_has_token": uid in garmin_token_user_ids,
+        }
+        for uid in all_user_ids
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -59,70 +98,196 @@ def _get_owner_user_id(engine: Engine) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _run_garmin_sync() -> None:
-    """Job target: run an incremental Garmin sync.
+def _run_garmin_multi_user() -> None:
+    """Job target: run an incremental Garmin sync for every eligible user.
 
-    Reuses the shared app engine (NullPool — thread-safe) so APScheduler
-    background threads don't create additional engine objects.  Any exception
-    is caught, logged, and suppressed so the scheduler keeps running.  Garmin
-    tokens are persisted to DB after each successful sync so they survive
-    container restarts.
+    Eligible users are those with ``auto_sync_enabled=1`` credentials *or* an
+    existing garth session token (legacy owner account).  For credential users
+    the session is refreshed via ``authenticate_user_garmin`` before each sync.
+
+    On authentication failure the user's ``auto_sync_enabled`` is set to 0 so
+    bad credentials don't keep hammering Garmin.  Each user's sync is wrapped
+    in its own try/except so one failure never blocks others.  A 2-second delay
+    between users avoids triggering Garmin's rate limiter.
     """
     from src.api.dependencies import _engine as app_engine
+    from src.auth.encryption import decrypt_credential
+    from src.clients.garmin_auth import GarminAuthError, authenticate_user_garmin
+    from src.ingestion.garmin_pipeline import GarminPipeline
 
-    logger.info("Garmin scheduled sync starting")
+    logger.info("Garmin multi-user sync: starting")
+
     try:
-        owner_id = _get_owner_user_id(app_engine)
-        if owner_id is None:
-            logger.warning("Garmin scheduled sync: no users registered yet — skipping")
-            return
-
-        SessionFactory = get_session_factory(app_engine)
-        with SessionFactory() as db:
-            pipeline = GarminPipeline(db, user_id=owner_id)
-            log = pipeline.run()
-            stored, status = log.records_stored, log.status
-        logger.info(
-            "Garmin scheduled sync complete — %d stored (status: %s)",
-            stored,
-            status,
-        )
-        # Persist any updated garth tokens back to DB for container restart resilience
-        save_garmin_tokens_to_db(app_engine)
+        users = get_users_to_sync(app_engine)
     except Exception:
-        logger.exception("Garmin scheduled sync failed — scheduler will retry next interval")
+        logger.exception("Garmin multi-user sync: failed to load user registry — aborting")
+        return
+
+    garmin_users = [u for u in users if u["garmin_auto_sync"] or u["garmin_has_token"]]
+
+    if not garmin_users:
+        logger.debug("Garmin multi-user sync: no eligible users — skipping")
+        return
+
+    logger.info("Garmin multi-user sync: %d user(s) to sync", len(garmin_users))
+
+    # Pre-load credentials for users who have them (avoid repeated DB round-trips)
+    try:
+        with app_engine.connect() as conn:
+            cred_rows = conn.execute(
+                text(
+                    "SELECT user_id, encrypted_email, encrypted_password "
+                    "FROM garmin_credentials WHERE auto_sync_enabled = 1"
+                )
+            ).fetchall()
+        creds_by_user: dict[str, tuple[str, str]] = {
+            r[0]: (r[1], r[2]) for r in cred_rows
+        }
+    except Exception:
+        logger.exception("Garmin multi-user sync: could not load credentials")
+        creds_by_user = {}
+
+    SessionFactory = get_session_factory(app_engine)
+
+    for i, user in enumerate(garmin_users):
+        user_id = user["user_id"]
+
+        if i > 0:
+            time.sleep(2)
+
+        # Decrypt credentials if this user has them
+        email: str | None = None
+        password: str | None = None
+        if user_id in creds_by_user:
+            try:
+                enc_email, enc_password = creds_by_user[user_id]
+                email = decrypt_credential(enc_email)
+                password = decrypt_credential(enc_password)
+            except ValueError:
+                logger.error(
+                    "Garmin multi-user sync: could not decrypt credentials for user %s "
+                    "(key mismatch?) — skipping",
+                    user_id,
+                )
+                continue
+
+        logger.info("Garmin multi-user sync: syncing user %s", user_id)
+        try:
+            with SessionFactory() as db:
+                if email and password:
+                    authenticate_user_garmin(user_id, email, password, db)
+                pipeline = GarminPipeline(db, user_id=user_id)
+                log = pipeline.run()
+            logger.info(
+                "Garmin multi-user sync: user %s — %d stored (status: %s)",
+                user_id,
+                log.records_stored,
+                log.status,
+            )
+            # Persist any updated garth tokens for container restart resilience
+            save_garmin_tokens_to_db(app_engine)
+        except GarminAuthError as exc:
+            logger.warning(
+                "Garmin multi-user sync: auth failure for user %s — disabling auto-sync: %s",
+                user_id,
+                exc,
+            )
+            if user_id in creds_by_user:
+                try:
+                    with app_engine.begin() as conn:
+                        conn.execute(
+                            text(
+                                "UPDATE garmin_credentials SET auto_sync_enabled = 0 "
+                                "WHERE user_id = :uid"
+                            ),
+                            {"uid": user_id},
+                        )
+                except Exception:
+                    logger.exception(
+                        "Could not disable auto_sync for user %s after auth failure",
+                        user_id,
+                    )
+        except Exception:
+            logger.exception(
+                "Garmin multi-user sync: unexpected error for user %s — continuing",
+                user_id,
+            )
 
 
-def _run_whoop_sync() -> None:
-    """Job target: run an incremental Whoop sync.
+def _run_whoop_multi_user() -> None:
+    """Job target: run an incremental Whoop sync for every user with a live token.
 
-    Reuses the shared app engine (NullPool — thread-safe).
-    Uses ``asyncio.run()`` to bridge APScheduler's synchronous thread pool into
-    an async context for WhoopPipeline.  Any exception is caught, logged, and
-    suppressed so the scheduler keeps running.
+    Iterates all users returned by the sync registry who have a Whoop token.
+    On token expiry / refresh failure the stale token is removed from
+    ``token_store`` so the user is prompted to reconnect on their next visit.
+    Each user's sync is wrapped in its own try/except so one failure never
+    blocks others.  A 1-second delay between users avoids rate-limit issues.
     """
     from src.api.dependencies import _engine as app_engine
+    from src.ingestion.whoop_pipeline import WhoopPipeline
 
-    logger.info("Whoop scheduled sync starting")
+    logger.info("Whoop multi-user sync: starting")
+
     try:
-        owner_id = _get_owner_user_id(app_engine)
-        if owner_id is None:
-            logger.warning("Whoop scheduled sync: no users registered yet — skipping")
-            return
-
-        SessionFactory = get_session_factory(app_engine)
-        with SessionFactory() as db:
-            from src.ingestion.whoop_pipeline import WhoopPipeline
-
-            log = asyncio.run(WhoopPipeline(db, user_id=owner_id).run())
-            stored, status = log.records_stored, log.status
-        logger.info(
-            "Whoop scheduled sync complete — %d stored (status: %s)",
-            stored,
-            status,
-        )
+        users = get_users_to_sync(app_engine)
     except Exception:
-        logger.exception("Whoop scheduled sync failed — scheduler will retry next interval")
+        logger.exception("Whoop multi-user sync: failed to load user registry — aborting")
+        return
+
+    whoop_users = [u for u in users if u["whoop_connected"]]
+
+    if not whoop_users:
+        logger.debug("Whoop multi-user sync: no users with Whoop tokens — skipping")
+        return
+
+    logger.info("Whoop multi-user sync: %d user(s) to sync", len(whoop_users))
+    SessionFactory = get_session_factory(app_engine)
+
+    for i, user in enumerate(whoop_users):
+        user_id = user["user_id"]
+
+        if i > 0:
+            time.sleep(1)
+
+        logger.info("Whoop multi-user sync: syncing user %s", user_id)
+        try:
+            with SessionFactory() as db:
+                log = asyncio.run(WhoopPipeline(db, user_id=user_id).run())
+            logger.info(
+                "Whoop multi-user sync: user %s — %d stored (status: %s)",
+                user_id,
+                log.records_stored,
+                log.status,
+            )
+        except Exception as exc:
+            err_msg = str(exc).lower()
+            is_token_failure = any(
+                kw in err_msg
+                for kw in ("token", "401", "refresh", "not authenticated", "expired")
+            )
+            if is_token_failure:
+                # Remove the stale token so the user gets prompted to reconnect
+                logger.warning(
+                    "Whoop multi-user sync: token failure for user %s — removing token "
+                    "for re-auth: %s",
+                    user_id,
+                    exc,
+                )
+                try:
+                    with app_engine.begin() as conn:
+                        conn.execute(
+                            text("DELETE FROM token_store WHERE service = :key"),
+                            {"key": f"whoop_{user_id}"},
+                        )
+                except Exception:
+                    logger.exception(
+                        "Could not remove Whoop token for user %s", user_id
+                    )
+            else:
+                logger.exception(
+                    "Whoop multi-user sync: unexpected error for user %s — continuing",
+                    user_id,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -137,8 +302,8 @@ def create_scheduler(
     """Build and return a configured BackgroundScheduler.
 
     The scheduler has two recurring jobs:
-    - Garmin incremental sync every *garmin_interval_minutes* minutes.
-    - Whoop incremental sync every *whoop_interval_minutes* minutes.
+    - Garmin multi-user sync every *garmin_interval_minutes* minutes.
+    - Whoop multi-user sync every *whoop_interval_minutes* minutes.
 
     Args:
         garmin_interval_minutes: Garmin poll interval.  Defaults to
@@ -157,20 +322,20 @@ def create_scheduler(
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(
-        _run_garmin_sync,
+        _run_garmin_multi_user,
         trigger="interval",
         minutes=garmin_minutes,
         id="garmin_incremental_sync",
-        name="Garmin incremental sync",
+        name="Garmin multi-user sync",
         replace_existing=True,
         max_instances=1,
     )
     scheduler.add_job(
-        _run_whoop_sync,
+        _run_whoop_multi_user,
         trigger="interval",
         minutes=whoop_minutes,
         id="whoop_incremental_sync",
-        name="Whoop incremental sync",
+        name="Whoop multi-user sync",
         replace_existing=True,
         max_instances=1,
     )
@@ -187,12 +352,14 @@ def create_scheduler(
 # ---------------------------------------------------------------------------
 
 
-def _schedule_catchup_if_stale(scheduler: BackgroundScheduler, engine: Engine) -> None:
-    """Schedule one-shot catchup syncs for sources that haven't synced recently.
+def _schedule_catchup_if_stale(
+    scheduler: BackgroundScheduler, engine: Engine
+) -> None:
+    """Schedule one-shot catchup syncs for sources with no recent successful sync.
 
-    For each source, queries the most recent successful sync.  If no successful
-    sync exists or the last sync is older than ``_STALE_THRESHOLD_HOURS`` hours,
-    a one-shot "date" trigger job is added to fire ~10 seconds after this call.
+    Checks whether *any* user has had a successful sync within the last
+    ``_STALE_THRESHOLD_HOURS`` hours.  If not, a one-shot catchup job fires
+    ~10 seconds after this call so the multi-user sync job picks up all users.
 
     Args:
         scheduler: The running BackgroundScheduler to add catchup jobs to.
@@ -200,35 +367,26 @@ def _schedule_catchup_if_stale(scheduler: BackgroundScheduler, engine: Engine) -
     """
     stale_threshold = datetime.now(UTC) - timedelta(hours=_STALE_THRESHOLD_HOURS)
     job_map = {
-        "garmin": _run_garmin_sync,
-        "whoop": _run_whoop_sync,
+        "garmin": _run_garmin_multi_user,
+        "whoop": _run_whoop_multi_user,
     }
-
-    owner_id = _get_owner_user_id(engine)
 
     for source, job_fn in job_map.items():
         try:
             with engine.connect() as conn:
-                uid_clause = "AND user_id = :uid" if owner_id is not None else "AND user_id IS NULL"
-                params: dict = {"source": source}
-                if owner_id is not None:
-                    params["uid"] = owner_id
                 row = conn.execute(
                     text(
-                        f"""
-                        SELECT completed_at FROM sync_log
+                        """
+                        SELECT MAX(completed_at) FROM sync_log
                         WHERE source = :source AND status = 'success'
-                          {uid_clause}
-                        ORDER BY id DESC LIMIT 1
                         """
                     ),
-                    params,
+                    {"source": source},
                 ).one_or_none()
 
             needs_catchup = True
             if row is not None and row[0] is not None:
                 last_sync = row[0]
-                # DB may return naive datetimes (UTC) on PostgreSQL — normalise
                 if isinstance(last_sync, str):
                     last_sync = datetime.fromisoformat(last_sync)
                 if last_sync.tzinfo is None:
@@ -245,11 +403,15 @@ def _schedule_catchup_if_stale(scheduler: BackgroundScheduler, engine: Engine) -
                     name=f"{source.capitalize()} catchup sync",
                     replace_existing=True,
                 )
-                logger.info("%s: stale — catchup sync scheduled for %s", source, run_time)
+                logger.info(
+                    "%s: stale — catchup sync scheduled for %s", source, run_time
+                )
             else:
                 logger.info("%s: recent sync found — no catchup needed", source)
         except Exception:
-            logger.exception("Could not check stale status for %s — skipping catchup", source)
+            logger.exception(
+                "Could not check stale status for %s — skipping catchup", source
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +425,7 @@ def start_scheduler(engine: Engine | None = None) -> None:
     On startup:
     1. Restores Garmin tokens from DB to filesystem (Railway resilience).
     2. Creates and starts the BackgroundScheduler.
-    3. Schedules catchup syncs for any source that hasn't synced in >1 hour.
+    3. Schedules catchup syncs for any source with no recent successful sync.
 
     No-op when the ``TESTING`` environment variable is set.  Idempotent: does
     nothing if the scheduler is already running.
@@ -284,6 +446,7 @@ def start_scheduler(engine: Engine | None = None) -> None:
 
     if engine is None:
         from src.api.dependencies import _engine as app_engine
+
         engine = app_engine
 
     # Restore Garmin tokens from DB so garth can find them on the filesystem

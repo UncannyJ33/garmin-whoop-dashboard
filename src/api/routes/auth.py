@@ -260,22 +260,108 @@ async def garmin_connect(
     return JSONResponse({"connected": True, "message": "Garmin connected successfully."})
 
 
+@router.get("/feature-flags", summary="Return feature flags for the current user")
+async def feature_flags() -> JSONResponse:
+    """Return feature flags that control frontend behaviour.
+
+    This endpoint is intentionally unauthenticated so the onboarding page can
+    read it before the user has completed setup.
+    """
+    from config.settings import settings
+
+    return JSONResponse(
+        {
+            "whoop_oauth_enabled": settings.whoop_public_oauth_enabled,
+        }
+    )
+
+
 @router.get("/garmin/status", summary="Check whether the current user has connected Garmin")
 async def garmin_connection_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     engine: Engine = Depends(get_engine_dep),
 ) -> JSONResponse:
-    """Return whether the current user has valid Garmin session tokens stored.
-
-    The primary account owner is considered connected via global env-var
-    credentials even without a per-user token row.
-    """
+    """Return whether the current user has valid Garmin session tokens or stored credentials."""
     from src.clients.garmin_auth import has_garmin_token
-    from src.ingestion.scheduler import _get_owner_user_id
 
-    connected = has_garmin_token(current_user.id, db) or _get_owner_user_id(engine) == current_user.id
-    return JSONResponse({"connected": connected})
+    if has_garmin_token(current_user.id, db):
+        return JSONResponse({"connected": True})
+
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT user_id FROM garmin_credentials WHERE user_id = :uid"),
+            {"uid": current_user.id},
+        ).one_or_none()
+    return JSONResponse({"connected": row is not None})
+
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Change the current user's password",
+)
+def change_password(
+    body: ChangePasswordBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Change the authenticated user's password.
+
+    Requires the correct current password.  The new password must be at least
+    8 characters.  ``get_current_user`` builds User from JWT without a DB
+    lookup, so we fetch ``hashed_password`` explicitly here.
+    """
+    row = db.execute(
+        text("SELECT hashed_password FROM users WHERE id = :uid"),
+        {"uid": current_user.id},
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if not verify_password(body.current_password, row[0]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters.",
+        )
+    db.execute(
+        text("UPDATE users SET hashed_password = :hp WHERE id = :uid"),
+        {"hp": hash_password(body.new_password), "uid": current_user.id},
+    )
+    db.commit()
+    logger.info("Password changed for user %s", current_user.id)
+
+
+@router.delete(
+    "/whoop/disconnect",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Disconnect the current user's Whoop account",
+)
+async def whoop_disconnect(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Remove the stored Whoop OAuth token for the current user.
+
+    The user will be prompted to reconnect Whoop on their next visit.
+    No API call is made to Whoop — only the local token is deleted.
+    """
+    from src.database.models import TokenStore
+
+    record = db.get(TokenStore, f"whoop_{current_user.id}")
+    if record:
+        db.delete(record)
+        db.commit()
+    logger.info("Whoop disconnected for user %s", current_user.id)
 
 
 @router.get("/whoop/callback", summary="Handle Whoop OAuth callback")
@@ -292,7 +378,9 @@ async def whoop_callback(
     try:
         user_id = _pop_oauth_state(state, db)
         if user_id is None:
-            logger.warning("Whoop callback: unknown or expired state — possible CSRF or server restart")
+            logger.warning(
+                "Whoop callback: unknown or expired state — possible CSRF or server restart"
+            )
             return RedirectResponse(url="/settings?whoop_error=expired", status_code=302)
         await _whoop_auth.exchange_code(code, db, user_id=user_id)
         logger.info("Whoop OAuth complete for user %s", user_id)

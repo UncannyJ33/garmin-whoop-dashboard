@@ -234,7 +234,9 @@ class GarminAuth:
 
     def __init__(self, token_dir: Path | None = None) -> None:
         self._client: Garmin | None = None
-        self._token_dir: Path = token_dir if token_dir is not None else Path(settings.garmin_token_dir)
+        self._token_dir: Path = (
+            token_dir if token_dir is not None else Path(settings.garmin_token_dir)
+        )
         # Keeps a TemporaryDirectory alive when this instance owns one (per-user flow)
         self._temp_dir_obj: tempfile.TemporaryDirectory | None = None
 
@@ -285,7 +287,9 @@ class GarminAuth:
         service_key = f"garmin_{user_id}"
         record = db.get(TokenStore, service_key)
         if record is None or not record.token_data_json:
-            raise GarminAuthError(f"No Garmin tokens found for user {user_id}. Connect Garmin first.")
+            raise GarminAuthError(
+                f"No Garmin tokens found for user {user_id}. Connect Garmin first."
+            )
 
         token_files: dict[str, str] = json.loads(record.token_data_json)
         temp = tempfile.TemporaryDirectory()

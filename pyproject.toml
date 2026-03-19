@@ -20,6 +20,7 @@ dependencies = [
     "python-jose[cryptography]>=3.5.0",
     "passlib[bcrypt]>=1.7.4",
     "pydantic[email]>=2.12.5",
+    "python-multipart>=0.0.22",
 ]
 
 [build-system]

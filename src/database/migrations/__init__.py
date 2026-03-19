@@ -43,3 +43,5 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
     _load("007_user_id_gaps.py").run(**kwargs)
     _load("008_migrate_whoop_token.py").run(**kwargs)
     _load("009_enable_rls.py").run(**kwargs)
+    _load("010_garmin_credentials.py").run(**kwargs)
+    _load("011_waitlist.py").run(**kwargs)
