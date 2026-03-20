@@ -12,7 +12,16 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Pre-Phase 6 polish COMPLETE (Mar 18, 2026)** — All pre-Phase 6 items done. Ready to begin Phase 6.
+**Phase 6 code COMPLETE (Mar 19, 2026)** — Tasks 6.4–6.7 built and deployed. Task 6.8 (manual end-to-end testing) pending.
+
+### Phase 6 completions (Tasks 6.4–6.7):
+- **Task 6.4** Data isolation: all queries scoped by user_id; cross-user access verified in tests
+- **Task 6.5** Multi-user scheduler: per-user Garmin credentials (Fernet-encrypted in DB), CSV upload endpoint, per-user sync jobs
+- **Task 6.6** Account settings: Whoop disconnect, data export (ZIP with 4 CSVs), change password, account deletion (cascade 16 tables)
+- **Task 6.7** Landing page + waitlist: `Landing.tsx` at `/` for unauthenticated users, `POST /api/waitlist` (rate-limited, idempotent), `GET /api/waitlist/admin` (Bearer token auth), migration 011
+- **Tests**: 946 passing (42 new for Phase 6)
+- **Deployed**: commit `4c661ed` → Railway → engine.pulsebuilt.net
+- **Pending**: Task 6.8 manual testing (scheduled Mar 20, 2026) — then update CLAUDE.md + README
 
 ### Pre-Phase 6 completions:
 - Privacy contact: `privacy@pulsebuilt.net` active, Privacy.tsx updated
