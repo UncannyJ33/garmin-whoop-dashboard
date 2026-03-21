@@ -86,8 +86,14 @@ export function Privacy() {
               <li>Passwords are hashed using bcrypt and are never stored in plaintext.</li>
               <li>Whoop OAuth tokens are stored securely and can be revoked at any time.</li>
               <li>
-                If you opt into Garmin credential storage, your credentials are encrypted
-                before storage and can be deleted at any time.
+                If you opt into Garmin credential storage, your email and password are
+                encrypted using AES-128 symmetric encryption (Fernet) before being written
+                to the database. Unlike a password hash, this encryption is reversible —
+                the server decrypts your credentials only when performing background syncs
+                on your behalf. This is a technical requirement of the Garmin integration,
+                which has no OAuth flow. The encryption key is stored separately from the
+                database. You can remove your stored Garmin credentials at any time from
+                the Settings page.
               </li>
               <li>Each user's data is isolated — you can only access your own data.</li>
             </ul>
