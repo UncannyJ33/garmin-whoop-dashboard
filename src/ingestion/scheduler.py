@@ -175,7 +175,21 @@ def _run_garmin_multi_user() -> None:
         try:
             with SessionFactory() as db:
                 if email and password:
-                    authenticate_user_garmin(user_id, email, password, db)
+                    # Only do a full password login when no session tokens exist.
+                    # Reusing existing tokens avoids hammering Garmin's auth
+                    # endpoint every 15 minutes and triggering rate limits.
+                    from src.clients.garmin_auth import has_garmin_token
+                    if not has_garmin_token(user_id, db):
+                        logger.info(
+                            "Garmin multi-user sync: no tokens for user %s — authenticating",
+                            user_id,
+                        )
+                        authenticate_user_garmin(user_id, email, password, db)
+                    else:
+                        logger.debug(
+                            "Garmin multi-user sync: reusing existing tokens for user %s",
+                            user_id,
+                        )
                 pipeline = GarminPipeline(db, user_id=user_id)
                 log = pipeline.run()
             logger.info(
@@ -187,26 +201,36 @@ def _run_garmin_multi_user() -> None:
             # Persist any updated garth tokens for container restart resilience
             save_garmin_tokens_to_db(app_engine)
         except GarminAuthError as exc:
-            logger.warning(
-                "Garmin multi-user sync: auth failure for user %s — disabling auto-sync: %s",
-                user_id,
-                exc,
-            )
-            if user_id in creds_by_user:
-                try:
-                    with app_engine.begin() as conn:
-                        conn.execute(
-                            text(
-                                "UPDATE garmin_credentials SET auto_sync_enabled = 0 "
-                                "WHERE user_id = :uid"
-                            ),
-                            {"uid": user_id},
+            err_msg = str(exc)
+            is_rate_limit = "429" in err_msg or "rate limit" in err_msg.lower()
+            if is_rate_limit:
+                # Don't disable auto-sync on rate limits — it will clear on its own.
+                logger.warning(
+                    "Garmin multi-user sync: rate limit for user %s — skipping this run",
+                    user_id,
+                )
+            else:
+                # 401/403 = bad credentials — disable auto-sync so we stop retrying.
+                logger.warning(
+                    "Garmin multi-user sync: auth failure for user %s — disabling auto-sync: %s",
+                    user_id,
+                    exc,
+                )
+                if user_id in creds_by_user:
+                    try:
+                        with app_engine.begin() as conn:
+                            conn.execute(
+                                text(
+                                    "UPDATE garmin_credentials SET auto_sync_enabled = 0 "
+                                    "WHERE user_id = :uid"
+                                ),
+                                {"uid": user_id},
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Could not disable auto_sync for user %s after auth failure",
+                            user_id,
                         )
-                except Exception:
-                    logger.exception(
-                        "Could not disable auto_sync for user %s after auth failure",
-                        user_id,
-                    )
         except Exception:
             logger.exception(
                 "Garmin multi-user sync: unexpected error for user %s — continuing",
