@@ -66,7 +66,7 @@ def get_users_to_sync(engine: Engine) -> list[dict]:
             ).fetchall()
             garmin_cred_rows = conn.execute(
                 text(
-                    "SELECT user_id FROM garmin_credentials WHERE auto_sync_enabled = 1"
+                    "SELECT user_id FROM garmin_credentials WHERE auto_sync_enabled = true"
                 )
             ).fetchall()
             garmin_token_rows = conn.execute(
@@ -137,7 +137,7 @@ def _run_garmin_multi_user() -> None:
             cred_rows = conn.execute(
                 text(
                     "SELECT user_id, encrypted_email, encrypted_password "
-                    "FROM garmin_credentials WHERE auto_sync_enabled = 1"
+                    "FROM garmin_credentials WHERE auto_sync_enabled = true"
                 )
             ).fetchall()
         creds_by_user: dict[str, tuple[str, str]] = {
@@ -221,7 +221,7 @@ def _run_garmin_multi_user() -> None:
                         with app_engine.begin() as conn:
                             conn.execute(
                                 text(
-                                    "UPDATE garmin_credentials SET auto_sync_enabled = 0 "
+                                    "UPDATE garmin_credentials SET auto_sync_enabled = false "
                                     "WHERE user_id = :uid"
                                 ),
                                 {"uid": user_id},

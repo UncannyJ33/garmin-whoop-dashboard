@@ -157,7 +157,7 @@ def store_credentials(
                 UPDATE garmin_credentials
                 SET encrypted_email    = :email,
                     encrypted_password = :password,
-                    auto_sync_enabled  = 1,
+                    auto_sync_enabled  = true,
                     updated_at         = :now
                 WHERE user_id = :uid
                 """
@@ -176,7 +176,7 @@ def store_credentials(
                 INSERT INTO garmin_credentials
                     (user_id, encrypted_email, encrypted_password,
                      auto_sync_enabled, consent_given_at, created_at, updated_at)
-                VALUES (:uid, :email, :password, 1, :consent_at, :now, :now)
+                VALUES (:uid, :email, :password, true, :consent_at, :now, :now)
                 """
             ),
             {

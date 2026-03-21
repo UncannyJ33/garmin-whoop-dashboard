@@ -29,7 +29,7 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
                     user_id          TEXT PRIMARY KEY,
                     encrypted_email  TEXT NOT NULL,
                     encrypted_password TEXT NOT NULL,
-                    auto_sync_enabled INTEGER NOT NULL DEFAULT 1,
+                    auto_sync_enabled BOOLEAN NOT NULL DEFAULT true,
                     consent_given_at TEXT NOT NULL,
                     created_at       TEXT NOT NULL,
                     updated_at       TEXT NOT NULL
