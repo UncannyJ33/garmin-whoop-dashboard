@@ -12,6 +12,7 @@ import { Login } from './pages/Login'
 import { Onboarding } from './pages/Onboarding'
 import { Privacy } from './pages/Privacy'
 import { GarminHelp } from './pages/GarminHelp'
+import { Demo } from './pages/Demo'
 import { Showcase } from './pages/Showcase'
 import { ApiTest } from './pages/ApiTest'
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -68,6 +69,7 @@ export function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/help/garmin-export" element={<GarminHelp />} />
+            <Route path="/demo" element={<Demo />} />
             <Route element={<ProtectedLayout />}>
               {/* Authenticated routes */}
               <Route path="/onboarding" element={<Onboarding />} />

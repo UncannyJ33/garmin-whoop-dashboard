@@ -80,6 +80,20 @@
       align-self: flex-start;
     }
     .btn:hover { opacity: 0.85; }
+    .btn-ghost {
+      display: inline-block;
+      background: transparent;
+      color: var(--teal);
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      border: 1px solid rgba(93,202,165,0.3);
+      transition: border-color 0.15s, opacity 0.15s;
+      align-self: flex-start;
+    }
+    .btn-ghost:hover { border-color: var(--teal); opacity: 0.85; }
+    .cta-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 
     /* ── Product card ── */
     .card {
@@ -131,7 +145,10 @@
   <main class="hero">
     <h1>Your data,<br>finally useful.</h1>
     <p>We build tools that turn fragmented fitness data into clear, actionable insight.</p>
-    <a class="btn" href="https://engine.pulsebuilt.net">Launch PulseEngine →</a>
+    <div class="cta-row">
+      <a class="btn" href="https://engine.pulsebuilt.net">Launch PulseEngine →</a>
+      <a class="btn-ghost" href="https://engine.pulsebuilt.net/demo">See a demo →</a>
+    </div>
   </main>
 
   <div class="card">
@@ -140,7 +157,10 @@
         <h2>PulseEngine</h2>
         <p>Unified training and recovery dashboard for Garmin + Whoop athletes.</p>
       </div>
-      <a class="card-link" href="https://engine.pulsebuilt.net">Open App →</a>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem;">
+        <a class="card-link" href="https://engine.pulsebuilt.net">Open App →</a>
+        <a class="card-link" style="opacity:0.6;font-weight:400;" href="https://engine.pulsebuilt.net/demo">See demo →</a>
+      </div>
     </div>
   </div>
 
