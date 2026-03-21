@@ -72,7 +72,12 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-surface-bg px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-slate-100">PulseEngine</h1>
+          <h1
+            className="text-2xl font-bold text-slate-100"
+            style={{ fontFamily: "'Geist', system-ui, sans-serif", letterSpacing: '-0.02em' }}
+          >
+            PulseEngine
+          </h1>
           <p className="text-slate-400 text-sm mt-1">
             {isLogin ? 'Sign in to your dashboard' : 'Create a new account'}
           </p>
@@ -93,7 +98,10 @@ export function Login() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+              style={{ ['--tw-ring-color' as string]: 'var(--data-primary)' }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--data-primary)')}
+              onBlur={e => (e.currentTarget.style.borderColor = '')}
               placeholder="you@example.com"
             />
           </div>
@@ -109,7 +117,9 @@ export function Login() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--data-primary)')}
+              onBlur={e => (e.currentTarget.style.borderColor = '')}
               placeholder="••••••••"
             />
           </div>
@@ -123,7 +133,8 @@ export function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
+            className="w-full disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2.5 text-sm transition-opacity"
+            style={{ background: 'var(--data-primary)' }}
           >
             {loading
               ? isLogin
@@ -151,11 +162,9 @@ export function Login() {
               Don&apos;t have an account?{' '}
               <button
                 type="button"
-                onClick={() => {
-                  setMode('register')
-                  setError(null)
-                }}
-                className="text-blue-400 hover:text-blue-300 underline"
+                onClick={() => { setMode('register'); setError(null) }}
+                className="underline"
+                style={{ color: 'var(--data-primary)' }}
               >
                 Create one
               </button>
@@ -165,11 +174,9 @@ export function Login() {
               Already have an account?{' '}
               <button
                 type="button"
-                onClick={() => {
-                  setMode('login')
-                  setError(null)
-                }}
-                className="text-blue-400 hover:text-blue-300 underline"
+                onClick={() => { setMode('login'); setError(null) }}
+                className="underline"
+                style={{ color: 'var(--data-primary)' }}
               >
                 Sign in
               </button>
