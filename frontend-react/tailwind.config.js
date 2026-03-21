@@ -44,6 +44,7 @@ export default {
           raised:  'var(--color-surface-raised)',
           overlay: 'var(--color-surface-overlay)',
           border:  'var(--color-surface-border)',
+          card:    'var(--color-surface-raised)',
         },
         good: {
           DEFAULT: 'var(--status-excellent)',
