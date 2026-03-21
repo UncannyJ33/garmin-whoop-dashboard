@@ -18,7 +18,7 @@ import { ReadinessArcGauge } from '../components/ReadinessArcGauge'
 import { SleepStageBar } from '../components/SleepStageBar'
 import type { ReadinessLevel } from '../components/StatusBadge'
 import { TrendChart } from '../components/TrendChart'
-import { NoDataState } from '../components/LoadingState'
+import { ConnectDevicesPanel } from '../components/ConnectDevicesPanel'
 import {
   useLimitingFactors,
   useMetricTrend,
@@ -244,7 +244,19 @@ export function Today() {
   const allSettled = readiness.isSuccess && sleepData.isSuccess && recentWorkouts.isSuccess
   const hasNoData  = allSettled && (readinessData?.confidence ?? 0) === 0 && sleepArr.length === 0
   if (hasNoData) {
-    return <NoDataState />
+    return (
+      <div style={{ maxWidth: 480, margin: '32px auto', padding: '0 16px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <p style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+            Connect your devices
+          </p>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Link Whoop or Garmin to start seeing your personalised dashboard.
+          </p>
+        </div>
+        <ConnectDevicesPanel />
+      </div>
+    )
   }
 
   return (
