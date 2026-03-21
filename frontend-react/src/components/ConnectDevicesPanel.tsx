@@ -57,13 +57,13 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
 
   async function handleConnect() {
     if (!consent) {
-      setError('Please confirm that you consent to syncing your Garmin data.')
+      setError('Please confirm that you consent to storing your encrypted credentials.')
       return
     }
     setConnecting(true)
     setError(null)
     try {
-      await api.post('/api/auth/garmin/connect', { email, password })
+      await api.post('/api/garmin/credentials', { email, password, consent })
       onSuccess()
     } catch (err) {
       setError(
@@ -80,10 +80,23 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
       <div className="w-full max-w-sm bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4 shadow-xl">
         <div>
-          <h2 className="text-base font-semibold text-slate-100">Connect Garmin (auto-sync)</h2>
+          <h2 className="text-base font-semibold text-slate-100">Enable Garmin Auto-Sync</h2>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Enter your Garmin Connect credentials. Your password is used only to
-            authenticate and is never stored — only the session tokens are saved.
+            Sync your Garmin data automatically every 15 minutes.
+          </p>
+        </div>
+
+        {/* Security disclosure */}
+        <div className="rounded-xl bg-blue-950/40 border border-blue-800/30 px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold text-blue-400">How your credentials are protected</p>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            Your Garmin email and password are encrypted using AES-128-CBC + HMAC-SHA256
+            (Fernet) before being stored. The encryption key is separate from your data
+            and never logged. Your credentials are used only to authenticate with Garmin
+            Connect on your behalf during scheduled syncs.
+          </p>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            You can remove your credentials at any time from Settings.
           </p>
         </div>
 
@@ -130,8 +143,8 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
               style={{ accentColor: 'var(--data-primary)' }}
             />
             <span className="text-xs text-slate-400 leading-relaxed">
-              I consent to PulseEngine syncing my Garmin activity, sleep, and health
-              data to display personalised insights.
+              I consent to my encrypted Garmin credentials being stored for automatic
+              background sync.
             </span>
           </label>
         </div>
@@ -158,7 +171,7 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
             style={{ background: connecting || !email || !password ? undefined : 'var(--data-primary)' }}
           >
             {connecting && <Spinner />}
-            {connecting ? 'Connecting…' : 'Connect'}
+            {connecting ? 'Connecting…' : 'Enable Auto-Sync'}
           </button>
         </div>
       </div>
