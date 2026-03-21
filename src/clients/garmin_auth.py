@@ -145,6 +145,22 @@ def authenticate_user_garmin(user_id: str, email: str, password: str, db: Sessio
             client.login()
         except GarthHTTPError as exc:
             _raise_for_status(exc)
+        except Exception as exc:  # noqa: BLE001
+            # garminconnect raises its own exception types (GarminConnectTooManyRequestsError,
+            # GarminConnectConnectionError, GarminConnectAuthenticationError) that are not
+            # GarthHTTPError subclasses — map them to GarminAuthError so callers get a clean
+            # exception instead of an unhandled 500.
+            err_msg = str(exc)
+            exc_type = type(exc).__name__
+            if "429" in err_msg or "rate limit" in err_msg.lower() or "TooManyRequests" in exc_type:
+                raise GarminAuthError(
+                    "Garmin rate limit reached (429). Wait a few minutes before retrying."
+                ) from exc
+            if "401" in err_msg or "authentication" in err_msg.lower() or "Authentication" in exc_type:
+                raise GarminAuthError(
+                    f"Garmin credentials are invalid or the session expired (401). {exc}"
+                ) from exc
+            raise GarminAuthError(f"Garmin login failed: {exc}") from exc
 
         try:
             client.garth.dump(str(token_dir))
