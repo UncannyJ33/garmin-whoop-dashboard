@@ -3,7 +3,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useChangePassword, useDataStats, useDeleteAccount, useDeleteGarminCredentials, useDisconnectWhoop, useGarminCredentialsStatus, useGarminStatus, useStoreGarminCredentials, useSyncStatus, useTriggerSync, useWhoopStatus, type UploadResult } from '../hooks/useApi'
+import { useChangePassword, useDataStats, useDeleteAccount, useDeleteGarminCredentials, useDisconnectWhoop, useFeatureFlags, useGarminCredentialsStatus, useGarminStatus, useStoreGarminCredentials, useSyncStatus, useTriggerSync, useWhoopStatus, type UploadResult } from '../hooks/useApi'
 import { GarminUpload } from '../components/GarminUpload'
 import { api } from '../api/client'
 import { useTheme } from '../context/ThemeContext'
@@ -129,6 +129,8 @@ export function Settings() {
   const statusQ = useSyncStatus()
   const statsQ  = useDataStats()
   const trigger = useTriggerSync()
+  const flagsQ  = useFeatureFlags()
+  const whoopOAuthEnabled = flagsQ.data?.whoop_oauth_enabled ?? false
   const whoopStatus = useWhoopStatus()
   const garminStatus = useGarminStatus()
   const garminCredsStatus = useGarminCredentialsStatus()
@@ -406,22 +408,28 @@ export function Settings() {
 
                 {/* Show Connect button when not connected, Sync Now when connected */}
                 {!isConnected ? (
-                  <button
-                    onClick={() => {
-                      if (isWhoop) void handleConnectWhoop()
-                      else openGarminCredModal('connect')
-                    }}
-                    disabled={isWhoop ? connectingWhoop : false}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      (isWhoop && connectingWhoop)
-                        ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
-                        : isWhoop ? 'bg-red-500 text-white' : 'bg-blue-600 text-white'
-                    }`}
-                  >
-                    {isWhoop && connectingWhoop
-                      ? <><Spinner /> Connecting…</>
-                      : isWhoop ? 'Connect Whoop' : 'Connect Garmin'}
-                  </button>
+                  isWhoop && !whoopOAuthEnabled ? (
+                    <span className="rounded-lg px-3 py-1.5 text-xs text-slate-500 border border-surface-border">
+                      Coming soon
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (isWhoop) void handleConnectWhoop()
+                        else openGarminCredModal('connect')
+                      }}
+                      disabled={isWhoop ? connectingWhoop : false}
+                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        (isWhoop && connectingWhoop)
+                          ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                          : isWhoop ? 'bg-red-500 text-white' : 'bg-blue-600 text-white'
+                      }`}
+                    >
+                      {isWhoop && connectingWhoop
+                        ? <><Spinner /> Connecting…</>
+                        : isWhoop ? 'Connect Whoop' : 'Connect Garmin'}
+                    </button>
+                  )
                 ) : (
                   <button
                     onClick={() => handleSync(source.source)}

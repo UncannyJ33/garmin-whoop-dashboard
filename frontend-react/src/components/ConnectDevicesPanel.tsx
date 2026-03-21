@@ -14,6 +14,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import {
+  useFeatureFlags,
   useGarminStatus,
   useWhoopStatus,
   type UploadResult,
@@ -247,9 +248,11 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
   const [searchParams, setSearchParams] = useSearchParams()
   const { userId } = useAuth()
 
+  const flagsQ = useFeatureFlags()
   const whoopStatusQ = useWhoopStatus()
   const garminStatusQ = useGarminStatus()
 
+  const whoopOAuthEnabled = flagsQ.data?.whoop_oauth_enabled ?? false
   const whoopConnected = whoopStatusQ.data?.connected ?? false
   const garminConnected = garminStatusQ.data?.connected ?? false
 
@@ -354,15 +357,23 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
           )}
 
           {!whoopConnected && (
-            <button
-              type="button"
-              onClick={() => void handleConnectWhoop()}
-              disabled={connectingWhoop}
-              className="w-full bg-red-600 hover:bg-red-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2 text-sm transition-colors flex items-center justify-center gap-2"
-            >
-              {connectingWhoop && <Spinner />}
-              {connectingWhoop ? 'Redirecting…' : 'Connect Whoop'}
-            </button>
+            whoopOAuthEnabled ? (
+              <button
+                type="button"
+                onClick={() => void handleConnectWhoop()}
+                disabled={connectingWhoop}
+                className="w-full bg-red-600 hover:bg-red-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2 text-sm transition-colors flex items-center justify-center gap-2"
+              >
+                {connectingWhoop && <Spinner />}
+                {connectingWhoop ? 'Redirecting…' : 'Connect Whoop'}
+              </button>
+            ) : (
+              <div className="rounded-lg bg-surface-bg border border-surface-border px-4 py-3 text-center">
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Whoop integration coming soon.
+                </p>
+              </div>
+            )
           )}
         </div>
 
