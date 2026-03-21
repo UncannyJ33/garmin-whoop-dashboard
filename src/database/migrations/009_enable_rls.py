@@ -43,7 +43,23 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
 
     print(f"Migration 009: enabling RLS on {len(_TABLES)} tables — {engine.url!s}")
     with engine.begin() as conn:
+        # Query which tables already have RLS enabled to avoid unnecessary ALTER TABLE
+        # statements (which acquire locks and can time out on Supabase/PgBouncer even
+        # when RLS is already on).
+        already_enabled: set[str] = set(
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT relname FROM pg_class "
+                    "WHERE relnamespace = 'public'::regnamespace "
+                    "AND relrowsecurity = true"
+                )
+            )
+        )
         for table in _TABLES:
+            if table in already_enabled:
+                print(f"  ✓ RLS already enabled on {table} — skipping")
+                continue
             conn.execute(text(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY'))
             print(f"  ✓ RLS enabled on {table}")
 
