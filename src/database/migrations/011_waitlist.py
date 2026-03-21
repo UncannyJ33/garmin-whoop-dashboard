@@ -14,21 +14,34 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
     if engine is None:
         engine = get_engine(database_url)
 
+    is_postgresql = engine.dialect.name == "postgresql"
+
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS waitlist (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT NOT NULL UNIQUE,
-                    signed_up_at TEXT NOT NULL,
-                    notified INTEGER NOT NULL DEFAULT 0
+        if is_postgresql:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS waitlist (
+                        id SERIAL PRIMARY KEY,
+                        email TEXT NOT NULL UNIQUE,
+                        signed_up_at TEXT NOT NULL,
+                        notified BOOLEAN NOT NULL DEFAULT FALSE
+                    )
+                    """
                 )
-                """
             )
-        )
-        # PostgreSQL: use SERIAL + BOOLEAN
-        # The above works for both SQLite and PostgreSQL (INTEGER pk autoincrement is
-        # handled as SERIAL by SQLAlchemy on PostgreSQL via reflection; UNIQUE is standard)
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS waitlist (
+                        id INTEGER PRIMARY KEY,
+                        email TEXT NOT NULL UNIQUE,
+                        signed_up_at TEXT NOT NULL,
+                        notified INTEGER NOT NULL DEFAULT 0
+                    )
+                    """
+                )
+            )
 
     logger.info("Migration 011: waitlist table ready")
