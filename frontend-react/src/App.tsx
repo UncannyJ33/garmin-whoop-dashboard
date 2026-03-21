@@ -54,7 +54,7 @@ function HomeRoute() {
   const { isAuthenticated, isInitializing } = useAuth()
   if (isInitializing) return null
   if (!isAuthenticated) return <Landing />
-  return <Today />
+  return <Layout><Today /></Layout>
 }
 
 export function App() {

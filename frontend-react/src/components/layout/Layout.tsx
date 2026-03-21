@@ -130,7 +130,7 @@ function BottomTabBar() {
 
 // ── Layout ─────────────────────────────────────────────────────────────────
 
-export function Layout() {
+export function Layout({ children }: { children?: React.ReactNode } = {}) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const isOnline = useOnlineStatus()
 
@@ -154,7 +154,7 @@ export function Layout() {
           className="flex-1 overflow-y-auto"
           style={{ padding: '24px', maxWidth: '1200px', width: '100%', margin: '0 auto' }}
         >
-          <Outlet />
+          {children ?? <Outlet />}
         </main>
 
         {/* Mobile bottom tab bar */}
