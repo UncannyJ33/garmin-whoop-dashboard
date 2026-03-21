@@ -398,6 +398,12 @@ class GarminAuth:
             logger.warning("Garmin: unexpected HTTP error loading tokens: %s", exc)
             return None
         except Exception as exc:  # noqa: BLE001
+            err_msg = str(exc)
+            if "429" in err_msg or "rate limit" in err_msg.lower() or "too many" in err_msg.lower():
+                # Rate limit — do NOT fall back to password login, that will also be rate-limited.
+                raise GarminAuthError(
+                    "Garmin rate limit reached (429). Wait a few minutes before retrying."
+                ) from exc
             logger.warning("Garmin: could not load tokens (%s) — will re-authenticate", exc)
             return None
 
