@@ -216,5 +216,10 @@ class GarminClient:
             return None
 
         except Exception as exc:  # noqa: BLE001
+            # Re-raise rate limit errors so the pipeline aborts on first failure
+            # rather than making N more failed OAuth calls (one per API call).
+            err_msg = str(exc)
+            if "429" in err_msg or "rate limit" in err_msg.lower() or "too many" in err_msg.lower():
+                raise
             logger.error("Garmin API: unexpected error: %s", exc)
             return None
