@@ -12,16 +12,24 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - Overall roadmap and priorities → Garmin_Whoop_Dashboard_Roadmap_v2.md
 
 ## Current Phase
-**Phase 6 code COMPLETE (Mar 19, 2026)** — Tasks 6.4–6.7 built and deployed. Task 6.8 (manual end-to-end testing) pending.
+**Phase 6 COMPLETE (Mar 21, 2026)** — All tasks 6.4–6.8 complete including manual end-to-end testing.
 
-### Phase 6 completions (Tasks 6.4–6.7):
+### Phase 6 completions (Tasks 6.4–6.8):
 - **Task 6.4** Data isolation: all queries scoped by user_id; cross-user access verified in tests
 - **Task 6.5** Multi-user scheduler: per-user Garmin credentials (Fernet-encrypted in DB), CSV upload endpoint, per-user sync jobs
 - **Task 6.6** Account settings: Whoop disconnect, data export (ZIP with 4 CSVs), change password, account deletion (cascade 16 tables)
 - **Task 6.7** Landing page + waitlist: `Landing.tsx` at `/` for unauthenticated users, `POST /api/waitlist` (rate-limited, idempotent), `GET /api/waitlist/admin` (Bearer token auth), migration 011
+- **Task 6.8** Manual end-to-end testing: all flows verified in production — onboarding, Garmin auto-sync, credential delete, data export, password change, account deletion, mobile onboarding
 - **Tests**: 946 passing (42 new for Phase 6)
-- **Deployed**: commit `4c661ed` → Railway → engine.pulsebuilt.net
-- **Pending**: Task 6.8 manual testing (scheduled Mar 20, 2026) — then update CLAUDE.md + README
+- **Deployed**: commit `ae37a17` → Railway → engine.pulsebuilt.net
+
+### Post-Phase 6 production fixes (Mar 21, 2026):
+- **Migration 009 timeout**: `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` was timing out on every deploy for already-protected tables. Fixed by querying `pg_class.relrowsecurity` first and skipping tables where RLS is already enabled.
+- **Garmin rate limit cascade**: scheduler was calling `authenticate_user_garmin` (full password login) on every 15-min sync run = 96 logins/day. Fixed: only authenticate when no session tokens exist. Also: `_login_with_tokens` now raises `GarminAuthError` on 429 instead of returning None (preventing cascade to password fallback). `GarminClient._call` now re-raises rate limit errors so the pipeline aborts on first failure instead of making N more failed OAuth calls.
+- **garminconnect exception types**: `GarminConnectTooManyRequestsError` and friends are plain Exception subclasses, not GarthHTTPError. Added broad catch in `authenticate_user_garmin` and mapped them to `GarminAuthError`.
+- **PostgreSQL BOOLEAN**: `auto_sync_enabled` column in `garmin_credentials` is BOOLEAN; SQL with `= 1`/`= 0` causes DatatypeMismatch on Supabase. Fixed all SQL to use `true`/`false` literals; fixed migration 010 column definition.
+- **ConnectDevicesPanel opacity**: `bg-surface-card` Tailwind token was undefined. Added `card: 'var(--color-surface-raised)'` to surface tokens in tailwind.config.js.
+- **Garmin credential endpoint**: ConnectDevicesPanel was posting to wrong endpoint (`/api/auth/garmin/connect` → `/api/garmin/credentials`). Fixed and added security disclosure panel matching Settings modal.
 
 ### Pre-Phase 6 completions:
 - Privacy contact: `privacy@pulsebuilt.net` active, Privacy.tsx updated
