@@ -72,14 +72,16 @@ function toCardSeverity(severity: string): 'alert' | 'caution' {
 // Shared layout atoms
 // ---------------------------------------------------------------------------
 
-function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+function Card({ children, style, className }: { children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
   return (
     <div
+      className={className}
       style={{
         background:   'var(--bg-card)',
         borderRadius: 12,
         border:       '0.5px solid var(--border-subtle)',
         overflow:     'hidden',
+        transition:   'border-color 150ms ease',
         ...style,
       }}
     >
@@ -259,24 +261,121 @@ export function Today() {
     )
   }
 
-  return (
-    <div
-      style={{
-        display:       'flex',
-        flexDirection: 'column',
-        gap:           16,
-        maxWidth:      600,
-        margin:        '0 auto',
-      }}
-    >
+  // Sparklines inner content — shared between mobile and desktop layouts
+  const sparklineButtons = SPARKLINES.map(({ key, label, unit, toDisplay, transform, trend, color }) => {
+    const data      = trend.data
+    const allValues = data?.values.filter((v): v is number => v != null) ?? []
+    const latest    = allValues.length > 0 ? allValues[allValues.length - 1] : undefined
 
-      {/* ── 1. Hero ──────────────────────────────────────────────────────── */}
-      <Card style={{ padding: '24px 20px 20px' }}>
+    const prevValues = allValues.slice(-2)
+    const arrowRaw   = prevValues.length === 2 ? prevValues[1] - prevValues[0] : 0
+    const arrow      = Math.abs(arrowRaw) < 0.5 ? '→' : arrowRaw > 0 ? '↑' : '↓'
+    const arrowColor = arrow === '→'
+      ? 'var(--text-tertiary)'
+      : arrow === '↑' ? 'var(--data-primary)' : 'var(--data-anomaly)'
+
+    const chartData = (data?.values ?? []).map(v => ({
+      value: v != null ? transform(v) : null,
+    }))
+
+    const isActive = expandedSparkline === key
+
+    return (
+      <button
+        key={key}
+        onClick={() => setExpandedSparkline(v => v === key ? null : key)}
+        style={{
+          background:   'var(--bg-card)',
+          border:       isActive
+            ? '0.5px solid var(--brand)'
+            : '0.5px solid var(--border-subtle)',
+          borderRadius: 10,
+          padding:      '10px 10px 6px',
+          cursor:       'pointer',
+          textAlign:    'left',
+          overflow:     'hidden',
+          minWidth:     0,
+          transition:   'border-color 150ms ease',
+        }}
+      >
+        {/* Label */}
+        <p style={{ fontSize: 10, letterSpacing: '0.03em', color: 'var(--text-tertiary)', marginBottom: 4 }}>
+          {label}
+        </p>
+
+        {/* Value + arrow */}
+        {trend.isPending ? (
+          <div className="skeleton" style={{ width: '60%', height: 20, borderRadius: 4, marginBottom: 6 }} />
+        ) : latest != null ? (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
+            <span
+              style={{
+                fontSize:           16,
+                fontWeight:         700,
+                color:              'var(--text-primary)',
+                fontVariantNumeric: 'tabular-nums',
+                fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
+              }}
+            >
+              {toDisplay(latest)}{unit}
+            </span>
+            <span style={{ fontSize: 11, color: arrowColor }}>{arrow}</span>
+          </div>
+        ) : (
+          <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4 }}>No data</p>
+        )}
+
+        {trend.isPending ? (
+          <div className="skeleton" style={{ height: 40, borderRadius: 4 }} />
+        ) : chartData.length > 0 ? (
+          <MiniSparkline data={chartData} color={color} height={40} />
+        ) : (
+          <div style={{ height: 40 }} />
+        )}
+      </button>
+    )
+  })
+
+  // Expanded sparkline card content
+  const expandedSparklineCard = expandedSparkline !== null ? (() => {
+    const cfg       = SPARKLINES.find(s => s.key === expandedSparkline)!
+    const data      = cfg.trend.data
+    const chartData = data
+      ? data.dates.map((d, i) => ({
+          date:      d,
+          value:     data.values[i] != null ? cfg.transform(data.values[i]!) : null,
+          avg7d:     data.rolling_avg_7d[i] != null ? cfg.transform(data.rolling_avg_7d[i]!) : null,
+          avg30d:    null as number | null,
+          isAnomaly: data.anomalies.some(a => a.date === d),
+        }))
+      : []
+
+    return (
+      <Card style={{ padding: '16px 16px 12px' }}>
+        <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+          {cfg.label} — 30 days
+        </p>
+        <TrendChart
+          data={chartData}
+          metricName={cfg.label}
+          unit={cfg.unit}
+          showRollingAvg
+          height={160}
+          color={cfg.color}
+        />
+      </Card>
+    )
+  })() : null
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+      {/* ── Left column: Hero ──────────────────────────────────────────── */}
+      <Card style={{ padding: '24px 20px 20px', borderRadius: 18 }} className="animate-fade-in">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-          {/* Gauge — skeleton until data arrives */}
           {readiness.isPending ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-              <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)' }}>
+              <p style={{ fontSize: 11, letterSpacing: '0.06em', color: 'var(--text-tertiary)' }}>
                 Morning Readiness
               </p>
               <div className="skeleton" style={{ width: 260, height: 160, borderRadius: 8 }} />
@@ -290,9 +389,6 @@ export function Today() {
             />
           )}
 
-          {/* Limiting factors or all-clear.
-              position:relative ensures this stacking context paints above the arc
-              container's position:relative div (they're now both positioned). */}
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}>
             {limiters.isPending ? (
               <>
@@ -319,340 +415,238 @@ export function Today() {
         </div>
       </Card>
 
-      {/* ── 2. Last Night's Sleep ──────────────────────────────────────── */}
-      <Card>
-        <button
-          onClick={() => setSleepExpanded(v => !v)}
-          style={{
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'space-between',
-            width:          '100%',
-            padding:        '14px 16px 10px',
-            background:     'transparent',
-            border:         'none',
-            cursor:         'pointer',
-            textAlign:      'left',
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <SectionLabel>Last Night's Sleep</SectionLabel>
+      {/* ── Right column: Sleep + Sparklines ───────────────────────────── */}
+      <div className="flex flex-col gap-4 animate-fade-in delay-1">
+
+        {/* Last Night's Sleep */}
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <button
+            onClick={() => setSleepExpanded(v => !v)}
+            style={{
+              display:        'flex',
+              alignItems:     'center',
+              justifyContent: 'space-between',
+              width:          '100%',
+              padding:        '14px 16px 10px',
+              background:     'transparent',
+              border:         'none',
+              cursor:         'pointer',
+              textAlign:      'left',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <SectionLabel>Last Night's Sleep</SectionLabel>
+              {sleepData.isPending ? (
+                <div className="skeleton" style={{ width: 72, height: 28, borderRadius: 4, marginTop: 2 }} />
+              ) : (
+                <span
+                  style={{
+                    fontSize:           22,
+                    fontWeight:         700,
+                    color:              'var(--text-primary)',
+                    fontVariantNumeric: 'tabular-nums',
+                    fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
+                  }}
+                >
+                  {fmtDuration(lastSleep?.total_sleep_minutes ?? null)}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {lastSleep?.sleep_performance != null && (
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {Math.round(lastSleep.sleep_performance)}% perf
+                </span>
+              )}
+              <Chevron open={sleepExpanded} />
+            </div>
+          </button>
+
+          <div style={{ padding: '0 16px 14px' }}>
             {sleepData.isPending ? (
-              <div className="skeleton" style={{ width: 72, height: 28, borderRadius: 4, marginTop: 2 }} />
+              <div className="skeleton" style={{ height: 10, borderRadius: 5 }} />
             ) : (
-              <span
-                style={{
-                  fontSize:           22,
-                  fontWeight:         700,
-                  color:              'var(--text-primary)',
-                  fontVariantNumeric: 'tabular-nums',
-                  fontFamily:         "'Geist', system-ui, sans-serif",
-                }}
-              >
-                {fmtDuration(lastSleep?.total_sleep_minutes ?? null)}
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {lastSleep?.sleep_performance != null && (
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                {Math.round(lastSleep.sleep_performance)}% perf
-              </span>
-            )}
-            <Chevron open={sleepExpanded} />
-          </div>
-        </button>
-
-        {/* Sleep stage bar */}
-        <div style={{ padding: '0 16px 14px' }}>
-          {sleepData.isPending ? (
-            <div className="skeleton" style={{ height: 10, borderRadius: 5 }} />
-          ) : (
-            <SleepStageBar
-              deepMinutes={lastSleep?.deep_minutes ?? null}
-              lightMinutes={lastSleep?.light_minutes ?? null}
-              remMinutes={lastSleep?.rem_minutes ?? null}
-              awakeMinutes={lastSleep?.awake_minutes ?? null}
-            />
-          )}
-        </div>
-
-        {/* Expanded detail — only shown when we have data */}
-        {sleepExpanded && lastSleep && (
-          <div
-            style={{
-              padding:             '12px 16px 16px',
-              borderTop:           '0.5px solid var(--border-subtle)',
-              display:             'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap:                 12,
-            }}
-          >
-            {[
-              { label: 'Deep',        value: fmtDuration(lastSleep.deep_minutes) },
-              { label: 'REM',         value: fmtDuration(lastSleep.rem_minutes) },
-              { label: 'Light',       value: fmtDuration(lastSleep.light_minutes) },
-              {
-                label: 'Efficiency',
-                value: lastSleep.sleep_efficiency != null
-                  ? `${Math.round(lastSleep.sleep_efficiency)}%`
-                  : '—',
-              },
-              {
-                label: 'Sleep debt',
-                value: lastSleep.sleep_debt_estimate != null
-                  ? fmtDuration(Math.abs(lastSleep.sleep_debt_estimate)) +
-                    (lastSleep.sleep_debt_estimate < 0 ? ' deficit' : ' surplus')
-                  : '—',
-              },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>{label}</p>
-                <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{value}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Prompt when expanded but no data */}
-        {sleepExpanded && !lastSleep && !sleepData.isPending && (
-          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: '8px 16px 14px' }}>
-            No sleep data for last night
-          </p>
-        )}
-      </Card>
-
-      {/* ── 3. Sparkline Row ───────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-        {SPARKLINES.map(({ key, label, unit, toDisplay, transform, trend, color }) => {
-          const data      = trend.data
-          const allValues = data?.values.filter((v): v is number => v != null) ?? []
-          const latest    = allValues.length > 0 ? allValues[allValues.length - 1] : undefined
-
-          // Direction arrow: compare last two non-null values
-          const prevValues   = allValues.slice(-2)
-          const arrowRaw     = prevValues.length === 2 ? prevValues[1] - prevValues[0] : 0
-          const arrow        = Math.abs(arrowRaw) < 0.5 ? '→' : arrowRaw > 0 ? '↑' : '↓'
-          const arrowColor   = arrow === '→'
-            ? 'var(--text-tertiary)'
-            : arrow === '↑' ? 'var(--data-primary)' : 'var(--data-anomaly)'
-
-          // Chart data: transform values (e.g. sleep: minutes→hours)
-          const chartData = (data?.values ?? []).map(v => ({
-            value: v != null ? transform(v) : null,
-          }))
-
-          const isActive = expandedSparkline === key
-
-          return (
-            <button
-              key={key}
-              onClick={() => setExpandedSparkline(v => v === key ? null : key)}
-              style={{
-                background:   'var(--bg-card)',
-                border:       isActive
-                  ? '0.5px solid var(--status-excellent)'
-                  : '0.5px solid var(--border-subtle)',
-                borderRadius: 10,
-                padding:      '10px 10px 6px',
-                cursor:       'pointer',
-                textAlign:    'left',
-                overflow:     'hidden',
-                minWidth:     0,
-              }}
-            >
-              {/* Label row */}
-              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-tertiary)', marginBottom: 4 }}>
-                {label}
-              </p>
-
-              {/* Value + arrow row */}
-              {trend.isPending ? (
-                <div className="skeleton" style={{ width: '60%', height: 20, borderRadius: 4, marginBottom: 6 }} />
-              ) : latest != null ? (
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
-                  <span
-                    style={{
-                      fontSize:           16,
-                      fontWeight:         700,
-                      color:              'var(--text-primary)',
-                      fontVariantNumeric: 'tabular-nums',
-                      fontFamily:         "'Geist', system-ui, sans-serif",
-                    }}
-                  >
-                    {toDisplay(latest)}{unit}
-                  </span>
-                  <span style={{ fontSize: 11, color: arrowColor }}>{arrow}</span>
-                </div>
-              ) : (
-                <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4 }}>No data</p>
-              )}
-
-              {/* Inline full-width sparkline */}
-              {trend.isPending ? (
-                <div className="skeleton" style={{ height: 40, borderRadius: 4 }} />
-              ) : chartData.length > 0 ? (
-                <MiniSparkline data={chartData} color={color} height={40} />
-              ) : (
-                <div style={{ height: 40 }} />
-              )}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Expanded sparkline — full 30-day chart below the row */}
-      {expandedSparkline !== null && (() => {
-        const cfg      = SPARKLINES.find(s => s.key === expandedSparkline)!
-        const data     = cfg.trend.data
-        const chartData = data
-          ? data.dates.map((d, i) => ({
-              date:      d,
-              value:     data.values[i] != null ? cfg.transform(data.values[i]!) : null,
-              avg7d:     data.rolling_avg_7d[i] != null ? cfg.transform(data.rolling_avg_7d[i]!) : null,
-              avg30d:    null as number | null,
-              isAnomaly: data.anomalies.some(a => a.date === d),
-            }))
-          : []
-
-        return (
-          <Card style={{ padding: '16px 16px 12px' }}>
-            <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
-              {cfg.label} — 30 days
-            </p>
-            <TrendChart
-              data={chartData}
-              metricName={cfg.label}
-              unit={cfg.unit}
-              showRollingAvg
-              height={160}
-              color={cfg.color}
-            />
-          </Card>
-        )
-      })()}
-
-      {/* ── 4. Training Snapshot ───────────────────────────────────────── */}
-      <Card>
-        <button
-          onClick={() => setTrainingExpanded(v => !v)}
-          style={{
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'space-between',
-            width:          '100%',
-            padding:        '14px 16px',
-            background:     'transparent',
-            border:         'none',
-            cursor:         'pointer',
-            textAlign:      'left',
-          }}
-        >
-          <SectionLabel>Training Load</SectionLabel>
-          <Chevron open={trainingExpanded} />
-        </button>
-
-        <div style={{ padding: '0 16px 16px' }}>
-          {trainingLoad.isPending ? (
-            <>
-              <div className="skeleton" style={{ height: 20, borderRadius: 4, marginBottom: 8 }} />
-              <div className="skeleton" style={{ height: 12, borderRadius: 6 }} />
-            </>
-          ) : (
-            <ACWRGauge
-              acwr={trainingLoad.data?.acwr ?? null}
-              zone={trainingLoad.data?.zone ?? null}
-              zoneDescription={trainingLoad.data?.zone_description ?? null}
-            />
-          )}
-        </div>
-
-        {trainingExpanded && (
-          <div
-            style={{
-              padding:   '12px 16px 16px',
-              borderTop: '0.5px solid var(--border-subtle)',
-            }}
-          >
-            {lastWorkout ? (
-              <>
-                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>
-                  Last workout
-                </p>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
-                      {(lastWorkout.activity_type ?? 'Workout').replace(/_/g, ' ')}
-                    </p>
-                    <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                      {lastWorkout.date}
-                      {lastWorkout.duration_minutes != null
-                        ? ` · ${Math.round(lastWorkout.duration_minutes)} min`
-                        : ''}
-                    </p>
-                  </div>
-                  {lastWorkout.strain != null && (
-                    <div style={{ textAlign: 'right' }}>
-                      <p style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Strain</p>
-                      <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', fontFamily: "'Geist', system-ui, sans-serif" }}>
-                        {lastWorkout.strain.toFixed(1)}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <p style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-                No workouts in the last 7 days
-              </p>
-            )}
-
-            {trainingLoad.data?.confidence_note && (
-              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 10, fontStyle: 'italic' }}>
-                {trainingLoad.data.confidence_note}
-              </p>
-            )}
-          </div>
-        )}
-      </Card>
-
-      {/* ── 5. 30-Day Readiness Trend (collapsed by default) ──────────── */}
-      <Card>
-        <button
-          onClick={() => setTrendExpanded(v => !v)}
-          style={{
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'space-between',
-            width:          '100%',
-            padding:        '14px 16px',
-            background:     'transparent',
-            border:         'none',
-            cursor:         'pointer',
-            textAlign:      'left',
-          }}
-        >
-          <SectionLabel>30-Day Readiness Trend</SectionLabel>
-          <Chevron open={trendExpanded} />
-        </button>
-
-        {trendExpanded && (
-          <div style={{ padding: '0 16px 16px' }}>
-            {readinessHist.isPending ? (
-              <div className="skeleton" style={{ height: 160, borderRadius: 6 }} />
-            ) : (
-              <TrendChart
-                data={trendChartData}
-                metricName="Readiness"
-                unit=""
-                showRollingAvg={false}
-                height={160}
+              <SleepStageBar
+                deepMinutes={lastSleep?.deep_minutes ?? null}
+                lightMinutes={lastSleep?.light_minutes ?? null}
+                remMinutes={lastSleep?.rem_minutes ?? null}
+                awakeMinutes={lastSleep?.awake_minutes ?? null}
               />
             )}
           </div>
-        )}
-      </Card>
+
+          {sleepExpanded && lastSleep && (
+            <div
+              style={{
+                padding:             '12px 16px 16px',
+                borderTop:           '0.5px solid var(--border-subtle)',
+                display:             'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap:                 12,
+              }}
+            >
+              {[
+                { label: 'Deep',  value: fmtDuration(lastSleep.deep_minutes) },
+                { label: 'REM',   value: fmtDuration(lastSleep.rem_minutes) },
+                { label: 'Light', value: fmtDuration(lastSleep.light_minutes) },
+                {
+                  label: 'Efficiency',
+                  value: lastSleep.sleep_efficiency != null
+                    ? `${Math.round(lastSleep.sleep_efficiency)}%`
+                    : '—',
+                },
+                {
+                  label: 'Sleep debt',
+                  value: lastSleep.sleep_debt_estimate != null
+                    ? fmtDuration(Math.abs(lastSleep.sleep_debt_estimate)) +
+                      (lastSleep.sleep_debt_estimate < 0 ? ' deficit' : ' surplus')
+                    : '—',
+                },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>{label}</p>
+                  <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {sleepExpanded && !lastSleep && !sleepData.isPending && (
+            <p style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: '8px 16px 14px' }}>
+              No sleep data for last night
+            </p>
+          )}
+        </Card>
+
+        {/* Sparkline row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          {sparklineButtons}
+        </div>
+
+        {/* Expanded sparkline inline below sparklines (right column) */}
+        {expandedSparklineCard}
+
+      </div>
+
+      {/* ── Training Snapshot — full width ─────────────────────────────── */}
+      <div className="lg:col-span-2 animate-fade-in delay-2">
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <button
+            onClick={() => setTrainingExpanded(v => !v)}
+            style={{
+              display:        'flex',
+              alignItems:     'center',
+              justifyContent: 'space-between',
+              width:          '100%',
+              padding:        '14px 16px',
+              background:     'transparent',
+              border:         'none',
+              cursor:         'pointer',
+              textAlign:      'left',
+            }}
+          >
+            <SectionLabel>Training Load</SectionLabel>
+            <Chevron open={trainingExpanded} />
+          </button>
+
+          <div style={{ padding: '0 16px 16px' }}>
+            {trainingLoad.isPending ? (
+              <>
+                <div className="skeleton" style={{ height: 20, borderRadius: 4, marginBottom: 8 }} />
+                <div className="skeleton" style={{ height: 12, borderRadius: 6 }} />
+              </>
+            ) : (
+              <ACWRGauge
+                acwr={trainingLoad.data?.acwr ?? null}
+                zone={trainingLoad.data?.zone ?? null}
+                zoneDescription={trainingLoad.data?.zone_description ?? null}
+              />
+            )}
+          </div>
+
+          {trainingExpanded && (
+            <div style={{ padding: '12px 16px 16px', borderTop: '0.5px solid var(--border-subtle)' }}>
+              {lastWorkout ? (
+                <>
+                  <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+                    Last workout
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                        {(lastWorkout.activity_type ?? 'Workout').replace(/_/g, ' ')}
+                      </p>
+                      <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                        {lastWorkout.date}
+                        {lastWorkout.duration_minutes != null
+                          ? ` · ${Math.round(lastWorkout.duration_minutes)} min`
+                          : ''}
+                      </p>
+                    </div>
+                    {lastWorkout.strain != null && (
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Strain</p>
+                        <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', fontFamily: "'IBM Plex Mono', ui-monospace, monospace" }}>
+                          {lastWorkout.strain.toFixed(1)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+                  No workouts in the last 7 days
+                </p>
+              )}
+              {trainingLoad.data?.confidence_note && (
+                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 10, fontStyle: 'italic' }}>
+                  {trainingLoad.data.confidence_note}
+                </p>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* ── 30-Day Readiness Trend — full width ────────────────────────── */}
+      <div className="lg:col-span-2 animate-fade-in delay-3">
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <button
+            onClick={() => setTrendExpanded(v => !v)}
+            style={{
+              display:        'flex',
+              alignItems:     'center',
+              justifyContent: 'space-between',
+              width:          '100%',
+              padding:        '14px 16px',
+              background:     'transparent',
+              border:         'none',
+              cursor:         'pointer',
+              textAlign:      'left',
+            }}
+          >
+            <SectionLabel>30-Day Readiness Trend</SectionLabel>
+            <Chevron open={trendExpanded} />
+          </button>
+
+          {trendExpanded && (
+            <div style={{ padding: '0 16px 16px' }}>
+              {readinessHist.isPending ? (
+                <div className="skeleton" style={{ height: 160, borderRadius: 6 }} />
+              ) : (
+                <TrendChart
+                  data={trendChartData}
+                  metricName="Readiness"
+                  unit=""
+                  showRollingAvg={false}
+                  height={160}
+                />
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
 
     </div>
   )

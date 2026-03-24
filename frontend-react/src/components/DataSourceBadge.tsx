@@ -29,7 +29,7 @@ export function DataSourceBadge({ source, size = 'xs' }: DataSourceBadgeProps) {
         borderRadius:       4,
         padding,
         fontSize,
-        fontFamily:         "'Geist Mono', ui-monospace, monospace",
+        fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
         fontWeight:         600,
         color:              cfg.color,
         flexShrink:         0,

@@ -3,8 +3,8 @@
  *
  * Design spec §3.2:
  * - bg-card background, border-subtle border, 12px radius, 16px 20px padding
- * - Label: 11px uppercase tracked text-secondary
- * - Value: 28-32px weight 600 text-primary
+ * - Label: 11px tracked text-secondary (mixed case, not uppercase)
+ * - Value: 28-32px weight 600 text-primary, IBM Plex Mono
  * - Delta: 12px, teal=improvement, coral=decline
  * - Compact variant: 12px 16px padding, 24px value
  * - Status variant: 2px left border in status color, NOT colored background
@@ -63,30 +63,35 @@ export function MetricCard({
     <div
       className={className}
       style={{
-        background:   'var(--bg-card)',
-        border:       '0.5px solid var(--border-subtle)',
-        borderLeft:   status !== 'neutral' ? `2px solid ${borderColor}` : '0.5px solid var(--border-subtle)',
-        borderRadius: status !== 'neutral' ? '0 12px 12px 0' : 12,
+        background:    'var(--bg-card)',
+        border:        '0.5px solid var(--border-subtle)',
+        borderLeft:    status !== 'neutral' ? `2px solid ${borderColor}` : '0.5px solid var(--border-subtle)',
+        borderRadius:  status !== 'neutral' ? '0 12px 12px 0' : 12,
         padding,
-        display:      'flex',
-        flexDirection:'column',
-        gap:          6,
-        transition:   'border-color 150ms ease',
+        display:       'flex',
+        flexDirection: 'column',
+        gap:           6,
+        transition:    'border-color 150ms ease, background-color 150ms ease',
       }}
       onMouseEnter={e => {
-        if (status === 'neutral') e.currentTarget.style.borderColor = 'var(--border-hover)'
+        if (status === 'neutral') {
+          e.currentTarget.style.borderColor = 'var(--border-hover)'
+          e.currentTarget.style.backgroundColor = 'var(--bg-card-elevated)'
+        }
       }}
       onMouseLeave={e => {
-        if (status === 'neutral') e.currentTarget.style.borderColor = 'var(--border-subtle)'
+        if (status === 'neutral') {
+          e.currentTarget.style.borderColor = 'var(--border-subtle)'
+          e.currentTarget.style.backgroundColor = 'var(--bg-card)'
+        }
       }}
     >
-      {/* Label */}
+      {/* Label — mixed case, not uppercase */}
       <p
         style={{
           fontSize:      11,
           fontWeight:    500,
-          letterSpacing: '0.07em',
-          textTransform: 'uppercase',
+          letterSpacing: '0.02em',
           color:         'var(--text-secondary)',
           lineHeight:    1.2,
         }}
@@ -104,7 +109,7 @@ export function MetricCard({
                 fontWeight:         600,
                 color:              'var(--text-primary)',
                 lineHeight:         1,
-                fontFamily:         "'Geist', system-ui, sans-serif",
+                fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
                 fontVariantNumeric: 'tabular-nums',
               }}
             >

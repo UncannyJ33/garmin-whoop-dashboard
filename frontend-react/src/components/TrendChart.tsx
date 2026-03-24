@@ -91,7 +91,7 @@ function CustomTooltip({
             key={entry.name}
             style={{
               color:              entry.color,
-              fontFamily:         "'Geist Mono', ui-monospace, monospace",
+              fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
               fontVariantNumeric: 'tabular-nums',
             }}
           >
@@ -231,7 +231,7 @@ export function TrendChart({
         <XAxis
           dataKey="date"
           tickFormatter={formatDate}
-          tick={{ fontSize: 11, fill: 'var(--chart-axis)', fontFamily: 'Geist, system-ui, sans-serif' }}
+          tick={{ fontSize: 11, fill: 'var(--chart-axis)', fontFamily: 'DM Sans, system-ui, sans-serif' }}
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
@@ -239,7 +239,7 @@ export function TrendChart({
         />
 
         <YAxis
-          tick={{ fontSize: 11, fill: 'var(--chart-axis)', fontFamily: 'Geist, system-ui, sans-serif' }}
+          tick={{ fontSize: 11, fill: 'var(--chart-axis)', fontFamily: 'DM Sans, system-ui, sans-serif' }}
           tickLine={false}
           axisLine={false}
           tickFormatter={fmt}

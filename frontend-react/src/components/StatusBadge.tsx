@@ -56,11 +56,11 @@ export function StatusBadge({ level, score, size = 'md' }: StatusBadgeProps) {
         fontWeight:      500,
         color:           s.color,
         whiteSpace:      'nowrap',
-        fontFamily:      "'Geist', system-ui, sans-serif",
+        fontFamily:      "'DM Sans', system-ui, sans-serif",
       }}
     >
       {score !== undefined && (
-        <span style={{ fontFamily: "'Geist Mono', ui-monospace, monospace", fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', ui-monospace, monospace", fontVariantNumeric: 'tabular-nums' }}>
           {score}
         </span>
       )}

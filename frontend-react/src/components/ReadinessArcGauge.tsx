@@ -201,7 +201,7 @@ export function ReadinessArcGauge({
                 fontWeight:         700,
                 lineHeight:         1,
                 color:              scoreColor,
-                fontFamily:         "'Geist', system-ui, sans-serif",
+                fontFamily:         "'Barlow Condensed', system-ui, sans-serif",
                 fontVariantNumeric: 'tabular-nums',
               }}
             >

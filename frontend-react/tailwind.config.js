@@ -11,17 +11,23 @@ export default {
           DEFAULT: 'var(--bg-card)',
           elevated: 'var(--bg-card-elevated)',
         },
+        // Brand — distinct identity color, not a status indicator
+        brand: {
+          DEFAULT: 'var(--brand)',
+          muted:   'var(--brand-muted)',
+          border:  'var(--brand-border)',
+        },
         // Status palette
         excellent: {
-          DEFAULT: 'var(--status-excellent)',    // #5dcaa5
+          DEFAULT: 'var(--status-excellent)',
           muted: 'var(--status-excellent-muted)',
         },
         caution: {
-          DEFAULT: 'var(--status-caution)',      // #ef9f27
+          DEFAULT: 'var(--status-caution)',
           muted: 'var(--status-caution-muted)',
         },
         alert: {
-          DEFAULT: 'var(--status-alert)',        // #e8775a
+          DEFAULT: 'var(--status-alert)',
           dark: 'var(--status-alert-dark)',
           muted: 'var(--status-alert-muted)',
         },
@@ -30,12 +36,12 @@ export default {
         'data-secondary': 'var(--data-secondary)',
         'data-tertiary':  'var(--data-tertiary)',
         'data-anomaly':   'var(--data-anomaly)',
-        // Sleep stages
+        // Sleep stages — cohesive with overall palette
         sleep: {
-          deep:  '#4a3d8f',
-          light: '#6b7a99',
-          rem:   '#8b5fbf',
-          awake: '#4a4a50',
+          deep:  '#1e7a5a',
+          light: '#3d6b9e',
+          rem:   '#7a5ea0',
+          awake: '#3d3d3d',
         },
 
         // ── Backwards-compat tokens (used by unrewritten pages) ──────────
@@ -61,11 +67,6 @@ export default {
           muted:   'var(--status-alert-dark)',
           bg:      'var(--status-alert-muted)',
         },
-        brand: {
-          DEFAULT: 'var(--status-excellent)',
-          muted:   'var(--status-good)',
-          bg:      'var(--status-excellent-muted)',
-        },
         // Chart colors (backwards compat)
         chart: {
           blue:   '#60a5fa',
@@ -77,8 +78,9 @@ export default {
       },
 
       fontFamily: {
-        sans: ['Geist', 'system-ui', 'sans-serif'],
-        mono: ['Geist Mono', 'ui-monospace', 'monospace'],
+        sans:    ['DM Sans', 'system-ui', 'sans-serif'],
+        mono:    ['IBM Plex Mono', 'ui-monospace', 'monospace'],
+        display: ['Barlow Condensed', 'system-ui', 'sans-serif'],
       },
 
       fontSize: {
@@ -86,8 +88,9 @@ export default {
       },
 
       borderRadius: {
-        card:     '12px',
-        'card-lg':'16px',
+        card:      '12px',
+        'card-lg': '16px',
+        'card-hero': '18px',
       },
 
       keyframes: {
@@ -96,14 +99,14 @@ export default {
           '100%': { backgroundPosition: '200% 0' },
         },
         'fade-in': {
-          from: { opacity: '0', transform: 'translateY(4px)' },
+          from: { opacity: '0', transform: 'translateY(32px)' },
           to:   { opacity: '1', transform: 'translateY(0)' },
         },
       },
 
       animation: {
         shimmer:  'shimmer 1.8s ease-in-out infinite',
-        'fade-in':'fade-in 0.2s ease-out',
+        'fade-in':'fade-in 0.35s ease-out both',
       },
     },
   },

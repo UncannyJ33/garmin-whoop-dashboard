@@ -47,7 +47,7 @@ function StrainValue({ strain }: { strain: number | null }) {
     <span
       style={{
         color,
-        fontFamily:         "'Geist Mono', ui-monospace, monospace",
+        fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
         fontVariantNumeric: 'tabular-nums',
         fontSize:           12,
         fontWeight:         600,
@@ -82,7 +82,7 @@ function DetailCell({ label, value }: { label: string; value: string }) {
       </p>
       <p
         style={{
-          fontFamily:         "'Geist Mono', ui-monospace, monospace",
+          fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
           fontVariantNumeric: 'tabular-nums',
           fontSize:           13,
           color:              'var(--text-primary)',
@@ -214,10 +214,10 @@ function ExerciseSets({ workoutId }: { workoutId: string }) {
                       key={i}
                       style={{ borderBottom: i < sets.length - 1 ? '0.5px solid var(--border-subtle)' : 'none' }}
                     >
-                      <td className="py-1.5 pr-4" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-tertiary)' }}>{i + 1}</td>
-                      <td className="py-1.5 pr-4" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-primary)' }}>{s.repetition_count ?? '—'}</td>
-                      <td className="py-1.5 pr-4" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-primary)' }}>{lb !== null ? lb.toFixed(1) : 'BW'}</td>
-                      <td className="py-1.5 hidden sm:table-cell" style={{ fontFamily: "'Geist Mono'", color: 'var(--text-primary)' }}>{vol !== null ? vol.toFixed(0) : '—'}</td>
+                      <td className="py-1.5 pr-4" style={{ fontFamily: "'IBM Plex Mono'", color: 'var(--text-tertiary)' }}>{i + 1}</td>
+                      <td className="py-1.5 pr-4" style={{ fontFamily: "'IBM Plex Mono'", color: 'var(--text-primary)' }}>{s.repetition_count ?? '—'}</td>
+                      <td className="py-1.5 pr-4" style={{ fontFamily: "'IBM Plex Mono'", color: 'var(--text-primary)' }}>{lb !== null ? lb.toFixed(1) : 'BW'}</td>
+                      <td className="py-1.5 hidden sm:table-cell" style={{ fontFamily: "'IBM Plex Mono'", color: 'var(--text-primary)' }}>{vol !== null ? vol.toFixed(0) : '—'}</td>
                     </tr>
                   )
                 })}
@@ -264,7 +264,7 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
         {/* Date */}
         <span
           style={{
-            fontFamily:         "'Geist Mono', ui-monospace, monospace",
+            fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
             fontSize:           11,
             color:              'var(--text-tertiary)',
             width:              52,
@@ -447,7 +447,7 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
                 Next-day recovery:{' '}
                 <span
                   style={{
-                    fontFamily:         "'Geist Mono'",
+                    fontFamily:         "'IBM Plex Mono'",
                     fontVariantNumeric: 'tabular-nums',
                     fontWeight:         600,
                     color:              'var(--text-primary)',
@@ -459,7 +459,7 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
                   <span
                     style={{
                       marginLeft: 8,
-                      fontFamily: "'Geist Mono'",
+                      fontFamily: "'IBM Plex Mono'",
                       fontSize:   12,
                       color:      w.recovery_impact >= 0
                         ? 'var(--status-excellent)'

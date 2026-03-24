@@ -80,7 +80,7 @@ function AppPreview() {
                 {/* Fill — 78% */}
                 <path d="M 8 52 A 32 32 0 0 1 72 52" fill="none" stroke="var(--status-excellent)" strokeWidth="6" strokeLinecap="round"
                   strokeDasharray="100" strokeDashoffset="22" />
-                <text x="40" y="46" textAnchor="middle" fill="white" fontSize="14" fontWeight="700" fontFamily="Geist Mono, monospace">78</text>
+                <text x="40" y="46" textAnchor="middle" fill="white" fontSize="14" fontWeight="700" fontFamily="IBM Plex Mono, monospace">78</text>
               </svg>
             </div>
             <div>

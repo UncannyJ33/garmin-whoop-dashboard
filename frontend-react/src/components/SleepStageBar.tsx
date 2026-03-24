@@ -20,10 +20,10 @@ interface SleepStageBarProps {
 }
 
 const STAGE_CONFIG = [
-  { key: 'deep',  label: 'Deep',  color: '#4a3d8f' },
-  { key: 'light', label: 'Light', color: '#6b7a99' },
-  { key: 'rem',   label: 'REM',   color: '#8b5fbf' },
-  { key: 'awake', label: 'Awake', color: '#4a4a50' },
+  { key: 'deep',  label: 'Deep',  color: '#1e7a5a' },
+  { key: 'light', label: 'Light', color: '#3d6b9e' },
+  { key: 'rem',   label: 'REM',   color: '#7a5ea0' },
+  { key: 'awake', label: 'Awake', color: '#3d3d3d' },
 ]
 
 function fmtDur(min: number): string {
@@ -103,7 +103,7 @@ export function SleepStageBar({
               {stage.label}{' '}
               <span
                 style={{
-                  fontFamily:         "'Geist Mono', ui-monospace, monospace",
+                  fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
                   fontVariantNumeric: 'tabular-nums',
                   color:              hoveredKey === stage.key
                     ? 'var(--text-primary)'

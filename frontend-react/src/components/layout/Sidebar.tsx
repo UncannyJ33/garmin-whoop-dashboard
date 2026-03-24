@@ -122,8 +122,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 borderRadius:   8,
                 fontSize:       14,
                 fontWeight:     isActive ? 500 : 400,
-                color:          isActive ? 'var(--status-excellent)' : 'var(--text-secondary)',
-                background:     isActive ? 'rgba(29,158,117,0.08)' : 'transparent',
+                color:          isActive ? 'var(--brand)' : 'var(--text-secondary)',
+                background:     isActive ? 'var(--brand-muted)' : 'transparent',
                 textDecoration: 'none',
                 transition:     'color 150ms, background 150ms',
               })}

@@ -74,7 +74,7 @@ export function Login() {
         <div className="text-center mb-8">
           <h1
             className="text-2xl font-bold text-slate-100"
-            style={{ fontFamily: "'Geist', system-ui, sans-serif", letterSpacing: '-0.02em' }}
+            style={{ fontFamily: "'Barlow Condensed', system-ui, sans-serif", letterSpacing: '-0.01em' }}
           >
             PulseEngine
           </h1>

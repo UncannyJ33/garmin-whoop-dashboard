@@ -109,7 +109,7 @@ function BottomTabBar() {
           end={tab.end}
           className="flex-1 flex flex-col items-center justify-center gap-0.5"
           style={({ isActive }) => ({
-            color:          isActive ? 'var(--status-excellent)' : 'var(--text-tertiary)',
+            color:          isActive ? 'var(--brand)' : 'var(--text-tertiary)',
             textDecoration: 'none',
             transition:     'color 150ms ease',
           })}

@@ -266,7 +266,7 @@ export function Demo() {
               fontWeight:    700,
               color:         'var(--text-primary)',
               letterSpacing: '-0.02em',
-              fontFamily:    "'Geist', system-ui, sans-serif",
+              fontFamily:    "'IBM Plex Mono', ui-monospace, monospace",
             }}
           >
             PulseEngine
@@ -385,7 +385,7 @@ export function Demo() {
                   fontWeight:         700,
                   color:              'var(--text-primary)',
                   fontVariantNumeric: 'tabular-nums',
-                  fontFamily:         "'Geist', system-ui, sans-serif",
+                  fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
                 }}
               >
                 7h 22m
@@ -468,7 +468,7 @@ export function Demo() {
                       fontWeight:         700,
                       color:              'var(--text-primary)',
                       fontVariantNumeric: 'tabular-nums',
-                      fontFamily:         "'Geist', system-ui, sans-serif",
+                      fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
                     }}
                   >
                     {toDisplay(latest)}{unit}
@@ -559,7 +559,7 @@ export function Demo() {
                       fontWeight:         700,
                       color:              'var(--text-primary)',
                       fontVariantNumeric: 'tabular-nums',
-                      fontFamily:         "'Geist', system-ui, sans-serif",
+                      fontFamily:         "'IBM Plex Mono', ui-monospace, monospace",
                     }}
                   >
                     13.2

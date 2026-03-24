@@ -1,6 +1,6 @@
 /**
  * PulseEngine wordmark — SVG text-based logo.
- * "PULSE" in Geist 600 teal + "ENGINE" in Geist 300 text-secondary + 2px teal accent line.
+ * "PULSE" in DM Sans 600 brand blue + "ENGINE" in DM Sans 300 text-secondary + 2px brand accent line.
  */
 
 interface PulseLogoProps {
@@ -23,27 +23,27 @@ export function PulseLogo({ width = 140, className = '' }: PulseLogoProps) {
       aria-label="PulseEngine"
       className={className}
     >
-      {/* "PULSE" — weight 600, teal */}
+      {/* "PULSE" — weight 600, brand blue */}
       <text
         x="0"
         y="18"
-        fontFamily="Geist, system-ui, sans-serif"
+        fontFamily="DM Sans, system-ui, sans-serif"
         fontSize="16"
         fontWeight="600"
-        fill="var(--status-excellent)"
+        fill="var(--brand)"
         letterSpacing="0.03em"
       >
         PULSE
       </text>
 
-      {/* 2px × 16px accent line between words (spec §5) */}
-      <rect x="58" y="4" width="2" height="16" fill="var(--status-excellent)" rx="1" />
+      {/* 2px × 16px accent line between words */}
+      <rect x="58" y="4" width="2" height="16" fill="var(--brand)" rx="1" />
 
       {/* "ENGINE" — weight 300, text-secondary */}
       <text
         x="64"
         y="18"
-        fontFamily="Geist, system-ui, sans-serif"
+        fontFamily="DM Sans, system-ui, sans-serif"
         fontSize="16"
         fontWeight="300"
         fill="var(--text-secondary)"
@@ -70,10 +70,10 @@ export function PulseMonogram({ size = 32 }: { size?: number }) {
       <text
         x="4"
         y="23"
-        fontFamily="Geist, system-ui, sans-serif"
+        fontFamily="DM Sans, system-ui, sans-serif"
         fontSize="17"
         fontWeight="600"
-        fill="var(--status-excellent)"
+        fill="var(--brand)"
         letterSpacing="-0.03em"
       >
         PE
