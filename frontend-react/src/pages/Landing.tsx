@@ -57,14 +57,14 @@ function AppPreview() {
   return (
     <div className="relative w-full max-w-sm mx-auto select-none pointer-events-none">
       {/* Glow behind the card */}
-      <div className="absolute inset-0 rounded-2xl bg-[var(--status-excellent)] opacity-[0.06] blur-2xl scale-110" />
+      <div className="absolute inset-0 rounded-2xl bg-[var(--brand)] opacity-[0.06] blur-2xl scale-110" />
 
-      <div className="relative rounded-2xl border border-white/8 bg-[#0f1117] shadow-2xl overflow-hidden">
+      <div className="relative rounded-2xl border border-white/8 bg-[var(--bg-card)] shadow-2xl overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/6">
-          <span className="text-xs font-semibold text-[var(--status-excellent)]">PulseEngine</span>
+          <span className="text-xs font-semibold text-[var(--brand)]" style={{ fontFamily: "'Barlow Condensed', system-ui, sans-serif", fontSize: 13 }}>PulseEngine</span>
           <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-excellent)]" />
+            <div className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" />
             <span className="text-2xs text-white/40">Today</span>
           </div>
         </div>
@@ -155,8 +155,8 @@ function WaitlistForm() {
 
   if (state === 'success') {
     return (
-      <div className="rounded-xl border border-[var(--status-excellent)]/30 bg-[var(--status-excellent)]/5 px-5 py-4 text-center space-y-1">
-        <p className="text-sm font-semibold text-[var(--status-excellent)]">You're on the list</p>
+      <div className="rounded-xl border border-[var(--brand)]/30 bg-[var(--brand)]/5 px-5 py-4 text-center space-y-1">
+        <p className="text-sm font-semibold text-[var(--brand)]">You're on the list</p>
         <p className="text-xs text-white/50">We'll reach out when PulseEngine opens for new accounts.</p>
       </div>
     )
@@ -171,12 +171,12 @@ function WaitlistForm() {
           onChange={e => setEmail(e.target.value)}
           placeholder="your@email.com"
           required
-          className="flex-1 min-w-0 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[var(--status-excellent)]/50"
+          className="flex-1 min-w-0 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/50"
         />
         <button
           type="submit"
           disabled={state === 'loading' || !email}
-          className="flex-shrink-0 rounded-lg bg-[var(--status-excellent)] px-4 py-2.5 text-sm font-semibold text-[#0a0b0f] transition-opacity disabled:opacity-50"
+          className="flex-shrink-0 rounded-lg bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
         >
           {state === 'loading' ? '…' : 'Join'}
         </button>
@@ -194,12 +194,12 @@ function WaitlistForm() {
 
 export function Landing() {
   return (
-    <div className="min-h-screen bg-[#0a0b0f] text-white flex flex-col">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-white flex flex-col">
 
       {/* ── Nav ──────────────────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-10 border-b border-white/6 bg-[#0a0b0f]/90 backdrop-blur-sm">
+      <nav className="sticky top-0 z-10 border-b border-white/6 bg-[var(--bg-primary)]/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
-          <span className="font-semibold text-[var(--status-excellent)] tracking-tight">
+          <span className="font-semibold text-[var(--brand)] tracking-tight" style={{ fontFamily: "'Barlow Condensed', system-ui, sans-serif" }}>
             PulseEngine
           </span>
           <Link
@@ -216,14 +216,14 @@ export function Landing() {
         {/* ── Hero ─────────────────────────────────────────────────────────── */}
         <section className="mx-auto max-w-5xl px-6 pt-20 pb-16 text-center">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--status-excellent)]/20 bg-[var(--status-excellent)]/5 px-3 py-1 mb-8">
-            <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-excellent)] animate-pulse" />
-            <span className="text-xs font-medium text-[var(--status-excellent)]">Early access — join the waitlist</span>
+          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--brand)]/20 bg-[var(--brand)]/5 px-3 py-1 mb-8">
+            <div className="h-1.5 w-1.5 rounded-full bg-[var(--brand)] animate-pulse" />
+            <span className="text-xs font-medium text-[var(--brand)]">Early access — join the waitlist</span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-tight mb-4">
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-tight mb-4" style={{ fontFamily: "'Barlow Condensed', system-ui, sans-serif" }}>
             Your data,{' '}
-            <span className="text-[var(--status-excellent)]">finally useful</span>
+            <span className="text-[var(--brand)]">finally useful</span>
           </h1>
 
           <p className="mx-auto max-w-lg text-base text-white/55 leading-relaxed mb-10">
@@ -258,9 +258,9 @@ export function Landing() {
               {FEATURES.map(f => (
                 <div
                   key={f.title}
-                  className="rounded-xl border border-white/6 bg-white/[0.025] p-5 space-y-2 hover:border-[var(--status-excellent)]/20 transition-colors"
+                  className="rounded-xl border border-white/6 bg-white/[0.025] p-5 space-y-2 hover:border-[var(--brand)]/20 transition-colors"
                 >
-                  <div className="flex items-center gap-2.5 text-[var(--status-excellent)]">
+                  <div className="flex items-center gap-2.5 text-[var(--brand)]">
                     {f.icon}
                     <h3 className="text-sm font-semibold text-white">{f.title}</h3>
                   </div>

@@ -148,8 +148,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <span
       style={{
         fontSize:      11,
-        textTransform: 'uppercase',
-        letterSpacing: '0.08em',
+        letterSpacing: '0.02em',
         color:         'var(--text-tertiary)',
         fontWeight:    500,
       }}
@@ -262,11 +261,11 @@ export function Demo() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span
             style={{
-              fontSize:      15,
+              fontSize:      16,
               fontWeight:    700,
               color:         'var(--text-primary)',
-              letterSpacing: '-0.02em',
-              fontFamily:    "'IBM Plex Mono', ui-monospace, monospace",
+              letterSpacing: '-0.01em',
+              fontFamily:    "'Barlow Condensed', system-ui, sans-serif",
             }}
           >
             PulseEngine
@@ -275,12 +274,11 @@ export function Demo() {
             style={{
               fontSize:      10,
               fontWeight:    600,
-              background:    'rgba(29,158,117,0.12)',
-              color:         'var(--data-primary)',
+              background:    'var(--brand-muted)',
+              color:         'var(--brand)',
               padding:       '2px 7px',
               borderRadius:  10,
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
             }}
           >
             Demo
@@ -291,7 +289,7 @@ export function Demo() {
           style={{
             fontSize:       13,
             fontWeight:     600,
-            color:          'var(--data-primary)',
+            color:          'var(--brand)',
             textDecoration: 'none',
           }}
         >
@@ -302,8 +300,8 @@ export function Demo() {
       {/* ── Demo banner ──────────────────────────────────────────────── */}
       <div
         style={{
-          background:     'rgba(29,158,117,0.05)',
-          borderBottom:   '0.5px solid rgba(29,158,117,0.15)',
+          background:     'var(--brand-muted)',
+          borderBottom:   '0.5px solid var(--brand-border)',
           padding:        '10px 24px',
           display:        'flex',
           alignItems:     'center',
@@ -319,7 +317,7 @@ export function Demo() {
           style={{
             fontSize:       13,
             fontWeight:     600,
-            color:          'var(--data-primary)',
+            color:          'var(--brand)',
             textDecoration: 'none',
             whiteSpace:     'nowrap',
           }}
@@ -331,16 +329,17 @@ export function Demo() {
       {/* ── Content ─────────────────────────────────────────────────── */}
       <div
         style={{
-          display:       'flex',
-          flexDirection: 'column',
-          gap:           16,
-          maxWidth:      600,
-          margin:        '0 auto',
-          padding:       '24px 16px 64px',
+          display:             'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap:                 16,
+          maxWidth:            960,
+          margin:              '0 auto',
+          padding:             '24px 16px 64px',
+          alignItems:          'start',
         }}
       >
 
-        {/* 1. Hero ─────────────────────────────────────────────────── */}
+        {/* ── Left column ─────────────────────────────────────────── */}
         <Card style={{ padding: '24px 20px 20px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
             <ReadinessArcGauge
@@ -360,6 +359,9 @@ export function Demo() {
             </div>
           </div>
         </Card>
+
+        {/* ── Right column ─────────────────────────────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* 2. Last Night's Sleep ───────────────────────────────────── */}
         <Card>
@@ -448,7 +450,7 @@ export function Demo() {
                 style={{
                   background:   'var(--bg-card)',
                   border:       isActive
-                    ? '0.5px solid var(--status-excellent)'
+                    ? '0.5px solid var(--brand)'
                     : '0.5px solid var(--border-subtle)',
                   borderRadius: 10,
                   padding:      '10px 10px 6px',
@@ -458,7 +460,7 @@ export function Demo() {
                   minWidth:     0,
                 }}
               >
-                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-tertiary)', marginBottom: 4 }}>
+                <p style={{ fontSize: 10, letterSpacing: '0.02em', color: 'var(--text-tertiary)', marginBottom: 4 }}>
                   {label}
                 </p>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
@@ -603,6 +605,7 @@ export function Demo() {
           )}
         </Card>
 
+        </div>{/* end right column */}
       </div>
     </div>
   )

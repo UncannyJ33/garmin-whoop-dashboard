@@ -99,8 +99,8 @@ export function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              style={{ ['--tw-ring-color' as string]: 'var(--data-primary)' }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--data-primary)')}
+              style={{ ['--tw-ring-color' as string]: 'var(--brand)' }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
               onBlur={e => (e.currentTarget.style.borderColor = '')}
               placeholder="you@example.com"
             />
@@ -118,7 +118,7 @@ export function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--data-primary)')}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
               onBlur={e => (e.currentTarget.style.borderColor = '')}
               placeholder="••••••••"
             />
@@ -134,7 +134,7 @@ export function Login() {
             type="submit"
             disabled={loading}
             className="w-full disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2.5 text-sm transition-opacity"
-            style={{ background: 'var(--data-primary)' }}
+            style={{ background: 'var(--brand)' }}
           >
             {loading
               ? isLogin
@@ -164,7 +164,7 @@ export function Login() {
                 type="button"
                 onClick={() => { setMode('register'); setError(null) }}
                 className="underline"
-                style={{ color: 'var(--data-primary)' }}
+                style={{ color: 'var(--brand)' }}
               >
                 Create one
               </button>
@@ -176,7 +176,7 @@ export function Login() {
                 type="button"
                 onClick={() => { setMode('login'); setError(null) }}
                 className="underline"
-                style={{ color: 'var(--data-primary)' }}
+                style={{ color: 'var(--brand)' }}
               >
                 Sign in
               </button>

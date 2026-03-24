@@ -112,7 +112,7 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--data-primary)')}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
               onBlur={e => (e.currentTarget.style.borderColor = '')}
               placeholder="you@example.com"
             />
@@ -128,7 +128,7 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--data-primary)')}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
               onBlur={e => (e.currentTarget.style.borderColor = '')}
               placeholder="••••••••"
             />
@@ -140,7 +140,7 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
               checked={consent}
               onChange={(e) => setConsent(e.target.checked)}
               className="mt-0.5 h-4 w-4 rounded border-surface-border"
-              style={{ accentColor: 'var(--data-primary)' }}
+              style={{ accentColor: 'var(--brand)' }}
             />
             <span className="text-xs text-slate-400 leading-relaxed">
               I consent to my encrypted Garmin credentials being stored for automatic
@@ -168,7 +168,7 @@ function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
             onClick={() => void handleConnect()}
             disabled={connecting || !email || !password}
             className="flex-1 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2 text-sm transition-opacity flex items-center justify-center gap-2"
-            style={{ background: connecting || !email || !password ? undefined : 'var(--data-primary)' }}
+            style={{ background: connecting || !email || !password ? undefined : 'var(--brand)' }}
           >
             {connecting && <Spinner />}
             {connecting ? 'Connecting…' : 'Enable Auto-Sync'}
@@ -418,7 +418,7 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
                 type="button"
                 onClick={() => setGarminModal('credentials')}
                 className="w-full text-white font-medium rounded-lg py-2 text-sm transition-opacity"
-                style={{ background: 'var(--data-primary)' }}
+                style={{ background: 'var(--brand)' }}
               >
                 Connect with credentials
               </button>
