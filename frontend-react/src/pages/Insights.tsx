@@ -150,10 +150,10 @@ const ANOMALY_COLORS: Record<string, string> = {
 }
 const LOWER_IS_BETTER_ANOMALY = new Set(['Resting HR'])
 
-function severityStyle(s: number): { label: string; bg: string; text: string; border: string } {
-  if (s >= 3.5) return { label: 'Significant', bg: 'bg-poor/8',     text: 'text-poor',     border: 'border-poor/20' }
-  if (s >= 2.5) return { label: 'Moderate',    bg: 'bg-moderate/8', text: 'text-moderate', border: 'border-moderate/20' }
-  return              { label: 'Mild',         bg: 'bg-surface-overlay', text: 'text-slate-400', border: 'border-surface-border' }
+function severityStyle(s: number): { label: string; bg: string; text: string; border: string; leftBorder: string } {
+  if (s >= 3.5) return { label: 'Significant', bg: 'bg-poor/8',         text: 'text-poor',     border: 'border-poor/20',         leftBorder: 'var(--status-alert)' }
+  if (s >= 2.5) return { label: 'Moderate',    bg: 'bg-moderate/8',     text: 'text-moderate', border: 'border-moderate/20',     leftBorder: 'var(--status-caution)' }
+  return              { label: 'Mild',         bg: 'bg-surface-overlay', text: 'text-slate-400', border: 'border-surface-border', leftBorder: 'var(--border-subtle)' }
 }
 
 /** Contextual one-liner for each anomaly without the enriched endpoint. */
@@ -291,7 +291,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
         active
           ? 'bg-brand text-white'
           : 'bg-surface-overlay text-slate-500 hover:text-slate-400'
@@ -327,17 +327,21 @@ function DigestCard({ item }: { item: DigestItem }) {
 }
 
 function CorrCard({
-  title, r, n, interpretation, children,
+  title, r, n, interpretation, children, accentColor,
 }: {
   title: string
   r: number | null
   n: number
   interpretation?: string
   children?: ReactNode
+  accentColor?: string
 }) {
   const insufficient = r === null
   return (
-    <div className="card space-y-3">
+    <div
+      className="card space-y-3"
+      style={accentColor ? { borderTop: `2px solid ${accentColor}` } : undefined}
+    >
       <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
       {insufficient ? (
         <p className="text-sm text-slate-400">
@@ -486,10 +490,10 @@ export function Insights() {
     <div className="space-y-4 pb-16">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Insights</h1>
+      <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 animate-fade-in">Insights</h1>
 
       {/* ── SECTION 1: Weekly Digest ─────────────────────────────────────────── */}
-      <div className="card space-y-3">
+      <div className="card space-y-3 animate-fade-in delay-1">
         <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">This Week</p>
 
         {digestQ.isLoading || summaryQ.isLoading ? (
@@ -623,6 +627,7 @@ export function Insights() {
               title="HRV ↔ Recovery"
               r={correlations.hrvRecovery?.r ?? null}
               n={correlations.hrvRecovery?.n ?? 0}
+              accentColor="var(--status-excellent)"
               interpretation={
                 correlations.hrvRecovery?.r !== null
                   ? `When your HRV is high, recovery tends to follow — this is a ${corrStrength(correlations.hrvRecovery!.r!)} connection in your data.`
@@ -631,7 +636,7 @@ export function Insights() {
             />
 
             {/* Strain ↔ Next-Day Recovery (with scatter) */}
-            <div className="card space-y-3">
+            <div className="card space-y-3" style={{ borderTop: '2px solid var(--status-caution)' }}>
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Strain ↔ Next-Day Recovery
               </p>
@@ -736,6 +741,7 @@ export function Insights() {
               title="Sleep Duration ↔ Body Battery"
               r={correlations.sleepBattery?.r ?? null}
               n={correlations.sleepBattery?.n ?? 0}
+              accentColor="var(--brand)"
               interpretation={
                 correlations.sleepBattery?.r !== null
                   ? `Longer sleep nights tend to ${correlations.sleepBattery!.r! >= 0.2 ? 'boost' : 'not clearly affect'} your next-day Garmin Body Battery — a ${corrStrength(correlations.sleepBattery!.r!)} connection.`
@@ -778,6 +784,7 @@ export function Insights() {
                 <div
                   key={i}
                   className={`rounded-xl px-4 py-3 border ${sty.bg} ${sty.border}`}
+                  style={{ borderLeft: `3px solid ${sty.leftBorder}` }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2 min-w-0">

@@ -336,10 +336,10 @@ export function Settings() {
   return (
     <div className="space-y-4 pb-16 max-w-2xl">
 
-      <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Settings</h1>
+      <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 animate-fade-in">Settings</h1>
 
       {/* ── SECTION 1: Sync Status ───────────────────────────────────────────── */}
-      <div className="space-y-3">
+      <div className="space-y-3 animate-fade-in delay-1">
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">
           Data Sources
         </p>
@@ -802,20 +802,35 @@ export function Settings() {
             )}
           </div>
 
-          {/* Delete account */}
-          <div className="py-3 first:pt-0 last:pb-0">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Delete Account</p>
-                <p className="text-2xs text-slate-500 mt-0.5">Permanently delete your account and all data</p>
-              </div>
-              <button
-                onClick={() => { setDeleteConfirmText(''); setDeleteError(null); setShowDeleteAccount(true) }}
-                className="text-xs text-poor hover:text-red-400 underline transition-colors"
-              >
-                Delete
-              </button>
+        </div>
+      </div>
+
+      {/* ── SECTION: Danger Zone ─────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wider px-1" style={{ color: 'var(--status-alert)' }}>
+          Danger Zone
+        </p>
+        <div
+          className="card"
+          style={{ borderColor: 'rgba(232,119,90,0.25)', background: 'rgba(232,119,90,0.04)' }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Delete Account</p>
+              <p className="text-2xs text-slate-500 mt-0.5 leading-relaxed">
+                Permanently delete your account and all associated data. This cannot be undone.
+              </p>
             </div>
+            <button
+              onClick={() => { setDeleteConfirmText(''); setDeleteError(null); setShowDeleteAccount(true) }}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 ml-4 flex-shrink-0"
+              style={{
+                color:       'var(--status-alert)',
+                borderColor: 'rgba(232,119,90,0.35)',
+              }}
+            >
+              Delete
+            </button>
           </div>
         </div>
       </div>

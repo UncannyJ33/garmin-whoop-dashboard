@@ -152,7 +152,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
         active
           ? 'bg-brand text-white'
           : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -397,7 +397,7 @@ export function Training() {
     <div className="space-y-4 pb-16">
 
       {/* ── HEADER: date range selector ───────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between animate-fade-in">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Training</h1>
         <div className="flex gap-1.5">
           {[7, 14, 30, 60].map(n => (
@@ -412,7 +412,7 @@ export function Training() {
       </div>
 
       {/* ── SECTION 1: Training Load Summary ─────────────────────────────── */}
-      <div className="card space-y-4">
+      <div className="card space-y-4 animate-fade-in delay-1">
         <SectionHeader title="Training Load" />
 
         {/* ACWRGauge — full width */}
@@ -907,7 +907,7 @@ export function Training() {
                       setFilterType(prev => prev === row.activity_type ? null : row.activity_type)
                       setVisibleCount(PAGE_SIZE)
                     }}
-                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right ${
+                    className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
                       isActive ? 'bg-brand/10' : 'hover:bg-surface-overlay'
                     }`}
                   >

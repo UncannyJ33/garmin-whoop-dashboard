@@ -111,7 +111,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
         active
           ? 'bg-brand text-white'
           : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -315,7 +315,7 @@ export function Recovery() {
     <div className="space-y-4 pb-16">
 
       {/* ── Header + date range ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between animate-fade-in">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Recovery</h1>
         <div className="flex gap-1.5">
           {[7, 14, 30, 60].map(n => (
@@ -325,7 +325,7 @@ export function Recovery() {
       </div>
 
       {/* ── SECTION 1: Recovery Overview ─────────────────────────────────────── */}
-      <div className="card space-y-4">
+      <div className="card space-y-4 animate-fade-in delay-1">
         <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Last Night</p>
 
         {insightsQ.isLoading ? (

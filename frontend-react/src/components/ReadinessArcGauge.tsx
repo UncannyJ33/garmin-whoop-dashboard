@@ -25,10 +25,10 @@ const SEMI_C = Math.PI * R  // semi-circumference ≈ 345.6px
  * Arc fill color + glow per spec §3.1:
  * ≥75 → teal, 50–74 → amber, <50 → coral
  */
-function arcFillColor(score: number): { color: string; glow: string } {
-  if (score >= 75) return { color: 'var(--status-excellent)', glow: 'rgba(29,158,117,0.06)' }
-  if (score >= 50) return { color: 'var(--status-caution)',   glow: 'rgba(186,117,23,0.07)' }
-  return               { color: 'var(--status-alert)',        glow: 'rgba(216,90,48,0.08)' }
+function arcFillColor(score: number): { color: string; glow: string; shadow: string } {
+  if (score >= 75) return { color: 'var(--status-excellent)', glow: 'rgba(29,158,117,0.20)',  shadow: '0 0 32px rgba(29,158,117,0.22)' }
+  if (score >= 50) return { color: 'var(--status-caution)',   glow: 'rgba(186,117,23,0.18)', shadow: '0 0 32px rgba(186,117,23,0.20)' }
+  return               { color: 'var(--status-alert)',        glow: 'rgba(216,90,48,0.20)',  shadow: '0 0 32px rgba(216,90,48,0.22)' }
 }
 
 /**
@@ -98,7 +98,7 @@ export function ReadinessArcGauge({
   skipAnimation = false,
 }: ReadinessArcGaugeProps) {
   const displayScore = score ?? 0
-  const { color: arcColor, glow } = arcFillColor(displayScore)
+  const { color: arcColor, glow, shadow } = arcFillColor(displayScore)
   const badgeLevel = recommendation ?? fallbackLevel(displayScore)
 
   // Animated dashoffset: starts full (hidden), transitions to target
@@ -136,14 +136,14 @@ export function ReadinessArcGauge({
         <div
           aria-hidden="true"
           style={{
-            position: 'absolute',
-            width:  280,
-            height: 280,
+            position:     'absolute',
+            width:        300,
+            height:       300,
             borderRadius: '50%',
-            background: `radial-gradient(circle, ${glow} 0%, transparent 65%)`,
-            top:  '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
+            background:   `radial-gradient(circle at 50% 62%, ${glow} 0%, transparent 60%)`,
+            top:          '50%',
+            left:         '50%',
+            transform:    'translate(-50%, -50%)',
             pointerEvents: 'none',
           }}
         />
@@ -175,11 +175,12 @@ export function ReadinessArcGauge({
               strokeWidth={SW}
               strokeLinecap="round"
               fill="none"
-              strokeOpacity={0.88}
+              strokeOpacity={0.92}
               strokeDasharray={`${SEMI_C} ${SEMI_C}`}
               strokeDashoffset={dashOffset}
               style={{
                 transition: skipAnimation ? 'none' : 'stroke-dashoffset 600ms ease-out',
+                filter: `drop-shadow(${shadow})`,
               }}
             />
           )}
