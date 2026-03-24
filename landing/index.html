@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pulse Built</title>
+  <meta name="description" content="We build tools that turn fragmented fitness data into clear, actionable insight." />
+  <meta name="theme-color" content="#050505" />
+
+  <!-- GeistPixel — studio wordmark only -->
   <style>
     @font-face {
       font-family: 'GeistPixel';
@@ -12,166 +16,635 @@
       font-style: normal;
       font-display: swap;
     }
+  </style>
+
+  <!-- Body + display fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=DM+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     :root {
-      --bg:      #0a0b0f;
-      --surface: #13151c;
-      --border:  #1e2130;
-      --teal:    #5dcaa5;
-      --white:   #f0f2f5;
-      --muted:   #6b7280;
+      --bg:           #050505;
+      --surface:      #0c0c0c;
+      --surface-hi:   #141414;
+      --border:       rgba(255, 255, 255, 0.07);
+      --border-hover: rgba(255, 255, 255, 0.13);
+      --brand:        #2563ff;
+      --brand-muted:  rgba(37, 99, 255, 0.10);
+      --brand-border: rgba(37, 99, 255, 0.25);
+      --text:         rgba(255, 255, 255, 0.90);
+      --text-2:       rgba(255, 255, 255, 0.55);
+      --text-3:       rgba(255, 255, 255, 0.30);
     }
+
+    html { scroll-behavior: smooth; }
+
     body {
       background: var(--bg);
-      color: var(--white);
-      font-family: 'GeistPixel', monospace;
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      /* Subtle radial depth */
+      background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(37,99,255,0.05) 0%, transparent 60%);
     }
+
+    /* Grain overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.025;
+      pointer-events: none;
+      z-index: 999;
+    }
+
     a { color: inherit; text-decoration: none; }
 
-    /* ── Header ── */
-    header {
-      padding: 2rem 1.5rem;
-      max-width: 900px;
-      margin: 0 auto;
-      width: 100%;
+    /* ── Entrance animations ─────────────────────────────────────────── */
+    @keyframes slide-up {
+      from { opacity: 0; transform: translateY(28px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
-    .wordmark { font-size: 1.1rem; letter-spacing: 0.12em; }
-    .wordmark span:first-child { font-weight: 600; color: var(--teal); }
-    .wordmark span:last-child  { font-weight: 300; color: var(--white); }
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes scan-line {
+      0%   { left: -30%; }
+      100% { left: 120%; }
+    }
+    @keyframes draw-ekg {
+      from { stroke-dashoffset: 600; }
+      to   { stroke-dashoffset: 0; }
+    }
 
-    /* ── Hero ── */
-    .hero {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 4rem 1.5rem 3rem;
-      max-width: 900px;
-      margin: 0 auto;
-      width: 100%;
-    }
-    .hero h1 {
-      font-size: clamp(2.2rem, 6vw, 3.6rem);
-      font-weight: 600;
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-      margin-bottom: 1rem;
-    }
-    .hero p {
-      font-size: 1.05rem;
-      font-weight: 300;
-      color: var(--muted);
-      max-width: 480px;
-      line-height: 1.6;
-      margin-bottom: 2rem;
-    }
-    .btn {
-      display: inline-block;
-      background: var(--teal);
-      color: #0a0b0f;
-      font-weight: 600;
-      font-size: 0.95rem;
-      padding: 0.75rem 1.5rem;
-      border-radius: 8px;
-      transition: opacity 0.15s;
-      align-self: flex-start;
-    }
-    .btn:hover { opacity: 0.85; }
-    .btn-ghost {
-      display: inline-block;
-      background: transparent;
-      color: var(--teal);
-      font-weight: 600;
-      font-size: 0.95rem;
-      padding: 0.75rem 1.5rem;
-      border-radius: 8px;
-      border: 1px solid rgba(93,202,165,0.3);
-      transition: border-color 0.15s, opacity 0.15s;
-      align-self: flex-start;
-    }
-    .btn-ghost:hover { border-color: var(--teal); opacity: 0.85; }
-    .cta-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .anim-1 { animation: slide-up 0.5s cubic-bezier(0.16,1,0.3,1) both 0.05s; }
+    .anim-2 { animation: slide-up 0.5s cubic-bezier(0.16,1,0.3,1) both 0.15s; }
+    .anim-3 { animation: slide-up 0.5s cubic-bezier(0.16,1,0.3,1) both 0.25s; }
+    .anim-4 { animation: slide-up 0.5s cubic-bezier(0.16,1,0.3,1) both 0.35s; }
+    .anim-5 { animation: slide-up 0.5s cubic-bezier(0.16,1,0.3,1) both 0.45s; }
 
-    /* ── Product card ── */
-    .card {
-      max-width: 900px;
-      margin: 0 auto 4rem;
+    /* ── Layout wrapper ──────────────────────────────────────────────── */
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
       width: 100%;
       padding: 0 1.5rem;
     }
-    .card-inner {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      padding: 2rem 0;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1rem;
     }
-    .card-inner h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.25rem; }
-    .card-inner p  { font-size: 0.85rem; font-weight: 300; color: var(--muted); }
-    .card-link { font-size: 0.85rem; font-weight: 600; color: var(--teal); white-space: nowrap; }
-    .card-link:hover { opacity: 0.8; }
 
-    /* ── Footer ── */
+    .wordmark {
+      font-family: 'GeistPixel', monospace;
+      font-size: 0.95rem;
+      letter-spacing: 0.14em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .wordmark .pulse { color: var(--brand); }
+    .wordmark .divider-dot {
+      width: 3px; height: 3px;
+      border-radius: 50%;
+      background: var(--brand);
+      opacity: 0.5;
+      display: inline-block;
+    }
+    .wordmark .built { color: var(--text-2); }
+
+    .header-nav {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .header-nav a {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-3);
+      letter-spacing: 0.02em;
+      transition: color 0.15s;
+    }
+    .header-nav a:hover { color: var(--text); }
+    .header-nav .nav-cta {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--brand);
+      padding: 0.4rem 0.9rem;
+      border: 0.5px solid var(--brand-border);
+      border-radius: 6px;
+      background: var(--brand-muted);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .header-nav .nav-cta:hover {
+      border-color: rgba(37,99,255,0.5);
+      background: rgba(37,99,255,0.15);
+    }
+
+    /* ── Hero ───────────────────────────────────────────────────────── */
+    .hero {
+      padding: 5rem 0 4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--brand);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+    }
+    .eyebrow-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--brand);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.75); }
+    }
+
+    .hero h1 {
+      font-family: 'Barlow Condensed', system-ui, sans-serif;
+      font-size: clamp(3.2rem, 8vw, 5.5rem);
+      font-weight: 700;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      margin-bottom: 1.5rem;
+      max-width: 680px;
+    }
+
+    .hero-sub {
+      font-size: 1.05rem;
+      font-weight: 400;
+      color: var(--text-2);
+      max-width: 460px;
+      line-height: 1.65;
+      margin-bottom: 2.5rem;
+    }
+
+    .cta-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 3.5rem;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--brand);
+      color: #fff;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 0.7rem 1.4rem;
+      border-radius: 8px;
+      transition: opacity 0.15s, transform 0.15s;
+      letter-spacing: 0.01em;
+    }
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: transparent;
+      color: var(--text-2);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-weight: 500;
+      font-size: 0.9rem;
+      padding: 0.7rem 1.4rem;
+      border-radius: 8px;
+      border: 0.5px solid var(--border-hover);
+      transition: border-color 0.15s, color 0.15s, transform 0.15s;
+    }
+    .btn-ghost:hover { border-color: var(--text-2); color: var(--text); transform: translateY(-1px); }
+
+    /* ── EKG divider ─────────────────────────────────────────────────── */
+    .ekg-divider {
+      width: 100%;
+      height: 32px;
+      margin-bottom: 3.5rem;
+      overflow: visible;
+    }
+    .ekg-divider .ekg-path {
+      stroke: var(--brand);
+      stroke-width: 1.5;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.35;
+      stroke-dasharray: 600;
+      stroke-dashoffset: 600;
+      animation: draw-ekg 1.4s cubic-bezier(0.4, 0, 0.2, 1) forwards 0.6s;
+    }
+    .ekg-divider .baseline {
+      stroke: var(--border);
+      stroke-width: 0.5;
+      fill: none;
+    }
+
+    /* ── Data stats row ──────────────────────────────────────────────── */
+    .stats-row {
+      display: flex;
+      gap: 2.5rem;
+      flex-wrap: wrap;
+    }
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .stat-value {
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 1.4rem;
+      font-weight: 500;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .stat-value .accent { color: var(--brand); }
+    .stat-label {
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--text-3);
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Scanning line divider ───────────────────────────────────────── */
+    .scan-divider {
+      position: relative;
+      height: 0.5px;
+      background: var(--border);
+      margin: 0 0 3.5rem;
+      overflow: hidden;
+    }
+    .scan-divider::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -30%;
+      width: 30%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, var(--brand), transparent);
+      opacity: 0.7;
+      animation: scan-line 2.8s ease-in-out infinite 1s;
+    }
+
+    /* ── Product section ─────────────────────────────────────────────── */
+    .product-section {
+      padding: 0 0 4rem;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 1.25rem;
+    }
+
+    .product-card {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: 14px;
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2rem;
+      align-items: start;
+      transition: border-color 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .product-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(37,99,255,0.4), transparent);
+    }
+    .product-card:hover { border-color: var(--brand-border); }
+
+    .product-name {
+      font-family: 'Barlow Condensed', system-ui, sans-serif;
+      font-size: 1.8rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+      line-height: 1;
+    }
+    .product-desc {
+      font-size: 0.9rem;
+      font-weight: 400;
+      color: var(--text-2);
+      line-height: 1.6;
+      max-width: 420px;
+      margin-bottom: 1.25rem;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .tag {
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--text-3);
+      background: var(--surface-hi);
+      border: 0.5px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 9px;
+      letter-spacing: 0.02em;
+    }
+
+    .product-links {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.75rem;
+      padding-top: 0.25rem;
+    }
+    .product-link-primary {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--brand);
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      transition: gap 0.15s, opacity 0.15s;
+      white-space: nowrap;
+    }
+    .product-link-primary:hover { gap: 0.5rem; }
+
+    .product-link-secondary {
+      font-size: 0.8rem;
+      font-weight: 400;
+      color: var(--text-3);
+      transition: color 0.15s;
+      white-space: nowrap;
+    }
+    .product-link-secondary:hover { color: var(--text-2); }
+
+    /* ── Features strip ──────────────────────────────────────────────── */
+    .features-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      border: 0.5px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-top: 1rem;
+    }
+    .feature-item {
+      padding: 1.25rem 1.5rem;
+      border-right: 0.5px solid var(--border);
+      transition: background 0.15s;
+    }
+    .feature-item:last-child { border-right: none; }
+    .feature-item:hover { background: var(--surface-hi); }
+    .feature-icon {
+      width: 28px; height: 28px;
+      margin-bottom: 0.75rem;
+      color: var(--brand);
+      opacity: 0.7;
+    }
+    .feature-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.3rem;
+      line-height: 1.3;
+    }
+    .feature-text {
+      font-size: 0.78rem;
+      color: var(--text-3);
+      line-height: 1.5;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
     footer {
-      border-top: 1px solid var(--border);
-      padding: 1.5rem;
+      margin-top: auto;
+      border-top: 0.5px solid var(--border);
+      padding: 1.5rem 0;
+    }
+
+    .footer-inner {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
-      max-width: 900px;
-      margin: 0 auto;
-      width: 100%;
     }
-    .footer-copy { font-size: 0.8rem; color: var(--muted); }
-    .footer-links { display: flex; gap: 1.25rem; }
-    .footer-links a { font-size: 0.8rem; color: var(--muted); transition: color 0.15s; }
-    .footer-links a:hover { color: var(--white); }
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .footer-copy {
+      font-size: 0.75rem;
+      color: var(--text-3);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      font-size: 0.75rem;
+      color: var(--text-3);
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: var(--text-2); }
+
+    /* ── Mobile ──────────────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .hero h1 { font-size: clamp(2.6rem, 10vw, 3.5rem); }
+      .product-card { grid-template-columns: 1fr; }
+      .product-links { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
+      .stats-row { gap: 1.5rem; }
+      .features-strip { grid-template-columns: 1fr; }
+      .feature-item { border-right: none; border-bottom: 0.5px solid var(--border); }
+      .feature-item:last-child { border-bottom: none; }
+      .header-nav .nav-label { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body>
 
-  <header>
-    <div class="wordmark"><span>PULSE</span> <span>BUILT</span></div>
-  </header>
+  <div class="container">
+    <header class="anim-1">
+      <div class="wordmark">
+        <span class="pulse">PULSE</span>
+        <span class="divider-dot"></span>
+        <span class="built">BUILT</span>
+      </div>
+      <nav class="header-nav">
+        <a href="https://engine.pulsebuilt.net/demo" class="nav-label">Demo</a>
+        <a href="https://engine.pulsebuilt.net" class="nav-cta">Open App →</a>
+      </nav>
+    </header>
+  </div>
 
-  <main class="hero">
-    <h1>Your data,<br>finally useful.</h1>
-    <p>We build tools that turn fragmented fitness data into clear, actionable insight.</p>
-    <div class="cta-row">
-      <a class="btn" href="https://engine.pulsebuilt.net">Launch PulseEngine →</a>
-      <a class="btn-ghost" href="https://engine.pulsebuilt.net/demo">See a demo →</a>
+  <main>
+    <div class="container">
+      <section class="hero">
+
+        <div class="eyebrow anim-2">
+          <span class="eyebrow-dot"></span>
+          PulseEngine — Early Access
+        </div>
+
+        <h1 class="anim-3">Your data,<br>finally useful.</h1>
+
+        <p class="hero-sub anim-4">
+          We build tools that turn fragmented fitness data into clear, actionable insight.
+        </p>
+
+        <div class="cta-row anim-4">
+          <a class="btn-primary" href="https://engine.pulsebuilt.net">
+            Launch PulseEngine
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </a>
+          <a class="btn-ghost" href="https://engine.pulsebuilt.net/demo">
+            See a demo
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </a>
+        </div>
+
+        <!-- EKG decoration -->
+        <svg class="ekg-divider anim-5" viewBox="0 0 860 32" preserveAspectRatio="none" aria-hidden="true">
+          <line class="baseline" x1="0" y1="16" x2="860" y2="16" />
+          <polyline class="ekg-path"
+            points="0,16 180,16 200,16 215,4 225,28 235,4 245,28 255,16 272,16 860,16" />
+        </svg>
+
+        <!-- Stats row -->
+        <div class="stats-row anim-5">
+          <div class="stat">
+            <span class="stat-value"><span class="accent">2</span> sources</span>
+            <span class="stat-label">Garmin + Whoop</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value"><span class="accent">5</span> analytics</span>
+            <span class="stat-label">Readiness · Load · Sleep · HRV · Trends</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value"><span class="accent">15</span>min sync</span>
+            <span class="stat-label">Live background sync</span>
+          </div>
+        </div>
+
+      </section>
+    </div>
+
+    <div class="container">
+      <div class="scan-divider"></div>
+
+      <section class="product-section">
+        <p class="section-label">Product</p>
+
+        <div class="product-card">
+          <div>
+            <h2 class="product-name">PulseEngine</h2>
+            <p class="product-desc">
+              Unified training and recovery dashboard for Garmin + Whoop athletes.
+              Morning readiness, training load ratio, sleep analysis — all in one place.
+            </p>
+            <div class="tag-row">
+              <span class="tag">Morning Readiness</span>
+              <span class="tag">ACWR</span>
+              <span class="tag">Sleep Analysis</span>
+              <span class="tag">HRV Trends</span>
+              <span class="tag">Anomaly Detection</span>
+            </div>
+          </div>
+          <div class="product-links">
+            <a class="product-link-primary" href="https://engine.pulsebuilt.net">
+              Open App
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+            <a class="product-link-secondary" href="https://engine.pulsebuilt.net/demo">See demo →</a>
+          </div>
+        </div>
+
+        <!-- Feature strip -->
+        <div class="features-strip">
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+            </svg>
+            <p class="feature-title">Morning Readiness</p>
+            <p class="feature-text">5-factor composite score from HRV, recovery, sleep, body battery, and training load.</p>
+          </div>
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 4v16M18 4v16M6 12h12M2 7h4M18 7h4M2 17h4M18 17h4"/>
+            </svg>
+            <p class="feature-title">Training Load</p>
+            <p class="feature-text">Acute:chronic ratio tracks overreaching risk and optimal training windows.</p>
+          </div>
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+            <p class="feature-title">Sleep Impact</p>
+            <p class="feature-text">Correlates training strain with sleep quality and next-day recovery outcomes.</p>
+          </div>
+        </div>
+
+      </section>
     </div>
   </main>
 
-  <div class="card">
-    <div class="card-inner">
-      <div>
-        <h2>PulseEngine</h2>
-        <p>Unified training and recovery dashboard for Garmin + Whoop athletes.</p>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem;">
-        <a class="card-link" href="https://engine.pulsebuilt.net">Open App →</a>
-        <a class="card-link" style="opacity:0.6;font-weight:400;" href="https://engine.pulsebuilt.net/demo">See demo →</a>
+  <footer>
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">
+          <span class="footer-copy">© 2026 Pulse Built</span>
+        </div>
+        <nav class="footer-links">
+          <a href="https://instagram.com/pulsebuilt" target="_blank" rel="noopener noreferrer">Instagram</a>
+          <a href="#">TikTok</a>
+          <a href="#">LinkedIn</a>
+          <a href="https://engine.pulsebuilt.net/privacy">Privacy</a>
+        </nav>
       </div>
     </div>
-  </div>
-
-  <footer>
-    <span class="footer-copy">© 2026 Pulse Built</span>
-    <nav class="footer-links">
-      <a href="https://instagram.com/pulsebuilt" target="_blank" rel="noopener noreferrer">Instagram</a>
-      <a href="#">TikTok</a>
-      <a href="#">LinkedIn</a>
-      <a href="https://engine.pulsebuilt.net/privacy">Privacy Policy</a>
-    </nav>
   </footer>
 
 </body>
