@@ -184,13 +184,39 @@ export function Today() {
   const hasNoData  = allSettled && (readinessData?.confidence ?? 0) === 0 && sleepArr.length === 0
   if (hasNoData) {
     return (
-      <div style={{ maxWidth: 480, margin: '32px auto', padding: '0 16px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <p style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+      <div style={{ maxWidth: 480, margin: '48px auto', padding: '0 16px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          {/* Abstract pulse / arc illustration */}
+          <svg
+            width="120" height="80" viewBox="0 0 120 80"
+            fill="none" xmlns="http://www.w3.org/2000/svg"
+            style={{ display: 'block', margin: '0 auto 24px' }}
+            aria-hidden="true"
+          >
+            {/* Outer arc */}
+            <path d="M10 60 A55 55 0 0 1 110 60" stroke="rgba(93,202,165,0.18)" strokeWidth="1.5" strokeLinecap="round" />
+            {/* Middle arc */}
+            <path d="M22 60 A43 43 0 0 1 98 60" stroke="rgba(93,202,165,0.30)" strokeWidth="1.5" strokeLinecap="round" />
+            {/* Inner arc */}
+            <path d="M34 60 A31 31 0 0 1 86 60" stroke="rgba(93,202,165,0.50)" strokeWidth="1.5" strokeLinecap="round" />
+            {/* Pulse waveform */}
+            <polyline
+              points="15,60 30,60 36,40 42,72 48,52 54,60 66,60 72,35 78,72 84,55 90,60 105,60"
+              stroke="var(--status-excellent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              fill="none" opacity="0.7"
+            />
+            {/* Center dot */}
+            <circle cx="60" cy="60" r="3" fill="var(--status-excellent)" opacity="0.9" />
+          </svg>
+          <p style={{
+            fontFamily: "'Barlow Condensed', sans-serif",
+            fontSize: 26, fontWeight: 700,
+            color: 'var(--text-primary)', marginBottom: 8,
+          }}>
             Connect your devices
           </p>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Link Whoop or Garmin to start seeing your personalised dashboard.
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: 320, margin: '0 auto' }}>
+            Link Whoop or Garmin to start seeing your personalised readiness dashboard.
           </p>
         </div>
         <ConnectDevicesPanel />

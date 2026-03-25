@@ -142,7 +142,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
 function SectionHeader({ title, size = 'sm' }: { title: string; size?: 'sm' | 'base' }) {
   if (size === 'base') {
     return (
-      <p className="text-base font-bold text-slate-800 dark:text-slate-100 mb-3">{title}</p>
+      <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>{title}</p>
     )
   }
   return (
@@ -356,7 +356,7 @@ export function Training() {
   if (workoutsQ.isError) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Training</h1>
+        <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Training</h1>
         <ErrorState
           message="Could not load workouts. Make sure the backend is running on port 8000."
           onRetry={() => void workoutsQ.refetch()}
@@ -374,7 +374,7 @@ export function Training() {
 
       {/* ── HEADER: date range selector ───────────────────────────────────── */}
       <div className="flex items-center justify-between animate-fade-in">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Training</h1>
+        <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Training</h1>
         <div className="flex gap-1.5">
           {[7, 14, 30, 60].map(n => (
             <DayButton
@@ -427,7 +427,7 @@ export function Training() {
       {/* ── SECTION 4: Running Analytics ─────────────────────────────────── */}
       {!workoutsQ.isLoading && runs.length > 0 && (
         <div className="space-y-3">
-          <p className="text-base font-bold text-slate-800 dark:text-slate-100 px-0.5">Running</p>
+          <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', padding: '0 2px' }}>Running</p>
 
           {/* 4a. Weekly Volume */}
           <div className="card">
@@ -723,11 +723,11 @@ export function Training() {
       {/* ── SECTION 5: Strength ───────────────────────────────────────────── */}
       {!workoutsQ.isLoading && strengthWorkouts.length > 0 && (
         <div className="space-y-3">
-          <p className="text-base font-bold text-slate-800 dark:text-slate-100 px-0.5">Strength Training</p>
+          <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', padding: '0 2px' }}>Strength Training</p>
 
           {/* 5a. Strength PRs — most prominent */}
           <div className="card">
-            <p className="text-base font-bold text-slate-800 dark:text-slate-100 mb-3">Strength PRs</p>
+            <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Strength PRs</p>
             {maxWeightQ.isLoading ? (
               <div className="space-y-2">
                 {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-10 rounded-lg" />)}

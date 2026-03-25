@@ -298,7 +298,7 @@ export function Recovery() {
   if (insightsQ.isError) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Recovery</h1>
+        <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Recovery</h1>
         <ErrorState
           message="Could not load sleep data. Make sure the backend is running on port 8000."
           onRetry={() => void insightsQ.refetch()}
@@ -316,7 +316,7 @@ export function Recovery() {
 
       {/* ── Header + date range ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between animate-fade-in">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Recovery</h1>
+        <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Recovery</h1>
         <div className="flex gap-1.5">
           {[7, 14, 30, 60].map(n => (
             <DayButton key={n} n={n} active={days === n} onClick={() => setDays(n)} />
@@ -542,6 +542,24 @@ export function Recovery() {
             <>
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={stageData} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
+                  <defs>
+                    <linearGradient id="gradDeep"  x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#1e7a5a" stopOpacity={0.9} />
+                      <stop offset="95%" stopColor="#1e7a5a" stopOpacity={0.15} />
+                    </linearGradient>
+                    <linearGradient id="gradLight" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#3d6b9e" stopOpacity={0.9} />
+                      <stop offset="95%" stopColor="#3d6b9e" stopOpacity={0.15} />
+                    </linearGradient>
+                    <linearGradient id="gradREM"   x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#7a5ea0" stopOpacity={0.9} />
+                      <stop offset="95%" stopColor="#7a5ea0" stopOpacity={0.15} />
+                    </linearGradient>
+                    <linearGradient id="gradAwake" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#4a4a4a" stopOpacity={0.9} />
+                      <stop offset="95%" stopColor="#4a4a4a" stopOpacity={0.15} />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="date"
@@ -560,19 +578,19 @@ export function Recovery() {
                     width={32}
                   />
                   <Tooltip content={<StageTooltip />} labelFormatter={fmtDate} />
-                  <Area type="monotone" dataKey="Deep"  stackId="a" fill="#4f46e5" stroke="none" fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="Light" stackId="a" fill="#60a5fa" stroke="none" fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="REM"   stackId="a" fill="#c084fc" stroke="none" fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="Awake" stackId="a" fill="#94a3b8" stroke="none" fillOpacity={0.85} />
+                  <Area type="monotone" dataKey="Deep"  stackId="a" fill="url(#gradDeep)"  stroke="none" />
+                  <Area type="monotone" dataKey="Light" stackId="a" fill="url(#gradLight)" stroke="none" />
+                  <Area type="monotone" dataKey="REM"   stackId="a" fill="url(#gradREM)"   stroke="none" />
+                  <Area type="monotone" dataKey="Awake" stackId="a" fill="url(#gradAwake)" stroke="none" />
                 </AreaChart>
               </ResponsiveContainer>
 
               <div className="flex flex-wrap gap-3 mt-2">
                 {[
-                  { label: 'Deep',  color: '#4f46e5' },
-                  { label: 'Light', color: '#60a5fa' },
-                  { label: 'REM',   color: '#c084fc' },
-                  { label: 'Awake', color: '#94a3b8' },
+                  { label: 'Deep',  color: '#1e7a5a' },
+                  { label: 'Light', color: '#3d6b9e' },
+                  { label: 'REM',   color: '#7a5ea0' },
+                  { label: 'Awake', color: '#4a4a4a' },
                 ].map(({ label, color }) => (
                   <span key={label} className="flex items-center gap-1.5 text-2xs text-slate-500 whitespace-nowrap">
                     <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
@@ -726,7 +744,7 @@ export function Recovery() {
       {/* ── SECTION 6: Recovery Activities ────────────────────────────────────── */}
       <div className="space-y-3">
         <div className="px-0.5">
-          <p className="text-base font-bold text-slate-800 dark:text-slate-100">
+          <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
             Do recovery activities actually work for you?
           </p>
           <p className="text-2xs text-slate-500 mt-0.5">

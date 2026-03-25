@@ -47,7 +47,7 @@ export function SectionLabel({ children }: { children: ReactNode }) {
         fontSize:      11,
         textTransform: 'uppercase' as const,
         letterSpacing: '0.08em',
-        color:         'var(--text-tertiary)',
+        color:         'var(--text-secondary)',
         fontWeight:    500,
       }}
     >
@@ -154,7 +154,7 @@ export function ExpandableSection({
           <div
             style={{
               padding:   bodyPadding,
-              borderTop: preview || isOpen ? '0.5px solid var(--border-subtle)' : 'none',
+              borderTop: isOpen ? '0.5px solid var(--border-subtle)' : 'none',
             }}
           >
             {children}

@@ -472,7 +472,7 @@ export function Insights() {
     <div className="space-y-4 pb-16">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 animate-fade-in">Insights</h1>
+      <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }} className="animate-fade-in">Insights</h1>
 
       {/* ── SECTION 1: Weekly Digest ─────────────────────────────────────────── */}
       <div className="card space-y-3 animate-fade-in delay-1">
@@ -587,7 +587,7 @@ export function Insights() {
       {/* ── SECTION 4: Correlations ──────────────────────────────────────────── */}
       <div className="space-y-3">
         <div className="px-0.5">
-          <p className="text-base font-bold text-slate-800 dark:text-slate-100">Correlations</p>
+          <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Correlations</p>
           <p className="text-2xs text-slate-500 mt-0.5">
             How your metrics relate — computed over the {explorerDays}-day window
           </p>

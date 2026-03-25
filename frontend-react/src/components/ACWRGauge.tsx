@@ -9,6 +9,8 @@
  * - One-line interpretation sentence below
  */
 
+import { useEffect, useState } from 'react'
+
 interface ACWRGaugeProps {
   acwr: number | null
   zone?: string | null
@@ -19,7 +21,7 @@ interface ACWRGaugeProps {
 // ACWR zone definitions matching the design spec
 const ZONES = [
   { label: 'Detraining',   min: 0,   max: 0.6,  color: 'rgba(255,255,255,0.12)', textColor: 'rgba(255,255,255,0.40)' },
-  { label: 'Maintenance',  min: 0.6, max: 0.8,  color: 'rgba(59,139,212,0.25)',  textColor: '#3b8bd4' },
+  { label: 'Maintenance',  min: 0.6, max: 0.8,  color: 'rgba(37,99,255,0.25)',   textColor: 'var(--brand)' },
   { label: 'Sweet Spot',   min: 0.8, max: 1.3,  color: 'rgba(29,158,117,0.30)',  textColor: 'var(--status-excellent)' },
   { label: 'Overreaching', min: 1.3, max: 1.5,  color: 'rgba(186,117,23,0.30)',  textColor: 'var(--status-caution)' },
   { label: 'Danger',       min: 1.5, max: 2.2,  color: 'rgba(216,90,48,0.30)',   textColor: 'var(--status-alert)' },
@@ -44,7 +46,17 @@ function segWidth(z: typeof ZONES[0]) {
 
 export function ACWRGauge({ acwr, zone, zoneDescription, className = '' }: ACWRGaugeProps) {
   const currentZone = acwr !== null ? zoneOf(acwr) : null
-  const position = acwr !== null ? pct(acwr) : null
+  const targetPosition = acwr !== null ? pct(acwr) : null
+
+  const [animatedPosition, setAnimatedPosition] = useState<number | null>(null)
+  useEffect(() => {
+    if (targetPosition === null) { setAnimatedPosition(null); return }
+    setAnimatedPosition(0)
+    const id = requestAnimationFrame(() => setAnimatedPosition(targetPosition))
+    return () => cancelAnimationFrame(id)
+  }, [targetPosition])
+
+  const position = animatedPosition
 
   // Use the API zone label if provided, otherwise derive from the range
   const zoneName = zone
@@ -99,15 +111,16 @@ export function ACWRGauge({ acwr, zone, zoneDescription, className = '' }: ACWRG
         {position !== null && (
           <div
             style={{
-              position:  'absolute',
-              top:       -4,
-              bottom:    -4,
-              left:      `${position}%`,
-              width:     2,
-              background:'rgba(255,255,255,0.90)',
+              position:   'absolute',
+              top:        -4,
+              bottom:     -4,
+              left:       `${position}%`,
+              width:      2,
+              background: 'rgba(255,255,255,0.90)',
               borderRadius: 2,
-              transform: 'translateX(-50%)',
-              boxShadow: '0 0 4px rgba(255,255,255,0.4)',
+              transform:  'translateX(-50%)',
+              boxShadow:  '0 0 4px rgba(255,255,255,0.4)',
+              transition: 'left 500ms ease-out',
             }}
           />
         )}
@@ -119,10 +132,11 @@ export function ACWRGauge({ acwr, zone, zoneDescription, className = '' }: ACWRG
           <span
             className="absolute text-xs font-medium"
             style={{
-              left:      `${position}%`,
-              transform: 'translateX(-50%)',
-              color:     'var(--text-tertiary)',
-              whiteSpace:'nowrap',
+              left:       `${position}%`,
+              transform:  'translateX(-50%)',
+              color:      'var(--text-tertiary)',
+              whiteSpace: 'nowrap',
+              transition: 'left 500ms ease-out',
             }}
           >
             {acwr?.toFixed(2)}

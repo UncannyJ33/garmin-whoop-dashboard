@@ -337,7 +337,7 @@ export function Settings() {
   return (
     <div className="space-y-4 pb-16 max-w-2xl">
 
-      <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 animate-fade-in">Settings</h1>
+      <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }} className="animate-fade-in">Settings</h1>
 
       {/* ── SECTION 1: Sync Status ───────────────────────────────────────────── */}
       <div className="space-y-3 animate-fade-in delay-1">
