@@ -217,7 +217,19 @@ async def whoop_authorize_url(
 
     The frontend navigates to this URL to start the OAuth flow.
     State is persisted to the DB so it survives server restarts.
+    Blocked unless the global flag is on or the user is in the allowlist.
     """
+    from config.settings import settings
+
+    allowed = settings.whoop_public_oauth_enabled or (
+        current_user.id in settings.whoop_allowed_user_ids
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Whoop OAuth is not currently available.",
+        )
+
     url, state = _whoop_auth.get_authorization_url()
     _store_oauth_state(state, current_user.id, db)
     return JSONResponse({"url": url})
@@ -261,19 +273,32 @@ async def garmin_connect(
 
 
 @router.get("/feature-flags", summary="Return feature flags for the current user")
-async def feature_flags() -> JSONResponse:
+async def feature_flags(request: Request) -> JSONResponse:
     """Return feature flags that control frontend behaviour.
 
-    This endpoint is intentionally unauthenticated so the onboarding page can
-    read it before the user has completed setup.
+    Unauthenticated by default so the onboarding page can read it before
+    the user has completed setup.  If an authenticated user is in the
+    ``WHOOP_ALLOWED_USER_IDS`` allowlist, ``whoop_oauth_enabled`` is
+    overridden to ``True`` even when the global flag is off.
     """
     from config.settings import settings
 
-    return JSONResponse(
-        {
-            "whoop_oauth_enabled": settings.whoop_public_oauth_enabled,
-        }
-    )
+    whoop_enabled = settings.whoop_public_oauth_enabled
+
+    # Per-user allowlist override — check optional Bearer token
+    if not whoop_enabled and settings.whoop_allowed_user_ids:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                token = auth_header.removeprefix("Bearer ").strip()
+                payload = decode_token(token)
+                user_id: str | None = payload.get("sub")
+                if user_id and user_id in settings.whoop_allowed_user_ids:
+                    whoop_enabled = True
+            except Exception:  # noqa: BLE001
+                pass  # invalid / expired token — fall back to global flag
+
+    return JSONResponse({"whoop_oauth_enabled": whoop_enabled})
 
 
 @router.get("/garmin/status", summary="Check whether the current user has connected Garmin")
