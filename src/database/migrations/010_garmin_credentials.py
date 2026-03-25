@@ -38,4 +38,17 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
             )
         )
 
+        if engine.dialect.name == "postgresql":
+            already_enabled = conn.execute(
+                text(
+                    "SELECT 1 FROM pg_class "
+                    "WHERE relname = 'garmin_credentials' "
+                    "AND relnamespace = 'public'::regnamespace "
+                    "AND relrowsecurity = true"
+                )
+            ).fetchone()
+            if not already_enabled:
+                conn.execute(text('ALTER TABLE "garmin_credentials" ENABLE ROW LEVEL SECURITY'))
+                logger.info("Migration 010: RLS enabled on garmin_credentials")
+
     logger.info("Migration 010: garmin_credentials table ready")

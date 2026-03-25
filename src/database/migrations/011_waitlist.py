@@ -30,6 +30,17 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
                     """
                 )
             )
+            already_enabled = conn.execute(
+                text(
+                    "SELECT 1 FROM pg_class "
+                    "WHERE relname = 'waitlist' "
+                    "AND relnamespace = 'public'::regnamespace "
+                    "AND relrowsecurity = true"
+                )
+            ).fetchone()
+            if not already_enabled:
+                conn.execute(text('ALTER TABLE "waitlist" ENABLE ROW LEVEL SECURITY'))
+                logger.info("Migration 011: RLS enabled on waitlist")
         else:
             conn.execute(
                 text(
