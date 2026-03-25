@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useChangePassword, useDataStats, useDeleteAccount, useDeleteGarminCredentials, useDisconnectWhoop, useFeatureFlags, useGarminCredentialsStatus, useGarminStatus, useStoreGarminCredentials, useSyncStatus, useTriggerSync, useWhoopStatus, type UploadResult } from '../hooks/useApi'
 import { GarminUpload } from '../components/GarminUpload'
+import { Modal } from '../components/Modal'
 import { api } from '../api/client'
 import { useTheme } from '../context/ThemeContext'
 import { useQueryClient } from '@tanstack/react-query'
@@ -843,57 +844,29 @@ export function Settings() {
       </p>
 
       {/* ── Garmin Upload Modal ──────────────────────────────────────────────── */}
-      {showCSVModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Import Garmin Data</h2>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Upload a CSV, JSON, or ZIP export. No credentials required.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowCSVModal(false)}
-                className="text-slate-500 hover:text-slate-200 transition-colors mt-0.5 flex-shrink-0"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <GarminUpload
-              onSuccess={(result) => {
-                setCsvResult(result)
-                setShowCSVModal(false)
-              }}
-            />
-          </div>
-        </div>
-      )}
+      <Modal
+        open={showCSVModal}
+        onClose={() => setShowCSVModal(false)}
+        title="Import Garmin Data"
+        description="Upload a CSV, JSON, or ZIP export. No credentials required."
+      >
+        <GarminUpload
+          onSuccess={(result) => {
+            setCsvResult(result)
+            setShowCSVModal(false)
+          }}
+        />
+      </Modal>
 
       {/* ── Garmin Credential Modal (connect / update) ───────────────────────── */}
-      {(garminModal === 'connect' || garminModal === 'update') && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                  {garminModal === 'update' ? 'Update Garmin Credentials' : 'Enable Garmin Auto-Sync'}
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  {garminModal === 'update'
-                    ? 'Enter your new Garmin Connect email and password.'
-                    : 'Sync your Garmin data automatically every 15 minutes.'}
-                </p>
-              </div>
-              <button
-                onClick={() => setGarminModal(null)}
-                className="text-slate-500 hover:text-slate-200 transition-colors mt-0.5 flex-shrink-0"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
+      <Modal
+        open={garminModal === 'connect' || garminModal === 'update'}
+        onClose={() => setGarminModal(null)}
+        title={garminModal === 'update' ? 'Update Garmin Credentials' : 'Enable Garmin Auto-Sync'}
+        description={garminModal === 'update'
+          ? 'Enter your new Garmin Connect email and password.'
+          : 'Sync your Garmin data automatically every 15 minutes.'}
+      >
 
             {/* Disclosure callout */}
             <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 px-3 py-2.5 text-xs text-slate-400 leading-relaxed space-y-1">
@@ -976,138 +949,116 @@ export function Settings() {
                 {storeCredentials.isPending ? <><Spinner /> Saving…</> : garminModal === 'update' ? 'Update' : 'Enable Auto-Sync'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* ── Whoop Disconnect Confirmation Modal ──────────────────────────────── */}
-      {showDisconnectWhoop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Disconnect Whoop?</h2>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Your Whoop authorization token will be removed. Automatic sync will stop and your Whoop data will remain in PulseEngine.
-                You can reconnect at any time.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowDisconnectWhoop(false)}
-                disabled={disconnectWhoop.isPending}
-                className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => disconnectWhoop.mutate(undefined, { onSuccess: () => setShowDisconnectWhoop(false) })}
-                disabled={disconnectWhoop.isPending}
-                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                  disconnectWhoop.isPending
-                    ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
-                    : 'bg-red-600 text-white hover:bg-red-700'
-                }`}
-              >
-                {disconnectWhoop.isPending ? <><Spinner /> Disconnecting…</> : 'Disconnect'}
-              </button>
-            </div>
-          </div>
+      <Modal
+        open={showDisconnectWhoop}
+        onClose={() => setShowDisconnectWhoop(false)}
+        title="Disconnect Whoop?"
+        description="Your Whoop authorization token will be removed. Automatic sync will stop and your Whoop data will remain in PulseEngine. You can reconnect at any time."
+      >
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowDisconnectWhoop(false)}
+            disabled={disconnectWhoop.isPending}
+            className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => disconnectWhoop.mutate(undefined, { onSuccess: () => setShowDisconnectWhoop(false) })}
+            disabled={disconnectWhoop.isPending}
+            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+              disconnectWhoop.isPending
+                ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+          >
+            {disconnectWhoop.isPending ? <><Spinner /> Disconnecting…</> : 'Disconnect'}
+          </button>
         </div>
-      )}
+      </Modal>
 
       {/* ── Delete Account Modal ──────────────────────────────────────────────── */}
-      {showDeleteAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Delete Account</h2>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                This will permanently delete your account, all synced data, credentials, and tokens.
-                <span className="text-poor font-semibold"> This action cannot be undone.</span>
-              </p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                Type <span className="font-mono font-bold text-poor">DELETE</span> to confirm
-              </label>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={e => setDeleteConfirmText(e.target.value)}
-                placeholder="DELETE"
-                className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-poor"
-              />
-            </div>
-            {deleteError && (
-              <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
-                {deleteError}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowDeleteAccount(false)}
-                disabled={deleteAccount.isPending}
-                className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteAccount}
-                disabled={deleteAccount.isPending || deleteConfirmText !== 'DELETE'}
-                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                  deleteAccount.isPending || deleteConfirmText !== 'DELETE'
-                    ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
-                    : 'bg-red-600 text-white hover:bg-red-700'
-                }`}
-              >
-                {deleteAccount.isPending ? <><Spinner /> Deleting…</> : 'Delete My Account'}
-              </button>
-            </div>
-          </div>
+      <Modal
+        open={showDeleteAccount}
+        onClose={() => setShowDeleteAccount(false)}
+        title="Delete Account"
+        description={<>This will permanently delete your account, all synced data, credentials, and tokens.<span className="text-poor font-semibold"> This action cannot be undone.</span></>}
+      >
+        <div>
+          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+            Type <span className="font-mono font-bold text-poor">DELETE</span> to confirm
+          </label>
+          <input
+            type="text"
+            value={deleteConfirmText}
+            onChange={e => setDeleteConfirmText(e.target.value)}
+            placeholder="DELETE"
+            className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-poor"
+          />
         </div>
-      )}
+        {deleteError && (
+          <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+            {deleteError}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowDeleteAccount(false)}
+            disabled={deleteAccount.isPending}
+            className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDeleteAccount}
+            disabled={deleteAccount.isPending || deleteConfirmText !== 'DELETE'}
+            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+              deleteAccount.isPending || deleteConfirmText !== 'DELETE'
+                ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+          >
+            {deleteAccount.isPending ? <><Spinner /> Deleting…</> : 'Delete My Account'}
+          </button>
+        </div>
+      </Modal>
 
       {/* ── Garmin Remove Confirmation Modal ─────────────────────────────────── */}
-      {garminModal === 'remove-confirm' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-card border border-surface-border shadow-2xl p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Remove Garmin Credentials?</h2>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Your encrypted credentials will be permanently deleted and automatic sync will stop.
-                You can re-enable auto-sync at any time by adding your credentials again.
-              </p>
-            </div>
-
-            {garminCredError && (
-              <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
-                {garminCredError}
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => setGarminModal(null)}
-                disabled={deleteCredentials.isPending}
-                className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteCredentials}
-                disabled={deleteCredentials.isPending}
-                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                  deleteCredentials.isPending
-                    ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
-                    : 'bg-red-600 text-white hover:bg-red-700'
-                }`}
-              >
-                {deleteCredentials.isPending ? <><Spinner /> Removing…</> : 'Remove Credentials'}
-              </button>
-            </div>
+      <Modal
+        open={garminModal === 'remove-confirm'}
+        onClose={() => setGarminModal(null)}
+        title="Remove Garmin Credentials?"
+        description="Your encrypted credentials will be permanently deleted and automatic sync will stop. You can re-enable auto-sync at any time by adding your credentials again."
+      >
+        {garminCredError && (
+          <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+            {garminCredError}
           </div>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setGarminModal(null)}
+            disabled={deleteCredentials.isPending}
+            className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDeleteCredentials}
+            disabled={deleteCredentials.isPending}
+            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+              deleteCredentials.isPending
+                ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
+                : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+          >
+            {deleteCredentials.isPending ? <><Spinner /> Removing…</> : 'Remove Credentials'}
+          </button>
         </div>
-      )}
+      </Modal>
     </div>
   )
 }

@@ -31,6 +31,8 @@ import { TrendChart } from '../components/TrendChart'
 import type { TrendDataPoint } from '../components/TrendChart'
 import { NoDataState } from '../components/LoadingState'
 import type { WeeklySummary } from '../types/api'
+import { activityLabel } from '../utils/formatters'
+import { colorForType } from '../utils/chartColors'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -171,26 +173,6 @@ function anomalyContext(metric: string, direction: string, value: number): strin
   const pair = ctx[metric]
   if (pair) return hi ? pair[0] : pair[1]
   return `${metric} was ${hi ? 'unusually high' : 'unusually low'} at ${value.toFixed(1)}.`
-}
-
-// ── activity colors (for scatter) ─────────────────────────────────────────────
-
-const TYPE_COLORS: Record<string, string> = {
-  running:           '#60a5fa',
-  strength_training: '#c084fc',
-  cycling:           '#fb923c',
-  walking:           '#22c55e',
-  swimming:          '#2dd4bf',
-  yoga:              '#f59e0b',
-  hiit:              '#ef4444',
-  pilates:           '#e879f9',
-  indoor_cardio:     '#818cf8',
-}
-const FALLBACK_COLORS = ['#a78bfa', '#34d399', '#fbbf24', '#f87171', '#38bdf8']
-function colorForType(type: string, allTypes: string[]): string {
-  if (TYPE_COLORS[type]) return TYPE_COLORS[type]
-  const idx = allTypes.filter(t => !TYPE_COLORS[t]).indexOf(type)
-  return FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
 }
 
 // ── weekly digest ─────────────────────────────────────────────────────────────
@@ -699,7 +681,7 @@ export function Insights() {
                               return (
                                 <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
                                   <p className="font-medium text-slate-500">
-                                    {(d.type).split('_').map((s: string) => s[0].toUpperCase() + s.slice(1)).join(' ')}
+                                    {activityLabel(d.type)}
                                   </p>
                                   <p className="text-slate-400">Strain: <span className="font-mono font-semibold">{d.x.toFixed(1)}</span></p>
                                   <p className="text-slate-400">Next-day recovery: <span className="font-mono font-semibold">{d.y}%</span></p>
@@ -711,7 +693,7 @@ export function Insights() {
                           {Object.keys(scatterData.byType).map(type => (
                             <Scatter
                               key={type}
-                              name={type.split('_').map(s => s[0].toUpperCase() + s.slice(1)).join(' ')}
+                              name={activityLabel(type)}
                               data={scatterData.byType[type]}
                               fill={colorForType(type, scatterData.allTypes)}
                               fillOpacity={0.75}
@@ -725,7 +707,7 @@ export function Insights() {
                           {Object.keys(scatterData.byType).map(type => (
                             <span key={type} className="flex items-center gap-1.5 text-2xs text-slate-500 whitespace-nowrap">
                               <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: colorForType(type, scatterData.allTypes) }} />
-                              {type.split('_').map(s => s[0].toUpperCase() + s.slice(1)).join(' ')}
+                              {activityLabel(type)}
                             </span>
                           ))}
                         </div>

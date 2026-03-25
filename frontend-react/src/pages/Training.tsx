@@ -38,27 +38,13 @@ import {
   useTrainingLoadRatio,
 } from '../hooks/useApi'
 import type { EnrichedWorkout, WorkoutTypeSummary } from '../types/api'
+import { activityLabel } from '../utils/formatters'
+import { colorForType } from '../utils/chartColors'
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 20
 const KG_TO_LB  = 2.20462
-
-const TYPE_COLORS: Record<string, string> = {
-  running:           '#60a5fa',
-  strength_training: '#c084fc',
-  cycling:           '#fb923c',
-  walking:           '#22c55e',
-  swimming:          '#2dd4bf',
-  yoga:              '#f59e0b',
-  hiit:              '#ef4444',
-  pilates:           '#e879f9',
-  indoor_cardio:     '#818cf8',
-}
-
-const FALLBACK_COLORS = [
-  '#a78bfa', '#34d399', '#fbbf24', '#f87171', '#38bdf8', '#fb7185', '#4ade80',
-]
 
 const STRENGTH_TYPES = new Set([
   'strength_training', 'weight_training', 'indoor_cardio', 'hiit', 'pilates', 'yoga',
@@ -84,16 +70,6 @@ const TRACKED_EXERCISES: Record<string, string> = {
 const EXERCISE_ORDER = ['Back Squat', 'Front Squat', 'OHP', 'Bench Press', 'Incline Press', 'Deadlift', 'Romanian DL']
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-function colorForType(type: string, allTypes: string[]): string {
-  if (TYPE_COLORS[type]) return TYPE_COLORS[type]
-  const idx = allTypes.filter(t => !TYPE_COLORS[t]).indexOf(type)
-  return FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
-}
-
-function activityLabel(type: string): string {
-  return type.split('_').map(s => s[0].toUpperCase() + s.slice(1)).join(' ')
-}
 
 function fmtNull(v: number | null, digits = 1, suffix = ''): string {
   return v !== null && v !== undefined ? `${v.toFixed(digits)}${suffix}` : '—'
