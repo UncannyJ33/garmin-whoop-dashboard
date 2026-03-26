@@ -309,22 +309,24 @@ class TestStoreCredentials:
 
         assert rows == 1  # upsert, not duplicate insert
 
-    def test_invalid_garmin_credentials_returns_400(self, client, eng, monkeypatch):
+    def test_credentials_stored_without_validation(self, client, eng, monkeypatch):
+        """Credentials are stored without calling authenticate_user_garmin.
+
+        Validation was removed to avoid triggering Garmin 429 rate limits
+        during onboarding.  The scheduler handles auth on first sync and
+        will disable auto-sync if credentials are wrong (401/403).
+        """
         monkeypatch.setenv("GARMIN_ENCRYPTION_KEY", TEST_KEY)
         _clear_credentials(eng)
 
-        with patch(
-            "src.clients.garmin_auth.authenticate_user_garmin",
-            side_effect=Exception("401 Unauthorized invalid credentials"),
-        ):
-            r = client.post(
-                "/api/garmin/credentials",
-                json={"email": "bad@example.com", "password": "wrong", "consent": True},
-                headers=_auth(),
-            )
+        r = client.post(
+            "/api/garmin/credentials",
+            json={"email": "any@example.com", "password": "anything", "consent": True},
+            headers=_auth(),
+        )
 
-        assert r.status_code == 400
-        assert "invalid" in r.json()["detail"].lower()
+        assert r.status_code == 200
+        assert r.json()["has_credentials"] is True
 
 
 class TestCredentialsStatus:

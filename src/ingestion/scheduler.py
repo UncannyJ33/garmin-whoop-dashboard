@@ -37,6 +37,52 @@ _scheduler: BackgroundScheduler | None = None
 # How long before a source is considered stale and a catchup is scheduled.
 _STALE_THRESHOLD_HOURS = 1
 
+# How long to delay Garmin catchup sync after container start (seconds).
+# Gives Garmin's rate limit window time to clear between deploys.
+_GARMIN_CATCHUP_DELAY_SECONDS = 180  # 3 minutes
+
+# ---------------------------------------------------------------------------
+# Per-user Garmin 429 backoff tracker
+# ---------------------------------------------------------------------------
+
+# Maps user_id → (next_eligible_time, consecutive_429_count)
+_garmin_backoff: dict[str, tuple[datetime, int]] = {}
+
+# Backoff schedule: 30 min, 1 hr, 2 hr, 4 hr cap
+_BACKOFF_MINUTES = [30, 60, 120, 240]
+
+
+def _garmin_user_is_cooling_down(user_id: str) -> bool:
+    """Return True if this user is still in a 429 backoff window."""
+    if user_id not in _garmin_backoff:
+        return False
+    next_eligible, _ = _garmin_backoff[user_id]
+    return datetime.now(UTC) < next_eligible
+
+
+def _garmin_record_rate_limit(user_id: str) -> None:
+    """Record a 429 for this user and set the next eligible retry time."""
+    _, count = _garmin_backoff.get(user_id, (datetime.now(UTC), 0))
+    count += 1
+    idx = min(count - 1, len(_BACKOFF_MINUTES) - 1)
+    wait_minutes = _BACKOFF_MINUTES[idx]
+    next_eligible = datetime.now(UTC) + timedelta(minutes=wait_minutes)
+    _garmin_backoff[user_id] = (next_eligible, count)
+    logger.info(
+        "Garmin 429 backoff: user %s — attempt #%d, next retry after %s (%d min)",
+        user_id,
+        count,
+        next_eligible.isoformat(),
+        wait_minutes,
+    )
+
+
+def _garmin_clear_backoff(user_id: str) -> None:
+    """Clear backoff state for a user after a successful sync."""
+    if user_id in _garmin_backoff:
+        logger.info("Garmin 429 backoff: cleared for user %s after successful sync", user_id)
+        del _garmin_backoff[user_id]
+
 
 # ---------------------------------------------------------------------------
 # Sync registry
@@ -171,6 +217,17 @@ def _run_garmin_multi_user() -> None:
                 )
                 continue
 
+        # Skip users still in 429 backoff cooldown
+        if _garmin_user_is_cooling_down(user_id):
+            next_eligible, count = _garmin_backoff[user_id]
+            logger.info(
+                "Garmin multi-user sync: user %s in 429 cooldown (attempt #%d, eligible at %s) — skipping",
+                user_id,
+                count,
+                next_eligible.isoformat(),
+            )
+            continue
+
         logger.info("Garmin multi-user sync: syncing user %s", user_id)
         try:
             with SessionFactory() as db:
@@ -198,6 +255,8 @@ def _run_garmin_multi_user() -> None:
                 log.records_stored,
                 log.status,
             )
+            # Successful sync — clear any backoff state
+            _garmin_clear_backoff(user_id)
             # Persist any updated garth tokens for container restart resilience
             save_garmin_tokens_to_db(app_engine)
         except GarminAuthError as exc:
@@ -205,6 +264,8 @@ def _run_garmin_multi_user() -> None:
             is_rate_limit = "429" in err_msg or "rate limit" in err_msg.lower()
             if is_rate_limit:
                 # Don't disable auto-sync on rate limits — it will clear on its own.
+                # Record backoff so we skip this user on subsequent runs.
+                _garmin_record_rate_limit(user_id)
                 logger.warning(
                     "Garmin multi-user sync: rate limit for user %s — skipping this run",
                     user_id,
@@ -418,7 +479,12 @@ def _schedule_catchup_if_stale(
                 needs_catchup = last_sync < stale_threshold
 
             if needs_catchup:
-                run_time = datetime.now(UTC) + timedelta(seconds=10)
+                # Garmin gets a longer delay to let rate limit windows clear
+                # between deploys.  Whoop keeps the short 10-second delay.
+                delay_seconds = (
+                    _GARMIN_CATCHUP_DELAY_SECONDS if source == "garmin" else 10
+                )
+                run_time = datetime.now(UTC) + timedelta(seconds=delay_seconds)
                 scheduler.add_job(
                     job_fn,
                     trigger="date",
@@ -428,7 +494,10 @@ def _schedule_catchup_if_stale(
                     replace_existing=True,
                 )
                 logger.info(
-                    "%s: stale — catchup sync scheduled for %s", source, run_time
+                    "%s: stale — catchup sync scheduled for %s (%ds delay)",
+                    source,
+                    run_time,
+                    delay_seconds,
                 )
             else:
                 logger.info("%s: recent sync found — no catchup needed", source)

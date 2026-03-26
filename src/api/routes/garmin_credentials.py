@@ -110,38 +110,13 @@ def store_credentials(
             ),
         ) from exc
 
-    # Attempt to validate credentials and establish a session.
-    # On rate-limit (429) we store the credentials anyway — the scheduler will
-    # authenticate on first sync once the limit clears.  On 401/403 we reject
-    # immediately because the credentials are definitely wrong.
-    try:
-        from src.clients.garmin_auth import GarminAuthError, authenticate_user_garmin
-
-        authenticate_user_garmin(current_user.id, body.email.strip(), body.password, db)
-    except Exception as exc:  # noqa: BLE001
-        err_msg = str(exc)
-        if "401" in err_msg or "invalid" in err_msg.lower() or "credentials" in err_msg.lower():
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Garmin credentials are invalid. "
-                    "Check your email and password and try again."
-                ),
-            ) from exc
-        # Rate limit or unexpected error — store the credentials anyway.
-        # The scheduler will authenticate on the next run once the limit clears.
-        if "429" in err_msg or "rate limit" in err_msg.lower():
-            logger.warning(
-                "Garmin rate limit hit while validating credentials for user %s — "
-                "storing credentials anyway; scheduler will authenticate later",
-                current_user.id,
-            )
-        else:
-            logger.warning(
-                "Garmin credential validation failed for user %s (non-auth error): %s — storing anyway",
-                current_user.id,
-                exc,
-            )
+    # We intentionally do NOT call authenticate_user_garmin() here.
+    # Validation on save was triggering Garmin 429 rate limits during
+    # onboarding — especially after a deploy when the rate limit window
+    # hasn't cleared yet.  Instead we store the credentials and let the
+    # scheduler authenticate on the first sync run.  If the credentials
+    # are wrong the scheduler will disable auto-sync after the first
+    # auth failure (401/403).
 
     now = datetime.now(UTC).isoformat()
 
