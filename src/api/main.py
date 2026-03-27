@@ -2,10 +2,11 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.settings import settings
 from src.api.routes.account import router as account_router
@@ -53,6 +54,34 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ---------------------------------------------------------------------------
+# Cache-Control middleware — lets browser skip round-trips on back-navigation
+# ---------------------------------------------------------------------------
+
+# Paths that should never be cached (mutable state or real-time data)
+_NO_CACHE_PREFIXES = ("/api/sync/", "/api/auth/", "/api/webhooks/", "/api/waitlist")
+
+
+class CacheControlMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return response
+        # Skip non-GET and non-success responses
+        if request.method != "GET" or response.status_code >= 400:
+            return response
+        # Mutable endpoints: no cache
+        if any(path.startswith(p) for p in _NO_CACHE_PREFIXES):
+            response.headers["Cache-Control"] = "no-store"
+        else:
+            # Analytics endpoints: private cache, browser may reuse for 5 min
+            response.headers["Cache-Control"] = "private, max-age=300"
+        return response
+
+
+app.add_middleware(CacheControlMiddleware)
+
 _cors_origins = settings.cors_origins if settings.cors_origins != ["*"] else ["*"]
 app.add_middleware(
     CORSMiddleware,
@@ -85,6 +114,11 @@ async def health() -> dict:
     """Basic health check."""
     return {"status": "ok"}
 
+
+# Serve interactive demo (pulse-demo build)
+_DEMO_DIST = Path(__file__).parent.parent.parent / "pulse-demo" / "dist"
+if _DEMO_DIST.is_dir():
+    app.mount("/demo", StaticFiles(directory=_DEMO_DIST, html=True), name="demo")
 
 # Serve React frontend static files (production build)
 _DIST = Path(__file__).parent.parent.parent / "frontend-react" / "dist"
