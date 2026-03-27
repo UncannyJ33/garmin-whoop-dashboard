@@ -137,20 +137,6 @@
       transition: color 0.15s;
     }
     .header-nav a:hover { color: var(--text); }
-    .header-nav .nav-cta {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--brand);
-      padding: 0.4rem 0.9rem;
-      border: 0.5px solid var(--brand-border);
-      border-radius: 6px;
-      background: var(--brand-muted);
-      transition: border-color 0.15s, background 0.15s;
-    }
-    .header-nav .nav-cta:hover {
-      border-color: rgba(37,99,255,0.5);
-      background: rgba(37,99,255,0.15);
-    }
 
     /* ── Hero ───────────────────────────────────────────────────────── */
     .hero {
@@ -202,12 +188,53 @@
       margin-bottom: 2.5rem;
     }
 
-    .cta-row {
+    /* ── Waitlist form ───────────────────────────────────────────────── */
+    .waitlist-form {
+      margin-bottom: 3.5rem;
+    }
+    .waitlist-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      max-width: 480px;
+    }
+    .waitlist-input {
+      flex: 1;
+      background: var(--surface);
+      border: 0.5px solid var(--border-hover);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 0.9rem;
+      padding: 0.7rem 1rem;
+      outline: none;
+      transition: border-color 0.15s;
+      min-width: 0;
+    }
+    .waitlist-input::placeholder { color: var(--text-3); }
+    .waitlist-input:focus { border-color: var(--brand-border); }
+    .waitlist-below {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-      margin-bottom: 3.5rem;
+    }
+    .waitlist-success {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+      color: var(--text-2);
+      padding: 0.7rem 0;
+    }
+    .success-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+    .waitlist-error {
+      font-size: 0.85rem;
+      color: #f87171;
+      margin-top: 0.4rem;
     }
 
     .btn-primary {
@@ -493,7 +520,8 @@
       .features-strip { grid-template-columns: 1fr; }
       .feature-item { border-right: none; border-bottom: 0.5px solid var(--border); }
       .feature-item:last-child { border-bottom: none; }
-      .header-nav .nav-label { display: none; }
+      .waitlist-row { flex-direction: column; max-width: 100%; }
+      .waitlist-row .btn-primary { justify-content: center; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -514,8 +542,7 @@
         <span class="built">BUILT</span>
       </div>
       <nav class="header-nav">
-        <a href="https://engine.pulsebuilt.net/demo" class="nav-label">Demo</a>
-        <a href="https://engine.pulsebuilt.net" class="nav-cta">Open App →</a>
+        <a href="https://engine.pulsebuilt.net/demo">Demo</a>
       </nav>
     </header>
   </div>
@@ -535,16 +562,31 @@
           We build tools that turn fragmented fitness data into clear, actionable insight.
         </p>
 
-        <div class="cta-row anim-4">
-          <a class="btn-primary" href="https://engine.pulsebuilt.net">
-            Launch PulseEngine
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          </a>
-          <a class="btn-ghost" href="https://engine.pulsebuilt.net/demo">
-            See a demo
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </a>
-        </div>
+        <form id="waitlist-form" class="waitlist-form anim-4" novalidate>
+          <div class="waitlist-row">
+            <input
+              id="waitlist-email"
+              type="email"
+              name="email"
+              class="waitlist-input"
+              placeholder="your@email.com"
+              autocomplete="email"
+              required
+            />
+            <button type="submit" class="btn-primary">
+              Join Waitlist
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+          <div class="waitlist-below">
+            <a class="btn-ghost" href="https://engine.pulsebuilt.net/demo">
+              See a demo
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </a>
+          </div>
+          <p class="waitlist-success" id="waitlist-success" hidden></p>
+          <p class="waitlist-error" id="waitlist-error" hidden></p>
+        </form>
 
         <!-- EKG decoration -->
         <svg class="ekg-divider anim-5" viewBox="0 0 860 32" preserveAspectRatio="none" aria-hidden="true">
@@ -594,8 +636,8 @@
             </div>
           </div>
           <div class="product-links">
-            <a class="product-link-primary" href="https://engine.pulsebuilt.net">
-              Open App
+            <a class="product-link-primary" href="#waitlist-email" onclick="document.getElementById('waitlist-email').focus();return true;">
+              Join Waitlist
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </a>
             <a class="product-link-secondary" href="https://engine.pulsebuilt.net/demo">See demo →</a>
@@ -646,6 +688,52 @@
       </div>
     </div>
   </footer>
+
+  <script>
+    (function () {
+      const form = document.getElementById('waitlist-form');
+      const successEl = document.getElementById('waitlist-success');
+      const errorEl = document.getElementById('waitlist-error');
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const email = form.email.value.trim();
+        const btn = form.querySelector('button[type="submit"]');
+        const originalHTML = btn.innerHTML;
+
+        btn.disabled = true;
+        btn.textContent = 'Joining\u2026';
+        errorEl.hidden = true;
+
+        try {
+          const res = await fetch('https://engine.pulsebuilt.net/api/waitlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email }),
+          });
+
+          if (res.ok) {
+            form.querySelector('.waitlist-row').hidden = true;
+            form.querySelector('.waitlist-below').hidden = true;
+            successEl.innerHTML = '<span class="success-dot"></span>You\u2019re on the list \u2014 we\u2019ll be in touch.';
+            successEl.hidden = false;
+          } else {
+            var data = {};
+            try { data = await res.json(); } catch (_) {}
+            errorEl.textContent = data.detail || 'Something went wrong. Try again.';
+            errorEl.hidden = false;
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+          }
+        } catch (_) {
+          errorEl.textContent = 'Network error. Please try again.';
+          errorEl.hidden = false;
+          btn.disabled = false;
+          btn.innerHTML = originalHTML;
+        }
+      });
+    })();
+  </script>
 
 </body>
 </html>
