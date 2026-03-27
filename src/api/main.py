@@ -115,11 +115,6 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-# Serve interactive demo (pulse-demo build)
-_DEMO_DIST = Path(__file__).parent.parent.parent / "pulse-demo" / "dist"
-if _DEMO_DIST.is_dir():
-    app.mount("/demo", StaticFiles(directory=_DEMO_DIST, html=True), name="demo")
-
 # Serve React frontend static files (production build)
 _DIST = Path(__file__).parent.parent.parent / "frontend-react" / "dist"
 if _DIST.is_dir():
@@ -127,8 +122,14 @@ if _DIST.is_dir():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
-        """Serve index.html for all non-API routes (React SPA)."""
+        """Serve index.html for all non-API routes (React SPA).
+
+        Also handles sub-apps (e.g. /demo) whose index.html lives in a
+        subdirectory of dist — serves dist/<path>/index.html when present.
+        """
         file = _DIST / full_path
         if file.is_file():
             return FileResponse(file)
+        if (file / "index.html").is_file():
+            return FileResponse(file / "index.html")
         return FileResponse(_DIST / "index.html")

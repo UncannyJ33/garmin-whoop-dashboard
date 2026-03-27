@@ -45,8 +45,8 @@ RUN uv sync --frozen --no-dev
 # Copy the built React app — FastAPI serves it as static files
 COPY --from=frontend-builder /app/frontend-react/dist ./frontend-react/dist
 
-# Copy the built pulse-demo — served at /demo
-COPY --from=frontend-builder /app/pulse-demo/dist ./pulse-demo/dist
+# Merge pulse-demo into the React dist under /demo — SPA fallback serves it
+COPY --from=frontend-builder /app/pulse-demo/dist ./frontend-react/dist/demo
 
 # Ensure the data directory exists; in practice it's overridden by the volume mount
 RUN mkdir -p data
