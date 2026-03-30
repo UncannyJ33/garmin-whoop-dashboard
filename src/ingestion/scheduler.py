@@ -48,8 +48,12 @@ _GARMIN_CATCHUP_DELAY_SECONDS = 180  # 3 minutes
 # Maps user_id → (next_eligible_time, consecutive_429_count)
 _garmin_backoff: dict[str, tuple[datetime, int]] = {}
 
-# Backoff schedule: 30 min, 1 hr, 2 hr, 4 hr cap
-_BACKOFF_MINUTES = [30, 60, 120, 240]
+# Backoff schedule: 30 min, 1 hr, 2 hr, 4 hr, 8 hr, 24 hr cap
+_BACKOFF_MINUTES = [30, 60, 120, 240, 480, 1440]
+
+# After this many consecutive 429s, disable the user's auto_sync_enabled so
+# we stop hammering Garmin's SSO and give the account time to recover.
+_MAX_CONSECUTIVE_429_BEFORE_DISABLE = 5
 
 
 def _garmin_user_is_cooling_down(user_id: str) -> bool:
@@ -107,24 +111,30 @@ def get_users_to_sync(engine: Engine) -> list[dict]:
     """
     try:
         with engine.connect() as conn:
-            whoop_rows = conn.execute(
-                text("SELECT service FROM token_store WHERE service LIKE 'whoop_%'")
-            ).fetchall()
-            garmin_cred_rows = conn.execute(
+            # Single query: fetch all sync-relevant user info in one round-trip
+            rows = conn.execute(
                 text(
-                    "SELECT user_id FROM garmin_credentials WHERE auto_sync_enabled = true"
+                    "SELECT 'whoop' AS src, service AS id FROM token_store WHERE service LIKE 'whoop_%'"
+                    " UNION ALL "
+                    "SELECT 'garmin_cred' AS src, user_id AS id FROM garmin_credentials WHERE auto_sync_enabled = true"
+                    " UNION ALL "
+                    "SELECT 'garmin_token' AS src, service AS id FROM token_store WHERE service LIKE 'garmin_%'"
                 )
-            ).fetchall()
-            garmin_token_rows = conn.execute(
-                text("SELECT service FROM token_store WHERE service LIKE 'garmin_%'")
             ).fetchall()
     except Exception:
         logger.exception("get_users_to_sync: DB error — returning empty registry")
         return []
 
-    whoop_user_ids = {r[0].removeprefix("whoop_") for r in whoop_rows}
-    garmin_cred_user_ids = {r[0] for r in garmin_cred_rows}
-    garmin_token_user_ids = {r[0].removeprefix("garmin_") for r in garmin_token_rows}
+    whoop_user_ids: set[str] = set()
+    garmin_cred_user_ids: set[str] = set()
+    garmin_token_user_ids: set[str] = set()
+    for src, raw_id in rows:
+        if src == "whoop":
+            whoop_user_ids.add(raw_id.removeprefix("whoop_"))
+        elif src == "garmin_cred":
+            garmin_cred_user_ids.add(raw_id)
+        elif src == "garmin_token":
+            garmin_token_user_ids.add(raw_id.removeprefix("garmin_"))
 
     all_user_ids = whoop_user_ids | garmin_cred_user_ids | garmin_token_user_ids
 
@@ -263,13 +273,39 @@ def _run_garmin_multi_user() -> None:
             err_msg = str(exc)
             is_rate_limit = "429" in err_msg or "rate limit" in err_msg.lower()
             if is_rate_limit:
-                # Don't disable auto-sync on rate limits — it will clear on its own.
-                # Record backoff so we skip this user on subsequent runs.
                 _garmin_record_rate_limit(user_id)
-                logger.warning(
-                    "Garmin multi-user sync: rate limit for user %s — skipping this run",
-                    user_id,
-                )
+                _, count = _garmin_backoff[user_id]
+                if count >= _MAX_CONSECUTIVE_429_BEFORE_DISABLE and user_id in creds_by_user:
+                    # Too many consecutive 429s — disable auto_sync so we stop
+                    # hammering Garmin's SSO.  The user must re-enable manually
+                    # in Settings after the account-level rate limit clears (~24h).
+                    logger.error(
+                        "Garmin multi-user sync: %d consecutive 429s for user %s — "
+                        "disabling auto_sync to protect the account. Re-enable in "
+                        "Settings after waiting 24h.",
+                        count,
+                        user_id,
+                    )
+                    try:
+                        with app_engine.begin() as conn:
+                            conn.execute(
+                                text(
+                                    "UPDATE garmin_credentials SET auto_sync_enabled = false "
+                                    "WHERE user_id = :uid"
+                                ),
+                                {"uid": user_id},
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Could not disable auto_sync for user %s after repeated 429s",
+                            user_id,
+                        )
+                else:
+                    logger.warning(
+                        "Garmin multi-user sync: rate limit for user %s (attempt #%d) — skipping this run",
+                        user_id,
+                        count,
+                    )
             else:
                 # 401/403 = bad credentials — disable auto-sync so we stop retrying.
                 logger.warning(
