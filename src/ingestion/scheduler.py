@@ -382,14 +382,18 @@ def _run_whoop_multi_user() -> None:
             )
         except Exception as exc:
             err_msg = str(exc).lower()
-            is_token_failure = any(
+            # Only delete the token on actual auth failures (401 = token rejected
+            # by Whoop).  "token" and "refresh" are too broad — they match
+            # transient errors like "Token refresh failed: 503" and would delete
+            # a perfectly valid token just because Whoop had a blip.
+            is_token_invalid = any(
                 kw in err_msg
-                for kw in ("token", "401", "refresh", "not authenticated", "expired")
+                for kw in ("401", "not authenticated", "no refresh token")
             )
-            if is_token_failure:
+            if is_token_invalid:
                 # Remove the stale token so the user gets prompted to reconnect
                 logger.warning(
-                    "Whoop multi-user sync: token failure for user %s — removing token "
+                    "Whoop multi-user sync: token rejected (401) for user %s — removing token "
                     "for re-auth: %s",
                     user_id,
                     exc,
