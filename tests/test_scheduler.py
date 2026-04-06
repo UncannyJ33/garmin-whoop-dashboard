@@ -235,7 +235,7 @@ def test_run_garmin_multi_user_logs_completion_on_success():
     mock_session.__exit__ = MagicMock(return_value=False)
     mock_session_factory = MagicMock(return_value=mock_session)
 
-    # One user with a garth token (no credentials — simulates legacy owner)
+    # One user with a session token (no credentials — simulates legacy owner)
     users = [{"user_id": "owner-id", "garmin_auto_sync": False, "garmin_has_token": True}]
 
     with (

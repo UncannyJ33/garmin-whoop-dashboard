@@ -7,7 +7,7 @@ import { useChangePassword, useDataStats, useDeleteAccount, useDeleteGarminCrede
 import { GarminUpload } from '../components/GarminUpload'
 import { Modal } from '../components/Modal'
 import { api } from '../api/client'
-import { useTheme } from '../context/ThemeContext'
+// Theme is dark-only — no toggle exposed
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
 
@@ -121,7 +121,6 @@ function useSleepTarget() {
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export function Settings() {
-  const { theme, toggle } = useTheme()
   const { hours: sleepTarget, setHours: setSleepTarget } = useSleepTarget()
   const { userId, logout } = useAuth()
   const queryClient = useQueryClient()
@@ -625,27 +624,26 @@ export function Settings() {
 
         <div className="card divide-y divide-surface-border">
 
-          {/* Dark / light mode */}
+          {/* Appearance — dark only */}
           <div className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
             <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Appearance</p>
-              <p className="text-2xs text-slate-500 mt-0.5">
-                {theme === 'dark' ? 'Dark mode active' : 'Light mode active'}
+              <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>Appearance</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                Dark mode
               </p>
             </div>
-            <button
-              onClick={toggle}
-              className={`relative h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none ${
-                theme === 'dark' ? 'bg-brand' : 'bg-slate-300 dark:bg-slate-600'
-              }`}
-              aria-label="Toggle dark mode"
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--text-tertiary)',
+                background: 'var(--bg-card-elevated)',
+                border: '0.5px solid var(--border-subtle)',
+                borderRadius: 6,
+                padding: '4px 10px',
+              }}
             >
-              <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
-                  theme === 'dark' ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+              Only
+            </div>
           </div>
 
           {/* Sleep target */}

@@ -69,26 +69,41 @@ export function Login() {
   const isLogin = mode === 'login'
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-bg px-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-sm animate-fade-in">
         <div className="text-center mb-8">
           <h1
-            className="text-2xl font-bold text-slate-100"
-            style={{ fontFamily: "'Barlow Condensed', system-ui, sans-serif", letterSpacing: '-0.01em' }}
+            style={{
+              fontFamily: "'Barlow Condensed', system-ui, sans-serif",
+              fontSize: 32,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              letterSpacing: '-0.01em',
+            }}
           >
             PulseEngine
           </h1>
-          <p className="text-slate-400 text-sm mt-1">
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginTop: 4 }}>
             {isLogin ? 'Sign in to your dashboard' : 'Create a new account'}
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4"
+          style={{
+            background: 'var(--bg-card)',
+            border: '0.5px solid var(--border-subtle)',
+            borderRadius: 16,
+            padding: 24,
+          }}
+          className="space-y-4"
         >
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5" htmlFor="email">
+            <label
+              className="block mb-1.5"
+              htmlFor="email"
+              style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}
+            >
               Email
             </label>
             <input
@@ -98,16 +113,28 @@ export function Login() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              style={{ ['--tw-ring-color' as string]: 'var(--brand)' }}
+              className="w-full focus:outline-none"
+              style={{
+                background: 'var(--bg-primary)',
+                border: '0.5px solid var(--border-subtle)',
+                borderRadius: 8,
+                padding: '10px 12px',
+                fontSize: 14,
+                color: 'var(--text-primary)',
+                transition: 'border-color 150ms ease',
+              }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
-              onBlur={e => (e.currentTarget.style.borderColor = '')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
               placeholder="you@example.com"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5" htmlFor="password">
+            <label
+              className="block mb-1.5"
+              htmlFor="password"
+              style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}
+            >
               Password
             </label>
             <input
@@ -117,15 +144,31 @@ export function Login() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+              className="w-full focus:outline-none"
+              style={{
+                background: 'var(--bg-primary)',
+                border: '0.5px solid var(--border-subtle)',
+                borderRadius: 8,
+                padding: '10px 12px',
+                fontSize: 14,
+                color: 'var(--text-primary)',
+                transition: 'border-color 150ms ease',
+              }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
-              onBlur={e => (e.currentTarget.style.borderColor = '')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
               placeholder="••••••••"
             />
           </div>
 
           {error && (
-            <p className="text-poor text-sm bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">
+            <p style={{
+              fontSize: 13,
+              color: 'var(--status-alert)',
+              background: 'var(--status-alert-muted)',
+              border: '0.5px solid rgba(216, 90, 48, 0.25)',
+              borderRadius: 8,
+              padding: '8px 12px',
+            }}>
               {error}
             </p>
           )}
@@ -133,8 +176,18 @@ export function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2.5 text-sm transition-opacity"
-            style={{ background: 'var(--brand)' }}
+            className="w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              background: 'var(--brand)',
+              color: '#fff',
+              fontWeight: 600,
+              borderRadius: 8,
+              padding: '10px 0',
+              fontSize: 14,
+              border: 'none',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              transition: 'opacity 150ms ease',
+            }}
           >
             {loading
               ? isLogin
@@ -146,9 +199,9 @@ export function Login() {
           </button>
 
           {!isLogin && (
-            <p className="text-center text-slate-500 text-xs leading-relaxed">
+            <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12, lineHeight: 1.6 }}>
               By creating an account, you agree to our{' '}
-              <Link to="/privacy" className="text-slate-400 underline hover:text-slate-200">
+              <Link to="/privacy" style={{ color: 'var(--text-secondary)', textDecoration: 'underline' }}>
                 Privacy Policy
               </Link>
               .
@@ -156,7 +209,7 @@ export function Login() {
           )}
         </form>
 
-        <p className="text-center text-slate-500 text-sm mt-4">
+        <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, marginTop: 16 }}>
           {isLogin ? (
             <>
               Don&apos;t have an account?{' '}

@@ -58,6 +58,15 @@ Full project planning docs are in opus_plan_src_files/. Read these when you need
 - **Bug fixes**: Sleep/deep-sleep anomaly context converts minutes→hours before display (`value/60`); Body Battery low-direction copy corrected; `formatValue` in metric explorer also divides by 60 for sleep metrics
 - **Build**: `npm run build` passes clean; TypeScript strict check passes; deployed to engine.pulsebuilt.net
 
+### Performance optimization pass (Mar 26, 2026):
+Full audit and implementation documented in `OPTIMIZATION.md`. Key changes:
+- **Database**: Composite (user_id, date) indexes on all major tables (migration 012); replaced SUBSTR() with range comparisons for index-friendly timestamp filtering
+- **Normalizer**: Batch-prefetch (210→7 queries per sync); anomaly_cache table (migration 013) stores pre-computed anomalies after each sync
+- **API**: Batch anomaly detection (7 queries→1 UNION ALL); in-memory TTL cache for readiness/weekly-summary; HTTP Cache-Control middleware; server-side pagination on workouts endpoint
+- **Frontend**: Route-based code splitting (React.lazy); Vite vendor chunk splitting (react/query/charts); virtual scrolling (react-virtuoso) for workout log; React.memo on WorkoutRow/DayButton/tooltips; deferred Insights correlation queries; standardized staleTime constants; ErrorBoundary for lazy routes; PWA skipWaiting; font preloading
+- **Infra**: Streamlit + pytest moved to dev deps; Dockerfile layer optimization; connection pool bumped to 10+15; pytest-xdist added
+- **Tests**: 904 passing
+
 ### Phase 5 milestones:
 - Task 5.7 (custom domain): engine.pulsebuilt.net is live on Railway (migrated from pulsebuilt.net)
 - Multi-tenancy: complete — all data tables have user_id; all queries scoped to current user; migration 007 adds whoop_cycles.user_id

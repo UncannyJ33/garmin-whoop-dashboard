@@ -261,7 +261,7 @@ async def garmin_connect(
 ) -> JSONResponse:
     """Authenticate with Garmin Connect and persist per-user session tokens.
 
-    The raw password is never stored — only the garth session tokens.
+    The raw password is never stored — only the session tokens.
     """
     from src.clients.garmin_auth import GarminAuthError, authenticate_user_garmin
 

@@ -107,7 +107,7 @@ def get_users_to_sync(engine: Engine) -> list[dict]:
         - ``user_id`` (str)
         - ``whoop_connected`` (bool) — has an active Whoop token in token_store
         - ``garmin_auto_sync`` (bool) — has auto_sync_enabled=1 credentials
-        - ``garmin_has_token`` (bool) — has a garth session token (legacy/owner)
+        - ``garmin_has_token`` (bool) — has a session token (legacy/owner)
     """
     try:
         with engine.connect() as conn:
@@ -158,7 +158,7 @@ def _run_garmin_multi_user() -> None:
     """Job target: run an incremental Garmin sync for every eligible user.
 
     Eligible users are those with ``auto_sync_enabled=1`` credentials *or* an
-    existing garth session token (legacy owner account).  For credential users
+    existing session token (legacy owner account).  For credential users
     the session is refreshed via ``authenticate_user_garmin`` before each sync.
 
     On authentication failure the user's ``auto_sync_enabled`` is set to 0 so
@@ -267,7 +267,7 @@ def _run_garmin_multi_user() -> None:
             )
             # Successful sync — clear any backoff state
             _garmin_clear_backoff(user_id)
-            # Persist any updated garth tokens for container restart resilience
+            # Persist any updated tokens for container restart resilience
             save_garmin_tokens_to_db(app_engine)
         except GarminAuthError as exc:
             err_msg = str(exc)
@@ -582,7 +582,7 @@ def start_scheduler(engine: Engine | None = None) -> None:
 
         engine = app_engine
 
-    # Restore Garmin tokens from DB so garth can find them on the filesystem
+    # Restore Garmin tokens from DB so garminconnect can find them on the filesystem
     try:
         loaded = load_garmin_tokens_from_db(engine)
         if not loaded:

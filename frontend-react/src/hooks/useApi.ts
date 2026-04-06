@@ -2,6 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { todayISO } from './useDateRange'
+
+const STALE = {
+  SHORT:  5 * 60 * 1000,   // 5 min — user data that changes frequently (today's readiness, sync status)
+  MEDIUM: 15 * 60 * 1000,  // 15 min — slower-moving analytics (sleep correlations, metric trends)
+  LONG:   30 * 60 * 1000,  // 30 min — historical data that rarely changes (workout details, enriched anomalies)
+  STATIC: 60 * 60 * 1000,  // 1 hour — feature flags, settings
+} as const
+
 import type {
   DataStats,
   EnrichedAnomalyPoint,
@@ -35,7 +43,7 @@ export function useReadinessToday() {
   return useQuery({
     queryKey: ['readiness', 'today', userId],
     queryFn: ({ signal }) => api.get<ReadinessResult>(`/api/readiness/today?date=${todayISO()}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     refetchOnWindowFocus: true,
     enabled: !!userId,
@@ -48,7 +56,7 @@ export function useReadinessHistory(start: string, end: string) {
     queryKey: ['readiness', 'history', start, end, userId],
     queryFn: ({ signal }) =>
       api.get<ReadinessHistoryPoint[]>(`/api/readiness/history?start=${start}&end=${end}`, signal),
-    staleTime: 15 * 60 * 1000,
+    staleTime: STALE.MEDIUM,
     retry: 1,
     enabled: !!userId,
   })
@@ -63,7 +71,7 @@ export function useWorkouts(start: string, end: string) {
   return useQuery({
     queryKey: ['workouts', start, end, userId],
     queryFn: ({ signal }) => api.get<EnrichedWorkout[]>(`/api/workouts?start=${start}&end=${end}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -74,7 +82,7 @@ export function useWorkoutDetail(id: string) {
   return useQuery({
     queryKey: ['workouts', 'detail', id, userId],
     queryFn: ({ signal }) => api.get<EnrichedWorkout>(`/api/workouts/${id}`, signal),
-    staleTime: 30 * 60 * 1000, // workout details don't change
+    staleTime: STALE.LONG,
     retry: 1,
     enabled: !!id && !!userId,
   })
@@ -85,7 +93,7 @@ export function useExerciseSets(workoutId: string, enabled = true) {
   return useQuery({
     queryKey: ['workouts', 'exercise-sets', workoutId, userId],
     queryFn: ({ signal }) => api.get<ExerciseSet[]>(`/api/workouts/${workoutId}/exercise-sets`, signal),
-    staleTime: 30 * 60 * 1000,
+    staleTime: STALE.LONG,
     retry: 1,
     enabled: !!workoutId && enabled && !!userId,
   })
@@ -96,7 +104,7 @@ export function useStrengthVolume(start: string, end: string) {
   return useQuery({
     queryKey: ['workouts', 'strength-volume', start, end, userId],
     queryFn: ({ signal }) => api.get<StrengthVolume[]>(`/api/workouts/strength-volume?start=${start}&end=${end}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -107,7 +115,7 @@ export function useStrengthMaxWeight(start: string, end: string) {
   return useQuery({
     queryKey: ['workouts', 'strength-max-weight', start, end, userId],
     queryFn: ({ signal }) => api.get<StrengthMaxWeight[]>(`/api/workouts/strength-max-weight?start=${start}&end=${end}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -120,7 +128,7 @@ export function useWorkoutSummary(start: string, end: string) {
     queryKey: ['workouts', 'summary', start, end, userId],
     queryFn: ({ signal }) =>
       api.get<WorkoutTypeSummary[]>(`/api/workouts/summary?start=${start}&end=${end}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -135,7 +143,7 @@ export function useSleepInsights(start: string, end: string) {
   return useQuery({
     queryKey: ['sleep', 'insights', start, end, userId],
     queryFn: ({ signal }) => api.get<SleepInsight[]>(`/api/sleep/insights?start=${start}&end=${end}`, signal),
-    staleTime: 15 * 60 * 1000,
+    staleTime: STALE.MEDIUM,
     retry: 1,
     enabled: !!userId,
   })
@@ -146,7 +154,7 @@ export function useSleepCorrelations(days: number = 30) {
   return useQuery({
     queryKey: ['sleep', 'correlations', days, userId],
     queryFn: ({ signal }) => api.get<SleepCorrelations>(`/api/sleep/correlations?days=${days}`, signal),
-    staleTime: 15 * 60 * 1000,
+    staleTime: STALE.MEDIUM,
     retry: 1,
     enabled: !!userId,
   })
@@ -157,7 +165,7 @@ export function useSleepConsistency(days: number = 30) {
   return useQuery({
     queryKey: ['sleep', 'consistency', days, userId],
     queryFn: ({ signal }) => api.get<SleepConsistency>(`/api/sleep/consistency?days=${days}`, signal),
-    staleTime: 15 * 60 * 1000,
+    staleTime: STALE.MEDIUM,
     retry: 1,
     enabled: !!userId,
   })
@@ -167,14 +175,14 @@ export function useSleepConsistency(days: number = 30) {
 // Trends
 // ---------------------------------------------------------------------------
 
-export function useMetricTrend(metric: string, start: string, end: string) {
+export function useMetricTrend(metric: string, start: string, end: string, enabled = true) {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['trends', metric, start, end, userId],
     queryFn: ({ signal }) => api.get<MetricTrend>(`/api/trends/${metric}?start=${start}&end=${end}`, signal),
-    staleTime: 15 * 60 * 1000,
+    staleTime: STALE.MEDIUM,
     retry: 1,
-    enabled: !!userId,
+    enabled: !!userId && enabled,
   })
 }
 
@@ -188,7 +196,7 @@ export function useWeeklySummary(date?: string) {
         date ? `/api/trends/weekly-summary?end=${date}` : '/api/trends/weekly-summary',
         signal,
       ),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     refetchOnWindowFocus: true,
     enabled: !!userId,
@@ -204,7 +212,7 @@ export function useAnomalies(start: string, end: string) {
         `/api/trends/anomalies?start=${start}&end=${end}`,
         signal,
       ),
-    staleTime: 15 * 60 * 1000,
+    staleTime: STALE.MEDIUM,
     retry: 1,
     enabled: !!userId,
   })
@@ -220,7 +228,7 @@ export function useEnrichedAnomalies(start: string, end: string) {
         `/api/trends/anomalies/enriched?start=${start}&end=${end}`,
         signal,
       ),
-    staleTime: 30 * 60 * 1000,
+    staleTime: STALE.LONG,
     retry: 1,
     enabled: !!userId,
   })
@@ -236,7 +244,7 @@ export function useWeeklyDigest(date?: string) {
         date ? `/api/insights/weekly-digest?end=${date}` : '/api/insights/weekly-digest',
         signal,
       ),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     refetchOnWindowFocus: true,
     enabled: !!userId,
@@ -253,7 +261,7 @@ export function useLimitingFactors(topN = 2) {
     queryKey: ['readiness', 'limiting-factors', topN, userId],
     queryFn: ({ signal }) =>
       api.get<LimitingFactor[]>(`/api/readiness/limiting-factors?top_n=${topN}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -268,7 +276,7 @@ export function useTrainingLoadRatio(date?: string) {
         date ? `/api/training/load-ratio?date=${date}` : '/api/training/load-ratio',
         signal,
       ),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -283,7 +291,7 @@ export function useRecovery(start: string, end: string) {
   return useQuery({
     queryKey: ['recovery', start, end, userId],
     queryFn: ({ signal }) => api.get<RecoveryActivity[]>(`/api/recovery?start=${start}&end=${end}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -294,7 +302,7 @@ export function useRecoveryWithWithout(start: string, end: string) {
   return useQuery({
     queryKey: ['recovery', 'with-without', start, end, userId],
     queryFn: ({ signal }) => api.get<WithWithoutResponse>(`/api/recovery/with-without?start=${start}&end=${end}`, signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -305,10 +313,11 @@ export function useRecoveryWithWithout(start: string, end: string) {
 // ---------------------------------------------------------------------------
 
 export function useFeatureFlags() {
+  const { userId } = useAuth()
   return useQuery({
-    queryKey: ['feature-flags'],
+    queryKey: ['feature-flags', userId ?? 'anon'],
     queryFn: ({ signal }) => api.get<{ whoop_oauth_enabled: boolean }>('/api/auth/feature-flags', signal),
-    staleTime: 60 * 60 * 1000, // flags rarely change — cache for 1h
+    staleTime: STALE.STATIC,
     retry: 1,
   })
 }
@@ -322,7 +331,7 @@ export function useWhoopStatus() {
   return useQuery({
     queryKey: ['auth', 'whoop-status', userId],
     queryFn: ({ signal }) => api.get<{ connected: boolean }>('/api/auth/whoop/status', signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -348,10 +357,10 @@ export function useGarminCSVImport() {
       return api.postForm<CSVImportResult>('/api/garmin/csv-import', form)
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['workouts'] })
-      void queryClient.invalidateQueries({ queryKey: ['training'] })
-      void queryClient.invalidateQueries({ queryKey: ['readiness'] })
-      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId] })
+      void queryClient.invalidateQueries({ queryKey: ['workouts'], refetchType: 'active' })
+      void queryClient.invalidateQueries({ queryKey: ['training'], refetchType: 'active' })
+      void queryClient.invalidateQueries({ queryKey: ['readiness'], refetchType: 'active' })
+      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId], refetchType: 'active' })
     },
   })
 }
@@ -377,10 +386,10 @@ export function useGarminUpload() {
       return api.postForm<UploadResult>('/api/garmin/upload', form)
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['workouts'] })
-      void queryClient.invalidateQueries({ queryKey: ['training'] })
-      void queryClient.invalidateQueries({ queryKey: ['readiness'] })
-      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId] })
+      void queryClient.invalidateQueries({ queryKey: ['workouts'], refetchType: 'active' })
+      void queryClient.invalidateQueries({ queryKey: ['training'], refetchType: 'active' })
+      void queryClient.invalidateQueries({ queryKey: ['readiness'], refetchType: 'active' })
+      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId], refetchType: 'active' })
     },
   })
 }
@@ -390,7 +399,7 @@ export function useGarminStatus() {
   return useQuery({
     queryKey: ['auth', 'garmin-status', userId],
     queryFn: ({ signal }) => api.get<{ connected: boolean }>('/api/auth/garmin/status', signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -407,7 +416,7 @@ export function useGarminCredentialsStatus() {
   return useQuery({
     queryKey: ['garmin', 'credentials-status', userId],
     queryFn: ({ signal }) => api.get<GarminCredentialsStatus>('/api/garmin/credentials/status', signal),
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -448,7 +457,7 @@ export function useDataStats() {
   return useQuery({
     queryKey: ['sync', 'stats', userId],
     queryFn: ({ signal }) => api.get<DataStats>('/api/sync/stats', signal),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
@@ -459,7 +468,7 @@ export function useSyncStatus() {
   return useQuery({
     queryKey: ['sync', 'status', userId],
     queryFn: ({ signal }) => api.get<SyncStatus>('/api/sync/status', signal),
-    staleTime: 60 * 1000,
+    staleTime: STALE.SHORT,
     retry: 1,
     refetchOnWindowFocus: true,
     enabled: !!userId,

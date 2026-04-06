@@ -10,9 +10,13 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
-from garth.exc import GarthHTTPError
+from garminconnect import (
+    GarminConnectAuthenticationError,
+    GarminConnectConnectionError,
+    GarminConnectTooManyRequestsError,
+)
 
-from src.clients.garmin_auth import GarminAuth, _status_code
+from src.clients.garmin_auth import GarminAuth, _extract_status_code
 
 logger = logging.getLogger(__name__)
 
@@ -192,8 +196,27 @@ class GarminClient:
             client = self._auth.get_client()
             return make_call(client)
 
-        except GarthHTTPError as exc:
-            code = _status_code(exc)
+        except GarminConnectAuthenticationError:
+            if not _retried:
+                logger.warning("Garmin API: session expired (401) — re-authenticating and retrying")
+                self._auth._client = None  # force GarminAuth to rebuild the session
+                return self._call(make_call, _retried=True)
+            logger.error("Garmin API: authentication failed after retry")
+            return None
+
+        except GarminConnectTooManyRequestsError:
+            if not _retried:
+                logger.error(
+                    "Garmin API: rate limited (429) — sleeping %ds then retrying",
+                    int(_RATE_LIMIT_SLEEP_S),
+                )
+                time.sleep(_RATE_LIMIT_SLEEP_S)
+                return self._call(make_call, _retried=True)
+            logger.error("Garmin API: still rate limited after retry (429)")
+            return None
+
+        except GarminConnectConnectionError as exc:
+            code = _extract_status_code(exc)
 
             if code in (400, 404):
                 logger.warning("Garmin API: endpoint unavailable (HTTP %s) — skipping", code)
@@ -201,7 +224,7 @@ class GarminClient:
 
             if code == 401 and not _retried:
                 logger.warning("Garmin API: session expired (401) — re-authenticating and retrying")
-                self._auth._client = None  # force GarminAuth to rebuild the session
+                self._auth._client = None
                 return self._call(make_call, _retried=True)
 
             if code == 429 and not _retried:
@@ -212,7 +235,7 @@ class GarminClient:
                 time.sleep(_RATE_LIMIT_SLEEP_S)
                 return self._call(make_call, _retried=True)
 
-            logger.error("Garmin API: unhandled HTTP %s: %s", code, exc)
+            logger.error("Garmin API: connection error (HTTP %s): %s", code, exc)
             return None
 
         except Exception as exc:  # noqa: BLE001

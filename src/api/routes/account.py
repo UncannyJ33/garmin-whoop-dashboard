@@ -135,7 +135,7 @@ async def delete_account(
     logger.warning("Account deletion initiated for user %s", uid)
 
     with engine.begin() as conn:
-        # Tokens (Whoop OAuth, Garmin garth session, OAuth states)
+        # Tokens (Whoop OAuth, Garmin session, OAuth states)
         conn.execute(
             text(
                 "DELETE FROM token_store WHERE service = :whoop OR service = :garmin"

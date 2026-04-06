@@ -10,6 +10,9 @@ export default defineConfig({
       // manifest managed via public/manifest.json — plugin handles SW only
       manifest: false,
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         // Precache all built assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // Exclude /api/* from the SPA navigation fallback so that browser
@@ -46,6 +49,17 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-charts': ['recharts'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

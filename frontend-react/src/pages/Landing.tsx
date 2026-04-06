@@ -273,7 +273,10 @@ export function Landing() {
 
         {/* ── Bottom CTA ───────────────────────────────────────────────────── */}
         <section className="mx-auto max-w-5xl px-6 py-20 text-center">
-          <h2 className="text-2xl font-bold mb-3">
+          <h2
+            className="text-2xl font-bold mb-3"
+            style={{ fontFamily: "'Barlow Condensed', system-ui, sans-serif" }}
+          >
             Ready to train smarter?
           </h2>
           <p className="text-sm text-white/50 mb-8">
@@ -288,19 +291,20 @@ export function Landing() {
 
       {/* ── Footer ───────────────────────────────────────────────────────────── */}
       <footer className="border-t border-white/6 py-6">
-        <div className="mx-auto max-w-5xl px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/30">
+        <div className="mx-auto max-w-5xl px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/35">
           <span>
             Built by{' '}
             <a
               href="https://pulsebuilt.net"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-white/60 transition-colors"
+              className="text-white/50 hover:text-white/70 transition-colors"
+              style={{ fontWeight: 500 }}
             >
               Pulse Built
             </a>
           </span>
-          <Link to="/privacy" className="hover:text-white/60 transition-colors">
+          <Link to="/privacy" className="text-white/40 hover:text-white/60 transition-colors">
             Privacy Policy
           </Link>
         </div>

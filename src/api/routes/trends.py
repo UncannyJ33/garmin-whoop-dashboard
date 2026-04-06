@@ -5,7 +5,9 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
-from src.analytics.trends import get_enriched_anomalies, get_metric_trend, get_weekly_summary
+from src.analytics.anomaly_store import get_cached_anomalies, get_cached_enriched_anomalies
+from src.analytics.cache import analytics_cache
+from src.analytics.trends import get_batch_metric_trends, get_enriched_anomalies, get_metric_trend, get_weekly_summary
 from src.api.dependencies import get_engine_dep
 from src.api.models import (
     AnomalyItem,
@@ -67,9 +69,15 @@ async def weekly_summary(
 ) -> WeeklySummaryResponse:
     """Return current-week averages and % change vs the prior week."""
     target = end or date.today()
+    cache_key_date = target.isoformat()
+    cached = analytics_cache.get(current_user.id, "weekly_summary", cache_key_date)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
     try:
         result = get_weekly_summary(engine, target, user_id=current_user.id)
-        return WeeklySummaryResponse(**result)
+        resp = WeeklySummaryResponse(**result)
+        analytics_cache.set(current_user.id, "weekly_summary", cache_key_date, value=resp)
+        return resp
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -88,22 +96,34 @@ async def anomaly_log(
     """Return all anomalous days (≥ 2σ from 7-day prior mean) across key metrics."""
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
+
+    # Try pre-computed cache first (populated after each sync)
+    cached = get_cached_anomalies(engine, current_user.id, start, end)
+    if cached:
+        return [AnomalyItem(**c) for c in cached]
+
+    # Fallback: compute live (first load before any sync, or cache miss)
     rows: list[AnomalyItem] = []
+    try:
+        trends = get_batch_metric_trends(
+            engine, list(_ANOMALY_METRICS), start, end, user_id=current_user.id
+        )
+    except Exception:  # noqa: BLE001
+        trends = {}
     for metric in _ANOMALY_METRICS:
-        try:
-            trend = get_metric_trend(engine, metric, start, end, user_id=current_user.id)
-            for a in trend.anomalies:
-                rows.append(
-                    AnomalyItem(
-                        date=a["date"],
-                        metric=_METRIC_LABELS.get(metric, metric),
-                        value=a["value"],
-                        direction=a["direction"],
-                        severity=abs(a["severity"]),
-                    )
-                )
-        except Exception:  # noqa: BLE001
+        trend = trends.get(metric)
+        if trend is None:
             continue
+        for a in trend.anomalies:
+            rows.append(
+                AnomalyItem(
+                    date=a["date"],
+                    metric=_METRIC_LABELS.get(metric, metric),
+                    value=a["value"],
+                    direction=a["direction"],
+                    severity=abs(a["severity"]),
+                )
+            )
     return sorted(rows, key=lambda x: x.date, reverse=True)
 
 
@@ -126,6 +146,13 @@ async def enriched_anomaly_log(
     """
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
+
+    # Try pre-computed cache first
+    cached = get_cached_enriched_anomalies(engine, current_user.id, start, end, limit=limit)
+    if cached:
+        return [EnrichedAnomalyResponse(**c) for c in cached]
+
+    # Fallback: compute live
     try:
         results = get_enriched_anomalies(engine, current_user.id, start, end, limit=limit)
         return [EnrichedAnomalyResponse(**vars(r)) for r in results]

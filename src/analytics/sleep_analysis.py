@@ -276,12 +276,17 @@ def _fetch_whoop_sleep_times(
     Filters by DATE(end_time) (wake-up date) within the given range.
     Returns rows sorted by end_time ascending.
     """
+    # Use range comparison on end_time instead of SUBSTR() to enable index usage.
+    # Append 'T00:00:00' / 'T23:59:59' to turn date strings into timestamp bounds
+    # that capture all ISO-formatted timestamps on the start and end dates.
+    start_ts = start + "T00:00:00"
+    end_ts = end + "T23:59:59"
     if user_id is not None:
         uid_clause = "AND user_id = :uid"
-        params: dict = {"start": start, "end": end, "uid": user_id}
+        params: dict = {"start_ts": start_ts, "end_ts": end_ts, "uid": user_id}
     else:
         uid_clause = "AND user_id IS NULL"
-        params = {"start": start, "end": end}
+        params = {"start_ts": start_ts, "end_ts": end_ts}
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -290,8 +295,8 @@ def _fetch_whoop_sleep_times(
                 SELECT start_time, end_time
                 FROM whoop_sleep
                 WHERE nap = false
-                  AND SUBSTR(end_time, 1, 10) >= :start
-                  AND SUBSTR(end_time, 1, 10) <= :end {uid_clause}
+                  AND end_time >= :start_ts
+                  AND end_time <= :end_ts {uid_clause}
                 ORDER BY end_time
                 """
                 ),
@@ -560,7 +565,8 @@ def get_sleep_consistency(
         trend = "improving"
 
     # Average sleep for the period: net (awake excluded) and time-in-bed (awake included)
-    sleep_range = _fetch_unified_sleep(engine, start_str, end_str, user_id)
+    # Reuse sleep_all (already fetched above with lookback) — filter to the display range
+    sleep_range = {d: v for d, v in sleep_all.items() if start_str <= d <= end_str}
     avg_total_sleep = _avg_nonull([_net_sleep(r) for r in sleep_range.values()])
     avg_time_in_bed = _avg_nonull([r.get("total_sleep_minutes") for r in sleep_range.values()])
 

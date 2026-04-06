@@ -8,7 +8,8 @@
  *   4. Activity Breakdown     — clickable table, type-specific metric column
  *   5. Workout Log            — WorkoutRow list with recovery-impact gutter indicator
  */
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
+import { Virtuoso } from 'react-virtuoso'
 import {
   Bar,
   BarChart,
@@ -43,7 +44,6 @@ import { colorForType } from '../utils/chartColors'
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 20
 const KG_TO_LB  = 2.20462
 
 const STRENGTH_TYPES = new Set([
@@ -68,6 +68,12 @@ const TRACKED_EXERCISES: Record<string, string> = {
 }
 
 const EXERCISE_ORDER = ['Back Squat', 'Front Squat', 'OHP', 'Bench Press', 'Incline Press', 'Deadlift', 'Romanian DL']
+
+const ADVANCED_METRICS = [
+  { field: 'avg_vertical_oscillation_cm' as keyof EnrichedWorkout, label: 'Vertical Oscillation (cm)', caption: 'Lower is better — less bounce means more forward propulsion.' },
+  { field: 'avg_vertical_ratio_pct'      as keyof EnrichedWorkout, label: 'Vertical Ratio (%)',        caption: 'Lower is better — less energy lost to vertical movement.' },
+  { field: 'avg_stride_length'           as keyof EnrichedWorkout, label: 'Stride Length (m)',         caption: null as string | null },
+]
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -124,7 +130,7 @@ function RecoveryIndicator({ impact }: { impact: number | null }) {
 
 // ── sub-components ────────────────────────────────────────────────────────────
 
-function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
+const DayButton = memo(function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -137,7 +143,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
       {n}d
     </button>
   )
-}
+})
 
 function SectionHeader({ title, size = 'sm' }: { title: string; size?: 'sm' | 'base' }) {
   if (size === 'base') {
@@ -165,7 +171,7 @@ function ChartCaption({ text }: { text: string }) {
   return <p className="text-2xs text-slate-500 mt-1">{text}</p>
 }
 
-function LineTooltip({
+const LineTooltip = memo(function LineTooltip({
   active, payload, label, yLabel, formatter,
 }: {
   active?: boolean
@@ -179,7 +185,7 @@ function LineTooltip({
     <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
       <p className="font-medium text-slate-500">{label ? fmtDate(label) : ''}</p>
       {payload.map((p, i) => (
-        <p key={i} className="text-slate-400" style={{ color: p.color }}>
+        <p key={i} className="text-slate-400" style={p.color ? { color: p.color } : undefined}>
           {p.name ?? yLabel}: <span className="font-mono font-semibold">
             {formatter ? formatter(p.value) : p.value.toFixed(1)}
           </span>
@@ -187,9 +193,9 @@ function LineTooltip({
       ))}
     </div>
   )
-}
+})
 
-function BarTooltip({
+const BarTooltip = memo(function BarTooltip({
   active, payload, label,
 }: {
   active?: boolean
@@ -202,19 +208,18 @@ function BarTooltip({
       <p className="font-medium text-slate-500">{label ? fmtDate(label) : ''}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-slate-400">
-          {p.name}: <span className="font-mono font-semibold" style={{ color: p.color }}>{p.value.toFixed(1)}</span>
+          {p.name}: <span className="font-mono font-semibold" style={p.color ? { color: p.color } : undefined}>{p.value.toFixed(1)}</span>
         </p>
       ))}
     </div>
   )
-}
+})
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export function Training() {
   const { days, setDays, start, end } = useDateRangeContext()
   const [filterType, setFilterType]       = useState<string | null>(null)
-  const [visibleCount, setVisibleCount]   = useState(PAGE_SIZE)
   const [advancedDyn, setAdvancedDyn]     = useState(false)
   const [dynMetricIdx, setDynMetricIdx]   = useState(0)
 
@@ -241,7 +246,6 @@ export function Training() {
     const list = filterType ? workouts.filter(w => w.activity_type === filterType) : workouts
     return [...list].sort((a, b) => (b.date > a.date ? 1 : -1))
   }, [workouts, filterType])
-  const visible = filtered.slice(0, visibleCount)
 
   // Activity summary
   const summary  = summaryQ.data ?? []
@@ -280,12 +284,6 @@ export function Training() {
     [runs],
   )
 
-  // Advanced dynamics metric options (vert osc / vert ratio / stride length)
-  const ADVANCED_METRICS = [
-    { field: 'avg_vertical_oscillation_cm' as keyof EnrichedWorkout, label: 'Vertical Oscillation (cm)', caption: 'Lower is better — less bounce means more forward propulsion.' },
-    { field: 'avg_vertical_ratio_pct'      as keyof EnrichedWorkout, label: 'Vertical Ratio (%)',        caption: 'Lower is better — less energy lost to vertical movement.' },
-    { field: 'avg_stride_length'           as keyof EnrichedWorkout, label: 'Stride Length (m)',         caption: null },
-  ]
   const selectedAdv = ADVANCED_METRICS[dynMetricIdx]
   const dynAdvData = useMemo(() =>
     runs
@@ -381,7 +379,7 @@ export function Training() {
               key={n}
               n={n}
               active={days === n}
-              onClick={() => { setDays(n); setVisibleCount(PAGE_SIZE) }}
+              onClick={() => setDays(n)}
             />
           ))}
         </div>
@@ -879,10 +877,9 @@ export function Training() {
                 return (
                   <button
                     key={row.activity_type}
-                    onClick={() => {
+                    onClick={() =>
                       setFilterType(prev => prev === row.activity_type ? null : row.activity_type)
-                      setVisibleCount(PAGE_SIZE)
-                    }}
+                    }
                     className={`w-full grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 items-center px-2 py-2.5 rounded-lg transition-colors text-right focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
                       isActive ? 'bg-brand/10' : 'hover:bg-surface-overlay'
                     }`}
@@ -935,10 +932,12 @@ export function Training() {
             No workouts in this period{filterType ? ` for ${activityLabel(filterType)}` : ''}.
           </div>
         ) : (
-          <div className="space-y-2">
-            {visible.map(w => (
-              /* Left-gutter recovery-impact indicator */
-              <div key={w.id} className="flex items-start gap-1.5">
+          <Virtuoso
+            data={filtered}
+            useWindowScroll
+            increaseViewportBy={400}
+            itemContent={(_, w) => (
+              <div className="flex items-start gap-1.5 pb-2">
                 <div
                   className="flex items-center justify-center flex-shrink-0 pt-3.5"
                   style={{ width: 16 }}
@@ -954,16 +953,8 @@ export function Training() {
                   <WorkoutRow workout={w} />
                 </div>
               </div>
-            ))}
-            {visibleCount < filtered.length && (
-              <button
-                onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
-                className="w-full py-3 rounded-xl border border-surface-border text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-surface-overlay transition-colors"
-              >
-                Load more ({filtered.length - visibleCount} remaining)
-              </button>
             )}
-          </div>
+          />
         )}
       </div>
 

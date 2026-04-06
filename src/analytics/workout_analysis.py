@@ -338,8 +338,10 @@ def get_enriched_workouts(
     start_date: date,
     end_date: date,
     user_id: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[EnrichedWorkout]:
-    """Fetch and enrich all workouts in a date range.
+    """Fetch and enrich workouts in a date range.
 
     Uses two batched queries (workouts + recovery) rather than N per-workout
     queries, so it's efficient for chart-sized date ranges.
@@ -349,6 +351,8 @@ def get_enriched_workouts(
         start_date: First date to include (inclusive).
         end_date: Last date to include (inclusive).
         user_id: App user UUID to scope results.
+        limit: Maximum number of workouts to return (None = all).
+        offset: Number of workouts to skip (for pagination).
 
     Returns:
         List of EnrichedWorkout sorted by start_time ascending.
@@ -363,6 +367,13 @@ def get_enriched_workouts(
     else:
         uid_clause = "AND uw.user_id IS NULL"
         params = {"start": start_date.isoformat(), "end": end_date.isoformat()}
+
+    pagination = ""
+    if limit is not None:
+        pagination = " LIMIT :lim OFFSET :off"
+        params["lim"] = limit
+        params["off"] = offset
+
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -372,6 +383,7 @@ def get_enriched_workouts(
                 {_WORKOUT_JOIN}
                 WHERE uw.date >= :start AND uw.date <= :end {uid_clause}
                 ORDER BY uw.start_time
+                {pagination}
                 """  # noqa: S608
                 ),
                 params,

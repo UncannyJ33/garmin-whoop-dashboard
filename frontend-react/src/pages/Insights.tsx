@@ -371,12 +371,14 @@ export function Insights() {
   const trendQ     = useMetricTrend(selectedMetric, exStart, exEnd)
   const anomaliesQ = useAnomalies(exStart, exEnd)
 
-  // Correlation source metrics
-  const hrvQ      = useMetricTrend('hrv',           exStart, exEnd)
-  const recoveryQ = useMetricTrend('recovery',       exStart, exEnd)
-  const strainQ   = useMetricTrend('strain',         exStart, exEnd)
-  const batteryQ  = useMetricTrend('body_battery',   exStart, exEnd)
-  const sleepQ    = useMetricTrend('sleep_duration', exStart, exEnd)
+  // Correlation source metrics — deferred until primary queries finish
+  // to avoid saturating the connection pool on initial page load
+  const primaryReady = !trendQ.isLoading && !anomaliesQ.isLoading
+  const hrvQ      = useMetricTrend('hrv',           exStart, exEnd, primaryReady)
+  const recoveryQ = useMetricTrend('recovery',       exStart, exEnd, primaryReady)
+  const strainQ   = useMetricTrend('strain',         exStart, exEnd, primaryReady)
+  const batteryQ  = useMetricTrend('body_battery',   exStart, exEnd, primaryReady)
+  const sleepQ    = useMetricTrend('sleep_duration', exStart, exEnd, primaryReady)
 
   // Scatter data: workouts for strain ↔ next-day recovery
   const workoutsQ = useWorkouts(exStart, exEnd)

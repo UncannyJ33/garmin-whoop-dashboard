@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import Engine
 
+from src.analytics.cache import analytics_cache
 from src.analytics.limiting_factors import get_limiting_factors
 from src.analytics.readiness_score import (
     ReadinessResult,
@@ -57,10 +58,16 @@ async def readiness_today(
     """
     try:
         target = local_date or date.today()
+        cache_key_date = target.isoformat()
+        cached = analytics_cache.get(current_user.id, "readiness", cache_key_date)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
         result = compute_readiness(target, engine, user_id=current_user.id)
         if result.confidence == 0.0:
             return Response(status_code=204)
-        return _to_response(result)
+        resp = _to_response(result)
+        analytics_cache.set(current_user.id, "readiness", cache_key_date, value=resp)
+        return resp
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

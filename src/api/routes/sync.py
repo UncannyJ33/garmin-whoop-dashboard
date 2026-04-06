@@ -156,7 +156,7 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
     """Background coroutine: run a full 30-day incremental sync and clear the running flag.
 
     For Garmin, if the user has stored credentials the session is refreshed
-    before the pipeline runs so stale garth tokens don't cause spurious failures.
+    before the pipeline runs so stale tokens don't cause spurious failures.
     Errors are logged and suppressed so the caller is never blocked.
     """
     key = _sync_key(source, user_id)
@@ -196,7 +196,7 @@ def _try_garmin_reauth(user_id: str, engine: Engine, db: Session) -> None:
 
     This is a best-effort operation: if credentials don't exist or decryption
     fails the function returns silently and the pipeline uses the existing
-    garth session (which may still be valid).
+    session (which may still be valid).
 
     Args:
         user_id: App user UUID.
@@ -257,7 +257,7 @@ async def trigger_sync(
     ``false`` when the job finishes.
 
     Authorization:
-    - Garmin: the calling user must have either a garth session token or stored
+    - Garmin: the calling user must have either a session token or stored
       credentials.
     - Whoop: the calling user must have connected their Whoop account first.
     """

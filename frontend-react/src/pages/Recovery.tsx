@@ -10,7 +10,7 @@
  *   6. Recovery Activities — with/without comparison, per-type bars, condensed log
  */
 import type { ReactNode } from 'react'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -107,7 +107,7 @@ function colorForActivity(name: string): string {
 
 // ── sub-components ─────────────────────────────────────────────────────────────
 
-function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
+const DayButton = memo(function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -120,7 +120,7 @@ function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick
       {n}d
     </button>
   )
-}
+})
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -133,23 +133,23 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
 
 interface TooltipEntry { name: string; value: number | null; color: string }
 
-function TrendsTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string }) {
+const TrendsTooltip = memo(function TrendsTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
       <p className="text-slate-400 font-medium">{label ? fmtDate(label) : ''}</p>
       {payload.map(e =>
         e.value !== null && e.value !== undefined ? (
-          <p key={e.name} style={{ color: e.color }} className="font-mono">
+          <p key={e.name} style={e.color ? { color: e.color } : undefined} className="font-mono">
             {e.name}: {e.value.toFixed(1)}h
           </p>
         ) : null,
       )}
     </div>
   )
-}
+})
 
-function StageTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string }) {
+const StageTooltip = memo(function StageTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string }) {
   if (!active || !payload?.length) return null
   const total = payload.reduce((s, e) => s + (e.value ?? 0), 0)
   return (
@@ -157,7 +157,7 @@ function StageTooltip({ active, payload, label }: { active?: boolean; payload?: 
       <p className="text-slate-400 font-medium">{label ? fmtDate(label) : ''}</p>
       {[...payload].reverse().map(e =>
         (e.value ?? 0) > 0 ? (
-          <p key={e.name} style={{ color: e.color }} className="font-mono">
+          <p key={e.name} style={e.color ? { color: e.color } : undefined} className="font-mono">
             {e.name}: {(e.value ?? 0).toFixed(1)}h
             {total > 0 ? ` (${(((e.value ?? 0) / total) * 100).toFixed(0)}%)` : ''}
           </p>
@@ -168,7 +168,7 @@ function StageTooltip({ active, payload, label }: { active?: boolean; payload?: 
       </p>
     </div>
   )
-}
+})
 
 function CorrelationCard({
   title, children, nSamples, minSamples = 7,

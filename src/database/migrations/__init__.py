@@ -45,3 +45,5 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
     _load("009_enable_rls.py").run(**kwargs)
     _load("010_garmin_credentials.py").run(**kwargs)
     _load("011_waitlist.py").run(**kwargs)
+    _load("012_composite_indexes.py").run(**kwargs)
+    _load("013_anomaly_cache.py").run(**kwargs)

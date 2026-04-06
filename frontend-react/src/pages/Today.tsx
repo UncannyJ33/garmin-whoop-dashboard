@@ -10,7 +10,7 @@
  *   5. 30-Day Readiness Trend — collapsed by default
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import { ACWRGauge } from '../components/ACWRGauge'
 import { LimitingFactorCard } from '../components/LimitingFactorCard'
@@ -29,6 +29,7 @@ import {
   useTrainingLoadRatio,
   useWorkouts,
 } from '../hooks/useApi'
+import { fmtDuration } from '../utils/formatters'
 import { todayISO, useDateRange } from '../hooks/useDateRange'
 
 // ---------------------------------------------------------------------------
@@ -48,12 +49,8 @@ function stripFactorPrefix(explanation: string, factorName: string): string {
   return explanation
 }
 
-function fmtDuration(minutes: number | null): string {
-  if (minutes == null) return '—'
-  const h = Math.floor(minutes / 60)
-  const m = Math.round(minutes % 60)
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
-}
+// Use shared formatter — import at top of file
+// (local fmtDuration removed; using fmtDuration from utils/formatters)
 
 function yesterdayISO(): string {
   const d = new Date()
@@ -132,13 +129,16 @@ export function Today() {
     .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
   const recommendation = extractLevel(readinessData?.recommendation)
 
-  const trendChartData = (readinessHist.data ?? []).map(p => ({
-    date:      p.date,
-    value:     p.score,
-    avg7d:     null as number | null,
-    avg30d:    null as number | null,
-    isAnomaly: false,
-  }))
+  const trendChartData = useMemo(() =>
+    (readinessHist.data ?? []).map(p => ({
+      date:      p.date,
+      value:     p.score,
+      avg7d:     null as number | null,
+      avg30d:    null as number | null,
+      isAnomaly: false,
+    })),
+    [readinessHist.data],
+  )
 
   const SPARKLINES: Array<{
     key:       SparklineKey
@@ -264,7 +264,7 @@ export function Today() {
         }}
         className="focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
       >
-        <p style={{ fontSize: 10, letterSpacing: '0.03em', color: 'var(--text-tertiary)', marginBottom: 4 }}>
+        <p style={{ fontSize: 10, letterSpacing: '0.03em', color: 'var(--text-secondary)', marginBottom: 4 }}>
           {label}
         </p>
 
@@ -367,7 +367,13 @@ export function Today() {
       ].map(({ label, value }) => (
         <div key={label}>
           <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>{label}</p>
-          <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{value}</p>
+          <p style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+            fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+            fontVariantNumeric: 'tabular-nums',
+          }}>{value}</p>
         </div>
       ))}
     </div>

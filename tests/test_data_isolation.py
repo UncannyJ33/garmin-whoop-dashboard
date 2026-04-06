@@ -464,7 +464,7 @@ def test_negative__missing_user_id_filter_leaks_data(isolation_client):
     """
     from src.analytics.workout_analysis import get_enriched_workouts as _real  # noqa: PLC0415
 
-    def _unscoped(engine, start_date, end_date, user_id=None):
+    def _unscoped(engine, start_date, end_date, user_id=None, **kwargs):
         """Simulates a broken WHERE clause — returns every user's workouts."""
         return _real(engine, start_date, end_date, user_id=USER_A_ID) + _real(
             engine, start_date, end_date, user_id=USER_B_ID

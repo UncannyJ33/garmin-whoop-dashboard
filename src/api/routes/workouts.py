@@ -145,14 +145,23 @@ async def strength_max_weight(
 async def list_workouts(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    limit: int | None = Query(None, ge=1, le=500, description="Max workouts to return (omit for all)"),
+    offset: int = Query(0, ge=0, description="Number of workouts to skip"),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[EnrichedWorkoutResponse]:
-    """Return all enriched workouts in the date range, sorted by date ascending."""
+    """Return enriched workouts in the date range, sorted by date ascending.
+
+    Supports optional server-side pagination via limit/offset. When limit is
+    omitted, all workouts in the range are returned (backward compatible).
+    The total count is always returned in the X-Total-Count response header.
+    """
     if start > end:
         raise HTTPException(status_code=400, detail="start must be ≤ end")
     try:
-        workouts = get_enriched_workouts(engine, start, end, user_id=current_user.id)
+        workouts = get_enriched_workouts(
+            engine, start, end, user_id=current_user.id, limit=limit, offset=offset,
+        )
         return [EnrichedWorkoutResponse(**dataclasses.asdict(w)) for w in workouts]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

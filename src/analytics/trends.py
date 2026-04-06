@@ -728,6 +728,136 @@ def get_metric_trend(
     )
 
 
+def get_batch_metric_trends(
+    engine: Engine,
+    metrics: list[str],
+    start_date: date,
+    end_date: date,
+    user_id: str | None = None,
+) -> dict[str, MetricTrend]:
+    """Compute MetricTrend for multiple metrics, batching standard DB queries.
+
+    Standard metrics that share the same source table are fetched together in a
+    single UNION ALL query, avoiding N separate round-trips.  Special metrics
+    (readiness, training_load) still require individual fetch calls.
+
+    Args:
+        engine: SQLAlchemy engine.
+        metrics: List of metric names.
+        start_date: First date in the output (inclusive).
+        end_date: Last date in the output (inclusive).
+        user_id: Filter by user.
+
+    Returns:
+        Dict mapping metric name → MetricTrend.
+    """
+    lookback_start = start_date - timedelta(days=29)
+
+    # Separate standard (table.column) from special (computed) metrics
+    standard: list[tuple[str, str, str]] = []  # (metric, table, column)
+    special: list[str] = []
+    for m in metrics:
+        if m in _SPECIAL_METRICS:
+            special.append(m)
+        elif m in _METRIC_SOURCE:
+            table, col = _METRIC_SOURCE[m]
+            standard.append((m, table, col))
+        else:
+            logger.warning("get_batch_metric_trends: unknown metric %r, skipping", m)
+
+    # Batch-fetch standard metrics via UNION ALL
+    raw_by_metric: dict[str, list[tuple[str, float | None]]] = {}
+
+    if standard:
+        if user_id is not None:
+            uid_clause = "AND user_id = :uid"
+            base_params: dict = {
+                "s": lookback_start.isoformat(),
+                "e": end_date.isoformat(),
+                "uid": user_id,
+            }
+        else:
+            uid_clause = "AND user_id IS NULL"
+            base_params = {"s": lookback_start.isoformat(), "e": end_date.isoformat()}
+
+        parts = []
+        for i, (metric_name, table, column) in enumerate(standard):
+            # Use parameterized metric label (:m0, :m1, ...) instead of
+            # string literal to avoid any risk if _METRIC_SOURCE is extended.
+            param_key = f"m{i}"
+            base_params[param_key] = metric_name
+            parts.append(
+                f"SELECT date, {column} AS value, :{param_key} AS metric "  # noqa: S608
+                f"FROM {table} WHERE date >= :s AND date <= :e {uid_clause}"
+            )
+        sql = " UNION ALL ".join(parts) + " ORDER BY metric, date"
+
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), base_params).fetchall()
+
+        # Group by metric
+        for r in rows:
+            d, val, m = r[0], r[1], r[2]
+            raw_by_metric.setdefault(m, []).append((d, val))
+
+    results: dict[str, MetricTrend] = {}
+
+    # Process standard metrics
+    for metric_name, _, _ in standard:
+        raw = raw_by_metric.get(metric_name, [])
+        calendar = _calendar_fill(raw, lookback_start, end_date)
+        results[metric_name] = _build_trend_from_calendar(
+            metric_name, calendar, start_date
+        )
+
+    # Process special metrics (each needs its own fetch)
+    for metric_name in special:
+        full_calendar = _fetch_metric_calendar(
+            engine, metric_name, lookback_start, end_date, user_id
+        )
+        results[metric_name] = _build_trend_from_calendar(
+            metric_name, full_calendar, start_date
+        )
+
+    return results
+
+
+def _build_trend_from_calendar(
+    metric_name: str,
+    full_calendar: list[tuple[str, float | None]],
+    start_date: date,
+) -> MetricTrend:
+    """Build a MetricTrend from a pre-fetched calendar of (date, value) pairs."""
+    all_dates = [d for d, _ in full_calendar]
+    all_values = [v for _, v in full_calendar]
+    start_iso = start_date.isoformat()
+    start_idx = next((i for i, d in enumerate(all_dates) if d >= start_iso), len(all_dates))
+
+    rolling_7d_full = _rolling_avg(all_values, _ROLLING_SHORT)
+    rolling_30d_full = _rolling_avg(all_values, 30)
+    rolling_std_7d_full = _rolling_std(all_values, _ROLLING_SHORT)
+
+    dates = all_dates[start_idx:]
+    values = all_values[start_idx:]
+    rolling_7d = rolling_7d_full[start_idx:]
+    rolling_30d = rolling_30d_full[start_idx:]
+    rolling_std_7d = rolling_std_7d_full[start_idx:]
+
+    anomalies = detect_anomalies(values, dates)
+    trend_direction = calculate_trend_direction(rolling_7d)
+
+    return MetricTrend(
+        metric_name=metric_name,
+        dates=dates,
+        values=values,
+        rolling_avg_7d=rolling_7d,
+        rolling_avg_30d=rolling_30d,
+        rolling_std_7d=rolling_std_7d,
+        anomalies=anomalies,
+        trend_direction=trend_direction,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Enriched anomaly constants and dataclass
 # ---------------------------------------------------------------------------
@@ -944,6 +1074,172 @@ def _build_enriched_explanation(
 
 
 # ---------------------------------------------------------------------------
+# Batch context fetchers (reduce per-anomaly queries → single batch queries)
+# ---------------------------------------------------------------------------
+
+
+def _batch_fetch_training_ctx(
+    engine: Engine, user_id: str | None, anomaly_dates: list[date],
+) -> dict[str, dict]:
+    """Batch-fetch training context for all anomaly dates in a single query.
+
+    Returns dict keyed by ISO date string → {total_strain, workout_count}.
+    """
+    if not anomaly_dates:
+        return {}
+    # We need workouts from 2 days before each anomaly up to 1 day before
+    min_date = (min(anomaly_dates) - timedelta(days=2)).isoformat()
+    max_date = (max(anomaly_dates) - timedelta(days=1)).isoformat()
+    if user_id is not None:
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"s": min_date, "e": max_date, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"s": min_date, "e": max_date}
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(  # noqa: S608
+                "SELECT date, COALESCE(SUM(whoop_strain), 0), COUNT(*)"
+                " FROM unified_workouts"
+                f" WHERE date >= :s AND date <= :e AND whoop_strain IS NOT NULL {uid_clause}"
+                " GROUP BY date"
+            ),
+            params,
+        ).fetchall()
+    daily = {r[0]: (float(r[1]), int(r[2])) for r in rows}
+
+    result: dict[str, dict] = {}
+    for ad in anomaly_dates:
+        d_iso = ad.isoformat()
+        total_strain = 0.0
+        workout_count = 0
+        for offset in (1, 2):
+            key = (ad - timedelta(days=offset)).isoformat()
+            if key in daily:
+                total_strain += daily[key][0]
+                workout_count += daily[key][1]
+        result[d_iso] = {
+            "total_strain": total_strain if workout_count > 0 else None,
+            "workout_count": workout_count,
+        }
+    return result
+
+
+def _batch_fetch_sleep_ctx(
+    engine: Engine, user_id: str | None, anomaly_dates: list[date],
+) -> dict[str, dict]:
+    """Batch-fetch sleep context for all anomaly dates in a single query."""
+    if not anomaly_dates:
+        return {}
+    # Need sleep for the night before each anomaly
+    prev_dates = sorted({(ad - timedelta(days=1)).isoformat() for ad in anomaly_dates})
+    min_d = prev_dates[0]
+    max_d = prev_dates[-1]
+    if user_id is not None:
+        uid_clause = "AND user_id = :uid"
+        params: dict = {"s": min_d, "e": max_d, "uid": user_id}
+    else:
+        uid_clause = "AND user_id IS NULL"
+        params = {"s": min_d, "e": max_d}
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(  # noqa: S608
+                "SELECT date, total_sleep_minutes, whoop_performance, deep_sleep_minutes"
+                f" FROM unified_sleep WHERE date >= :s AND date <= :e {uid_clause}"
+            ),
+            params,
+        ).fetchall()
+    sleep_by_date: dict[str, tuple] = {r[0]: (r[1], r[2], r[3]) for r in rows}
+
+    empty = {"duration_hours": None, "quality_pct": None, "deep_pct": None}
+    result: dict[str, dict] = {}
+    for ad in anomaly_dates:
+        d_iso = ad.isoformat()
+        prev = (ad - timedelta(days=1)).isoformat()
+        row = sleep_by_date.get(prev)
+        if row is None:
+            result[d_iso] = empty
+        else:
+            total_min, quality, deep_min = row
+            duration_hours = round(total_min / 60.0, 1) if total_min else None
+            deep_pct = (
+                round(deep_min / total_min * 100.0, 1)
+                if (deep_min and total_min and total_min > 0)
+                else None
+            )
+            result[d_iso] = {
+                "duration_hours": duration_hours,
+                "quality_pct": float(quality) if quality is not None else None,
+                "deep_pct": deep_pct,
+            }
+    return result
+
+
+def _batch_fetch_recovery_ctx(
+    engine: Engine, user_id: str | None, anomaly_dates: list[date],
+) -> dict[str, str]:
+    """Batch-fetch recovery trend for all anomaly dates in a single query."""
+    if not anomaly_dates:
+        return {}
+    # Need 7 days of recovery for each anomaly date
+    min_date = (min(anomaly_dates) - timedelta(days=6)).isoformat()
+    max_date = max(anomaly_dates).isoformat()
+    raw = _fetch_raw(engine, "unified_daily", "whoop_recovery_score", min_date, max_date, user_id)
+    by_date = {d: v for d, v in raw if v is not None}
+
+    result: dict[str, str] = {}
+    for ad in anomaly_dates:
+        d_iso = ad.isoformat()
+        values = [
+            by_date.get((ad - timedelta(days=i)).isoformat())
+            for i in range(6, -1, -1)
+        ]
+        valid = [float(v) for v in values if v is not None]
+        rolling = _rolling_avg(valid, len(valid))
+        result[d_iso] = calculate_trend_direction(rolling)
+    return result
+
+
+def _enrich_from_cache(
+    metric: str,
+    anomaly: dict,
+    co_anomalies_by_date: dict[str, list[str]],
+    training_cache: dict[str, dict],
+    sleep_cache: dict[str, dict],
+    recovery_cache: dict[str, str],
+) -> EnrichedAnomaly:
+    """Build an EnrichedAnomaly from pre-fetched caches (no DB calls)."""
+    d_iso = anomaly["date"]
+    metric_label = _ENRICHED_METRIC_LABELS.get(metric, metric)
+    severity = abs(anomaly["severity"])
+
+    same_day = co_anomalies_by_date.get(d_iso, [])
+    co_anomalies = [lbl for lbl in same_day if lbl != metric_label]
+
+    context = {
+        "training_48h": training_cache.get(d_iso, {"total_strain": None, "workout_count": 0}),
+        "sleep_prior_night": sleep_cache.get(
+            d_iso, {"duration_hours": None, "quality_pct": None, "deep_pct": None}
+        ),
+        "recovery_trend": recovery_cache.get(d_iso, "stable"),
+        "co_anomalies": co_anomalies,
+    }
+    explanation = _build_enriched_explanation(
+        metric, metric_label, anomaly["value"], anomaly["direction"], severity, context
+    )
+    return EnrichedAnomaly(
+        date=d_iso,
+        metric=metric,
+        metric_label=metric_label,
+        value=anomaly["value"],
+        direction=anomaly["direction"],
+        severity=round(severity, 2),
+        context=context,
+        explanation=explanation,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Enriched anomaly public API
 # ---------------------------------------------------------------------------
 
@@ -1032,16 +1328,21 @@ def get_enriched_anomalies(
         List of EnrichedAnomaly sorted most-recent-first.  Empty when there
         is no data or no anomalies in the date range.
     """
-    # 1. Collect raw anomalies per metric
+    # 1. Collect raw anomalies — batch fetch all metrics in one call
     raw_pairs: list[tuple[str, dict]] = []
+    try:
+        trends = get_batch_metric_trends(
+            engine, list(_ENRICHED_ANOMALY_METRICS), start_date, end_date, user_id
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("get_enriched_anomalies: batch fetch failed")
+        trends = {}
     for metric in _ENRICHED_ANOMALY_METRICS:
-        try:
-            trend = get_metric_trend(engine, metric, start_date, end_date, user_id)
-            for a in trend.anomalies:
-                raw_pairs.append((metric, a))
-        except Exception:  # noqa: BLE001
-            logger.debug("get_enriched_anomalies: skipping metric %r", metric)
+        trend = trends.get(metric)
+        if trend is None:
             continue
+        for a in trend.anomalies:
+            raw_pairs.append((metric, a))
 
     if not raw_pairs:
         return []
@@ -1052,9 +1353,17 @@ def get_enriched_anomalies(
         lbl = _ENRICHED_METRIC_LABELS.get(metric, metric)
         co_map.setdefault(a["date"], []).append(lbl)
 
-    # 3. Enrich each anomaly
+    # 3. Batch-fetch context for all anomaly dates, then enrich in-memory
+    anomaly_dates = sorted({date.fromisoformat(a["date"]) for _, a in raw_pairs})
+    training_cache = _batch_fetch_training_ctx(engine, user_id, anomaly_dates)
+    sleep_cache = _batch_fetch_sleep_ctx(engine, user_id, anomaly_dates)
+    recovery_cache = _batch_fetch_recovery_ctx(engine, user_id, anomaly_dates)
+
     enriched: list[EnrichedAnomaly] = [
-        enrich_anomaly(engine, user_id, metric, a, co_map) for metric, a in raw_pairs
+        _enrich_from_cache(
+            metric, a, co_map, training_cache, sleep_cache, recovery_cache
+        )
+        for metric, a in raw_pairs
     ]
 
     # 4. Sort: date descending, severity descending within same date

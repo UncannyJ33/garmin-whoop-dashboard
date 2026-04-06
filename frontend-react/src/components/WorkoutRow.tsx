@@ -8,7 +8,7 @@
  * HR zone bar: blue→teal→green→amber→coral gradient, 8px height, rounded.
  */
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { EnrichedWorkout } from '../types/api'
 import { DataSourceBadge } from './DataSourceBadge'
 import { useExerciseSets } from '../hooks/useApi'
@@ -236,7 +236,7 @@ interface WorkoutRowProps {
   workout: EnrichedWorkout
 }
 
-export function WorkoutRow({ workout: w }: WorkoutRowProps) {
+export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowProps) {
   const [expanded, setExpanded] = useState(false)
 
   const source = w.matched ? 'both' : w.primary_source as 'whoop' | 'garmin' | 'both'
@@ -476,4 +476,4 @@ export function WorkoutRow({ workout: w }: WorkoutRowProps) {
       )}
     </div>
   )
-}
+})

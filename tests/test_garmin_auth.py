@@ -3,45 +3,56 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from garth.exc import GarthHTTPError
-from requests.exceptions import HTTPError as RequestsHTTPError
+from garminconnect import (
+    GarminConnectAuthenticationError,
+    GarminConnectConnectionError,
+    GarminConnectTooManyRequestsError,
+)
 
-from src.clients.garmin_auth import GarminAuth, GarminAuthError, _status_code
+from src.clients.garmin_auth import GarminAuth, GarminAuthError, _extract_status_code
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_garth_error(status_code: int) -> GarthHTTPError:
-    """Build a GarthHTTPError with the given HTTP status code."""
-    response = MagicMock()
-    response.status_code = status_code
-    http_err = RequestsHTTPError(response=response)
-    return GarthHTTPError(msg="Error in request", error=http_err)
-
-
 def _make_garmin_client() -> MagicMock:
     """Return a mock Garmin client that reports a valid session."""
     client = MagicMock()
     client.get_full_name.return_value = "Test User"
-    client.garth = MagicMock()
+    client.client = MagicMock()
     return client
 
 
 # ---------------------------------------------------------------------------
-# _status_code helper
+# _extract_status_code helper
 # ---------------------------------------------------------------------------
 
 
-def test_status_code_extracts_correctly():
-    exc = _make_garth_error(429)
-    assert _status_code(exc) == 429
+def test_extract_status_code_auth_error():
+    exc = GarminConnectAuthenticationError("auth failed")
+    assert _extract_status_code(exc) == 401
 
 
-def test_status_code_returns_none_on_missing_response():
-    exc = GarthHTTPError(msg="oops", error=RequestsHTTPError())
-    assert _status_code(exc) is None
+def test_extract_status_code_rate_limit():
+    exc = GarminConnectTooManyRequestsError("too many requests")
+    assert _extract_status_code(exc) == 429
+
+
+def test_extract_status_code_connection_error_with_code():
+    exc = GarminConnectConnectionError("server error 403")
+    assert _extract_status_code(exc) == 403
+
+
+def test_extract_status_code_connection_error_no_code():
+    exc = GarminConnectConnectionError("network timeout")
+    assert _extract_status_code(exc) is None
+
+
+def test_extract_status_code_generic_exception():
+    exc = RuntimeError("something broke")
+    assert _extract_status_code(exc) is None
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +139,7 @@ def test_get_client_falls_back_to_password_when_token_load_fails(tmp_path):
         if call_count == 1:
             # First call: tokenstore load attempt (no kwargs)
             c = MagicMock()
-            c.login.side_effect = GarthHTTPError(msg="Error in request", error=RequestsHTTPError())
+            c.login.side_effect = GarminConnectAuthenticationError("tokens expired")
             return c
         # Second call: password login
         return mock_client
@@ -184,7 +195,7 @@ def test_tokens_saved_after_password_login(tmp_path):
         auth = GarminAuth()
         auth.get_client()
 
-    mock_client.garth.dump.assert_called_once_with(str(nonexistent))
+    mock_client.client.dump.assert_called_once_with(str(nonexistent))
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +209,7 @@ def test_get_client_reauthenticates_on_401(tmp_path):
 
     # Stale client: session probe raises 401, but is injected directly (not via factory)
     mock_stale_client = MagicMock()
-    mock_stale_client.get_full_name.side_effect = _make_garth_error(401)
+    mock_stale_client.get_full_name.side_effect = GarminConnectAuthenticationError("session expired")
 
     nonexistent = tmp_path / "no_tokens"
 
@@ -226,19 +237,17 @@ def test_get_client_reauthenticates_on_401(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("status_code", "expected_fragment"),
+    ("exc_class", "expected_fragment"),
     [
-        (401, "invalid or the session expired"),
-        (429, "rate limit"),
-        (403, "locked or access is forbidden"),
-        (500, "HTTP 500"),
+        (GarminConnectAuthenticationError, "invalid or the session expired"),
+        (GarminConnectTooManyRequestsError, "rate limit"),
     ],
 )
-def test_raises_descriptive_error_for_known_status_codes(tmp_path, status_code, expected_fragment):
+def test_raises_descriptive_error_for_specific_exception_types(tmp_path, exc_class, expected_fragment):
     """Password login failures should raise GarminAuthError with a helpful message."""
     nonexistent = tmp_path / "no_tokens"
     mock_client = MagicMock()
-    mock_client.login.side_effect = _make_garth_error(status_code)
+    mock_client.login.side_effect = exc_class("error")
 
     with (
         patch("src.clients.garmin_auth.settings") as mock_settings,
@@ -250,4 +259,92 @@ def test_raises_descriptive_error_for_known_status_codes(tmp_path, status_code, 
 
         auth = GarminAuth()
         with pytest.raises(GarminAuthError, match=expected_fragment):
+            auth.get_client()
+
+
+def test_raises_descriptive_error_for_403(tmp_path):
+    """A 403 connection error should mention account lock."""
+    nonexistent = tmp_path / "no_tokens"
+    mock_client = MagicMock()
+    mock_client.login.side_effect = GarminConnectConnectionError("HTTP 403 forbidden")
+
+    with (
+        patch("src.clients.garmin_auth.settings") as mock_settings,
+        patch("src.clients.garmin_auth.Garmin", return_value=mock_client),
+    ):
+        mock_settings.garmin_token_dir = str(nonexistent)
+        mock_settings.garmin_email = "u@example.com"
+        mock_settings.garmin_password = "p"
+
+        auth = GarminAuth()
+        with pytest.raises(GarminAuthError, match="locked or access is forbidden"):
+            auth.get_client()
+
+
+def test_raises_generic_error_for_connection_failure(tmp_path):
+    """A generic connection error should wrap in GarminAuthError."""
+    nonexistent = tmp_path / "no_tokens"
+    mock_client = MagicMock()
+    mock_client.login.side_effect = GarminConnectConnectionError("network timeout")
+
+    with (
+        patch("src.clients.garmin_auth.settings") as mock_settings,
+        patch("src.clients.garmin_auth.Garmin", return_value=mock_client),
+    ):
+        mock_settings.garmin_token_dir = str(nonexistent)
+        mock_settings.garmin_email = "u@example.com"
+        mock_settings.garmin_password = "p"
+
+        auth = GarminAuth()
+        with pytest.raises(GarminAuthError, match="connection error"):
+            auth.get_client()
+
+
+# ---------------------------------------------------------------------------
+# Old garth-format token detection
+# ---------------------------------------------------------------------------
+
+
+def test_old_garth_tokens_are_deleted_on_filesystem(tmp_path):
+    """When old garth-format token files exist, they should be deleted and re-auth triggered."""
+    # Create old-format garth files
+    (tmp_path / "oauth1_token.json").write_text('{"token": "old"}')
+    (tmp_path / "oauth2_token.json").write_text('{"token": "old"}')
+
+    mock_client = _make_garmin_client()
+
+    with (
+        patch("src.clients.garmin_auth.settings") as mock_settings,
+        patch("src.clients.garmin_auth.Garmin", return_value=mock_client) as MockGarmin,
+    ):
+        mock_settings.garmin_token_dir = str(tmp_path)
+        mock_settings.garmin_email = "user@example.com"
+        mock_settings.garmin_password = "pass"
+
+        auth = GarminAuth()
+        client = auth.get_client()
+
+    # Should have fallen through to password login
+    MockGarmin.assert_called_once_with(email="user@example.com", password="pass")
+    assert client is mock_client
+    # Old files should be deleted
+    assert not (tmp_path / "oauth1_token.json").exists()
+    assert not (tmp_path / "oauth2_token.json").exists()
+
+
+def test_rate_limit_on_token_load_raises_immediately(tmp_path):
+    """A 429 during token load should NOT fall back to password — raise immediately."""
+    mock_client = MagicMock()
+    mock_client.login.side_effect = GarminConnectTooManyRequestsError("429 rate limit")
+
+    with (
+        patch("src.clients.garmin_auth.settings") as mock_settings,
+        patch("src.clients.garmin_auth.Garmin", return_value=mock_client),
+    ):
+        mock_settings.garmin_token_dir = str(tmp_path)
+        mock_settings.garmin_email = "user@example.com"
+        mock_settings.garmin_password = "pass"
+
+        auth = GarminAuth()
+        with pytest.raises(GarminAuthError, match="rate limit"):
             auth.get_client()

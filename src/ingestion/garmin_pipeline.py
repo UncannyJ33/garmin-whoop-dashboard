@@ -396,7 +396,7 @@ class GarminPipeline:
             norm_counts = normalizer.normalize_all(sync_start, sync_end)
             logger.info("Normalization complete: %s", norm_counts)
 
-            # Persist any refreshed garth session tokens back to DB
+            # Persist any refreshed session tokens back to DB
             if self._user_auth is not None and self.user_id is not None:
                 try:
                     self._user_auth.save_for_user(self.user_id, self._db)

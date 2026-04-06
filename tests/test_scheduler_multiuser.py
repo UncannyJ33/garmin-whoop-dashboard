@@ -712,7 +712,7 @@ class TestSyncStatusPerUser:
             sync_mod._running_syncs.pop(sync_mod._sync_key("whoop", USER_A), None)
 
     def test_garmin_trigger_works_with_credentials_no_token(self, sync_client, monkeypatch):
-        """User with only credentials (no garth token) can trigger Garmin sync."""
+        """User with only credentials (no session token) can trigger Garmin sync."""
         monkeypatch.setenv("GARMIN_ENCRYPTION_KEY", TEST_ENC_KEY)
         client, engine = sync_client
         _seed_garmin_credentials(engine, USER_B, TEST_ENC_KEY)
