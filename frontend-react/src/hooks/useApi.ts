@@ -12,12 +12,10 @@ const STALE = {
 
 import type {
   Anomaly,
-  CSVImportResult,
   DataStats,
   EnrichedAnomaly,
   EnrichedWorkout,
   ExerciseSet,
-  FeatureFlags,
   GarminStatus,
   LimitingFactor,
   MetricTrend,
@@ -325,20 +323,6 @@ export function useRecoveryWithWithout(start: string, end: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Feature flags
-// ---------------------------------------------------------------------------
-
-export function useFeatureFlags() {
-  const { userId } = useAuth()
-  return useQuery({
-    queryKey: ['feature-flags', userId ?? 'anon'],
-    queryFn: ({ signal }) => api.get<FeatureFlags>('/api/auth/feature-flags', signal),
-    staleTime: STALE.STATIC,
-    retry: 1,
-  })
-}
-
-// ---------------------------------------------------------------------------
 // Whoop connection status
 // ---------------------------------------------------------------------------
 
@@ -350,20 +334,6 @@ export function useWhoopStatus() {
     staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
-  })
-}
-
-export function useGarminCSVImport() {
-  const queryClient = useQueryClient()
-  const { userId } = useAuth()
-  return useMutation({
-    mutationFn: ({ file, units }: { file: File; units: 'miles' | 'km' }) => {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('units', units)
-      return api.postForm<CSVImportResult>('/api/garmin/csv-import', form)
-    },
-    onSuccess: () => invalidateWorkoutQueries(queryClient, userId),
   })
 }
 
@@ -442,12 +412,6 @@ export function useChangePassword() {
   return useMutation({
     mutationFn: (body: { current_password: string; new_password: string }) =>
       api.post<null>('/api/auth/change-password', body),
-  })
-}
-
-export function useDeleteAccount() {
-  return useMutation({
-    mutationFn: () => api.delete('/api/account'),
   })
 }
 

@@ -362,16 +362,6 @@ export interface WithWithoutResponse {
 // Garmin import / upload
 // ---------------------------------------------------------------------------
 
-// Backend: CSVImportResponse (POST /api/garmin/csv-import)
-export interface CSVImportResult {
-  imported: number
-  skipped_duplicates: number
-  skipped_errors: number
-  date_range: string | null
-  training_load_note: string
-  row_errors: string[]
-}
-
 // Backend: UploadResponse (POST /api/garmin/upload)
 export interface UploadResult {
   imported: number
@@ -386,10 +376,6 @@ export interface UploadResult {
 // ---------------------------------------------------------------------------
 // Raw JSONResponse endpoints (/api/auth/*)
 // ---------------------------------------------------------------------------
-
-export interface FeatureFlags {
-  whoop_oauth_enabled: boolean
-}
 
 export interface WhoopStatus {
   connected: boolean
