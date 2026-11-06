@@ -1,7 +1,7 @@
 /**
  * /help/garmin-export — public help page with Garmin Connect export instructions.
  *
- * Accessible without authentication so users can refer to it during onboarding.
+ * Accessible without authentication so it can be opened before signing in.
  * Two export paths:
  *   1. Activities CSV (quick, just the workout list)
  *   2. Full account ZIP (comprehensive — includes all data types)
@@ -115,8 +115,7 @@ export function GarminHelp() {
               Upload it in PulseEngine via{' '}
               <Link to="/settings" className="text-blue-400 hover:text-blue-300 underline">
                 Settings → Garmin → Import
-              </Link>
-              {' '}or during onboarding.
+              </Link>.{' '}
               Select the distance unit that matches your Garmin Connect settings
               (miles or kilometres).
               </>,
