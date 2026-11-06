@@ -34,6 +34,7 @@ import type {
   WeeklyDigestResponse,
   WeeklySummary,
   WhoopStatus,
+  ExerciseSummaryItem,
   WithWithoutResponse,
   WorkoutTypeSummary,
 } from '../types/api'
@@ -108,6 +109,17 @@ export function useExerciseSets(workoutId: string, enabled = true) {
   return useQuery({
     queryKey: ['workouts', 'exercise-sets', workoutId, userId],
     queryFn: ({ signal }) => api.get<ExerciseSet[]>(`/api/workouts/${workoutId}/exercise-sets`, signal),
+    staleTime: STALE.LONG,
+    retry: 1,
+    enabled: !!workoutId && enabled && !!userId,
+  })
+}
+
+export function useExerciseSummary(workoutId: string, enabled = true) {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['workouts', 'exercise-summary', workoutId, userId],
+    queryFn: ({ signal }) => api.get<ExerciseSummaryItem[]>(`/api/workouts/${workoutId}/exercise-summary`, signal),
     staleTime: STALE.LONG,
     retry: 1,
     enabled: !!workoutId && enabled && !!userId,

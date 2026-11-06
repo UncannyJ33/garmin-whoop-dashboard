@@ -373,6 +373,16 @@ export interface UploadResult {
   training_load_note: string | null
 }
 
+export interface ExerciseSummaryItem {
+  exercise_category: string | null
+  exercise_name: string | null
+  set_count: number | null
+  repetition_count: number | null
+  volume_kg: number | null
+  max_weight_kg: number | null
+  duration_seconds: number | null
+}
+
 // ---------------------------------------------------------------------------
 // Raw JSONResponse endpoints (/api/auth/*)
 // ---------------------------------------------------------------------------
