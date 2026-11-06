@@ -137,9 +137,7 @@ async def delete_account(
     with engine.begin() as conn:
         # Tokens (Whoop OAuth, Garmin session, OAuth states)
         conn.execute(
-            text(
-                "DELETE FROM token_store WHERE service = :whoop OR service = :garmin"
-            ),
+            text("DELETE FROM token_store WHERE service = :whoop OR service = :garmin"),
             {"whoop": f"whoop_{uid}", "garmin": f"garmin_{uid}"},
         )
         conn.execute(
@@ -167,9 +165,7 @@ async def delete_account(
             {"uid": uid},
         )
         conn.execute(text("DELETE FROM garmin_activities WHERE user_id = :uid"), {"uid": uid})
-        conn.execute(
-            text("DELETE FROM garmin_daily_summary WHERE user_id = :uid"), {"uid": uid}
-        )
+        conn.execute(text("DELETE FROM garmin_daily_summary WHERE user_id = :uid"), {"uid": uid})
         conn.execute(text("DELETE FROM garmin_sleep WHERE user_id = :uid"), {"uid": uid})
         conn.execute(text("DELETE FROM garmin_hrv WHERE user_id = :uid"), {"uid": uid})
 
@@ -177,9 +173,7 @@ async def delete_account(
         conn.execute(text("DELETE FROM whoop_workouts WHERE user_id = :uid"), {"uid": uid})
         conn.execute(text("DELETE FROM whoop_recovery WHERE user_id = :uid"), {"uid": uid})
         conn.execute(text("DELETE FROM whoop_sleep WHERE user_id = :uid"), {"uid": uid})
-        conn.execute(
-            text("DELETE FROM whoop_cycles WHERE app_user_id = :uid"), {"uid": uid}
-        )
+        conn.execute(text("DELETE FROM whoop_cycles WHERE app_user_id = :uid"), {"uid": uid})
 
         # User record last
         conn.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": uid})

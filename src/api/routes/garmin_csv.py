@@ -112,22 +112,26 @@ def _fetch_existing(
     end_date: date,
 ) -> list[dict]:
     """Load existing garmin_activities rows for the user in the date window."""
-    rows = db.execute(
-        text(
-            """
+    rows = (
+        db.execute(
+            text(
+                """
             SELECT activity_type, start_time, duration_seconds
             FROM garmin_activities
             WHERE user_id = :uid
               AND start_time >= :lo
               AND start_time <= :hi
             """
-        ),
-        {
-            "uid": user_id,
-            "lo": start_date.isoformat(),
-            "hi": (end_date + timedelta(days=1)).isoformat(),
-        },
-    ).mappings().all()
+            ),
+            {
+                "uid": user_id,
+                "lo": start_date.isoformat(),
+                "hi": (end_date + timedelta(days=1)).isoformat(),
+            },
+        )
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
 
 
@@ -314,8 +318,7 @@ def _training_load_note(rows: list[dict]) -> str:
     derived = sum(
         1
         for r in rows
-        if r.get("training_load") is not None
-        and r.get("activity_id", "").startswith("csv_")
+        if r.get("training_load") is not None and r.get("activity_id", "").startswith("csv_")
     )
     if derived:
         return (

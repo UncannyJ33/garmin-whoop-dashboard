@@ -349,11 +349,13 @@ class Normalizer:
         if self.user_id is not None:
             try:
                 from src.analytics.cache import analytics_cache
+
                 analytics_cache.invalidate_user(self.user_id)
             except Exception:  # noqa: BLE001
                 pass  # cache invalidation is best-effort
             try:
                 from src.analytics.anomaly_store import refresh_anomalies
+
                 refresh_anomalies(self._db.get_bind(), self.user_id, start, end)
             except Exception:  # noqa: BLE001
                 logger.debug("normalize_all: anomaly refresh failed (non-critical)")
@@ -398,9 +400,7 @@ class Normalizer:
         cycle_ids = [c.id for c in cycles]
         recoveries_by_cycle: dict[str, WhoopRecovery] = {}
         if cycle_ids:
-            q = self._db.query(WhoopRecovery).filter(
-                WhoopRecovery.cycle_id.in_(cycle_ids)
-            )
+            q = self._db.query(WhoopRecovery).filter(WhoopRecovery.cycle_id.in_(cycle_ids))
             if uid is not None:
                 q = q.filter(WhoopRecovery.user_id == uid)
             for r in q.all():
@@ -473,9 +473,7 @@ class Normalizer:
             "vo2_by_date": vo2_by_date,
         }
 
-    def _normalize_daily_from_cache(
-        self, target_date: date, cache: dict[str, Any]
-    ) -> int:
+    def _normalize_daily_from_cache(self, target_date: date, cache: dict[str, Any]) -> int:
         """Upsert one unified_daily row using prefetched data."""
         date_str = target_date.isoformat()
 
@@ -516,9 +514,7 @@ class Normalizer:
         self._db.commit()
         return 1
 
-    def _normalize_sleep_from_cache(
-        self, target_date: date, cache: dict[str, Any]
-    ) -> int:
+    def _normalize_sleep_from_cache(self, target_date: date, cache: dict[str, Any]) -> int:
         """Upsert one unified_sleep row using prefetched data."""
         date_str = target_date.isoformat()
 

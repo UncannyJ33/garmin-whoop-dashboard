@@ -230,7 +230,9 @@ def parse_activities_csv(
             tss_raw = _parse_float(raw.get("Training Stress Score\u00ae", ""))
             # TSS is populated only for power-metered cycling; treat 0 as absent
             tss = tss_raw if (tss_raw is not None and tss_raw > 0) else None
-            training_load = tss if tss is not None else _derive_training_load(aerobic_te, duration_s)
+            training_load = (
+                tss if tss is not None else _derive_training_load(aerobic_te, duration_s)
+            )
 
             # Derive avg_speed (m/s) from distance + moving time when available
             moving_s = _parse_time_to_seconds(raw.get("Moving Time", "")) or duration_s
@@ -266,7 +268,9 @@ def parse_activities_csv(
                     "training_effect_anaerobic": None,  # not in CSV
                     "training_load": training_load,
                     "avg_ground_contact_time": _parse_float(raw.get("Avg Ground Contact Time", "")),
-                    "avg_vertical_oscillation": _parse_float(raw.get("Avg Vertical Oscillation", "")),
+                    "avg_vertical_oscillation": _parse_float(
+                        raw.get("Avg Vertical Oscillation", "")
+                    ),
                     "avg_vertical_ratio": _parse_float(raw.get("Avg Vertical Ratio", "")),
                     "avg_ground_contact_balance": None,  # not in CSV
                     "fetched_at": now_iso,

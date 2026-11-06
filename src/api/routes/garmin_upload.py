@@ -115,22 +115,26 @@ def _fetch_existing(
     start_date: date,
     end_date: date,
 ) -> list[dict]:
-    rows = db.execute(
-        text(
-            """
+    rows = (
+        db.execute(
+            text(
+                """
             SELECT activity_type, start_time, duration_seconds
             FROM garmin_activities
             WHERE user_id = :uid
               AND start_time >= :lo
               AND start_time <= :hi
             """
-        ),
-        {
-            "uid": user_id,
-            "lo": start_date.isoformat(),
-            "hi": (end_date + timedelta(days=1)).isoformat(),
-        },
-    ).mappings().all()
+            ),
+            {
+                "uid": user_id,
+                "lo": start_date.isoformat(),
+                "hi": (end_date + timedelta(days=1)).isoformat(),
+            },
+        )
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
 
 
@@ -138,8 +142,7 @@ def _training_load_note(rows: list[dict]) -> str | None:
     derived = sum(
         1
         for r in rows
-        if r.get("training_load") is not None
-        and r.get("activity_id", "").startswith("csv_")
+        if r.get("training_load") is not None and r.get("activity_id", "").startswith("csv_")
     )
     if derived:
         return (
@@ -345,8 +348,7 @@ async def garmin_upload(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unsupported file type '{suffix or '(none)'}'. "
-                "Upload a .csv, .json, or .zip file."
+                f"Unsupported file type '{suffix or '(none)'}'. Upload a .csv, .json, or .zip file."
             ),
         )
 

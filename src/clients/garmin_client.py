@@ -24,7 +24,19 @@ from src.clients.garmin_personal_auth import (
 logger = logging.getLogger(__name__)
 
 _PAGE_LIMIT = 100
+_MAX_PAGES = 100
+_SLEEP_CORE_KEYS = ("sleepTimeSeconds", "sleepStartTimestampGMT", "sleepEndTimestampGMT")
 _ACTIVITIES_PATH = "/activitylist-service/activities/search/activities"
+
+
+def _is_null(v: Any) -> bool:
+    """True for None or an empty container."""
+    return v is None or (isinstance(v, (dict, list, tuple, str)) and len(v) == 0)
+
+
+def _all_null(d: dict) -> bool:
+    """True when every top-level value is null (the API's "no data" shape)."""
+    return all(_is_null(v) for v in d.values())
 
 
 def _fmt_date(d: date | datetime | str) -> str:
@@ -85,27 +97,45 @@ class GarminClient:
         s, e = _fmt_date(start_date), _fmt_date(end_date)
         out: list[dict] = []
         start = 0
-        while True:
+        prev_first: Any = None
+        for _ in range(_MAX_PAGES):
             page = self._get(
                 _ACTIVITIES_PATH,
                 {"startDate": s, "endDate": e, "start": start, "limit": _PAGE_LIMIT},
             )
             if not isinstance(page, list):
-                page = []
+                raise GarminTransientError(
+                    f"unexpected activities response (expected a list, got {type(page).__name__})"
+                )
+            if len(page) > _PAGE_LIMIT:
+                raise GarminTransientError("activities page larger than requested limit")
+            first = page[0].get("activityId") if page and isinstance(page[0], dict) else None
+            if first is not None and first == prev_first:
+                raise GarminTransientError("activities pagination did not advance")
+            prev_first = first
             out.extend(page)
             if len(page) < _PAGE_LIMIT:
                 return out
             start += _PAGE_LIMIT
+        raise GarminTransientError(f"activities exceeded {_MAX_PAGES} pages")
 
     def get_daily_summary(self, date_: date | datetime | str) -> dict:
         """Fetch the daily user summary. Returns {} when there is no data."""
-        data = self._get("/usersummary-service/usersummary/daily", {"calendarDate": _fmt_date(date_)})
-        return data if isinstance(data, dict) else {}
+        data = self._get(
+            "/usersummary-service/usersummary/daily", {"calendarDate": _fmt_date(date_)}
+        )
+        return data if isinstance(data, dict) and not _all_null(data) else {}
 
     def get_sleep(self, date_: date | datetime | str) -> dict | None:
-        """Fetch the flat DailySleepDTO (may be all-null values); None on 204/empty/{}."""
+        """Fetch the flat DailySleepDTO; None on 204/empty/{}/all-null (no watch worn)."""
         data = self._get("/sleep-service/sleep/dailySleep", {"date": _fmt_date(date_)})
-        return data if isinstance(data, dict) and data else None
+        if not isinstance(data, dict) or _all_null(data):
+            return None
+        # The real no-watch response keeps booleans and sleepNeed blocks, so also
+        # treat "no sleep duration and no start/end timestamps" as no data.
+        if all(_is_null(data.get(k)) for k in _SLEEP_CORE_KEYS):
+            return None
+        return data
 
     def get_hrv(self, date_: date | datetime | str) -> dict | None:
         """Fetch HRV for a night; None on 204/empty."""
@@ -115,7 +145,9 @@ class GarminClient:
     def get_user_settings(self) -> dict:
         """Fetch user settings; used as the key-validity probe. Never log the body."""
         data = self._get("/userprofile-service/userprofile/settings")
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict) or not data:
+            raise GarminTransientError("unexpected user settings response")
+        return data
 
     def get_exercise_sets(self, activity_id: str | int) -> None:
         """No-op stub: exercise sets are unavailable on the Personal API.
@@ -149,10 +181,8 @@ class GarminClient:
             }
             try:
                 resp = self._http.get(url, params=params, headers=headers)
-            except httpx.TransportError as exc:
-                raise GarminTransientError(
-                    f"Garmin request failed: {type(exc).__name__}"
-                ) from None
+            except httpx.RequestError as exc:
+                raise GarminTransientError(f"Garmin request failed: {type(exc).__name__}") from None
             status = resp.status_code
             if status == 401:
                 if not force_refresh:
@@ -172,10 +202,11 @@ class GarminClient:
             if status in (400, 404):
                 logger.warning("Garmin %s returned HTTP %s", path, status)
                 return None
+            if not 200 <= status < 300:
+                raise GarminTransientError(f"Unexpected Garmin response for {path} (HTTP {status})")
             if status == 204 or not resp.content.strip():
                 return None
             try:
                 return resp.json()
             except ValueError:
-                logger.warning("Garmin %s returned invalid JSON", path)
-                return None
+                raise GarminTransientError(f"Garmin {path} returned invalid JSON") from None

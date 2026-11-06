@@ -166,7 +166,9 @@ class GarminImporter:
                 self._import_csv_dir(path.parent, summary, fetched_at, only=path)
 
             if self._normalize and summary.date_range:
-                norm = Normalizer(self._db, mappings_path=self._mappings_path, user_id=self._user_id)
+                norm = Normalizer(
+                    self._db, mappings_path=self._mappings_path, user_id=self._user_id
+                )
                 summary.norm_counts = norm.normalize_all(*summary.date_range)
                 logger.info("Normalization after import: %s", summary.norm_counts)
 

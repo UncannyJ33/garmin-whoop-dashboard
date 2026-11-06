@@ -61,9 +61,7 @@ async def sync_status(
 
     # Fast path: while this user's sync is in flight serve the cached row
     # snapshot so we never wait on a busy DB connection pool.
-    user_has_running = any(
-        _running_syncs.get(_sync_key(src, uid), False) for src in _KNOWN_SOURCES
-    )
+    user_has_running = any(_running_syncs.get(_sync_key(src, uid), False) for src in _KNOWN_SOURCES)
     if user_has_running and uid in _status_cache:
         result = []
         for src in _KNOWN_SOURCES:
@@ -177,9 +175,7 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
             _try_garmin_reauth(user_id, engine, db)
 
             await asyncio.to_thread(
-                lambda: GarminPipeline(db, user_id=user_id).run(
-                    start=start.date(), end=now.date()
-                )
+                lambda: GarminPipeline(db, user_id=user_id).run(start=start.date(), end=now.date())
             )
         logger.info("Manual sync complete — source=%s user=%s", source, user_id)
     except Exception:
@@ -221,9 +217,7 @@ def _try_garmin_reauth(user_id: str, engine: Engine, db: Session) -> None:
         password = decrypt_credential(row[1])
         authenticate_user_garmin(user_id, email, password, db)
     except Exception:
-        logger.warning(
-            "Garmin re-auth skipped for user %s — using existing session", user_id
-        )
+        logger.warning("Garmin re-auth skipped for user %s — using existing session", user_id)
 
 
 def _user_has_garmin_access(user_id: str, db: Session, engine: Engine) -> bool:
@@ -290,8 +284,7 @@ async def trigger_sync(
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    "Whoop not connected. Go to Settings → Connect Whoop "
-                    "to authorize your account."
+                    "Whoop not connected. Go to Settings → Connect Whoop to authorize your account."
                 ),
             )
 

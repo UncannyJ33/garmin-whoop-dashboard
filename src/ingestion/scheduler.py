@@ -196,9 +196,7 @@ def _run_garmin_multi_user() -> None:
                     "FROM garmin_credentials WHERE auto_sync_enabled = true"
                 )
             ).fetchall()
-        creds_by_user: dict[str, tuple[str, str]] = {
-            r[0]: (r[1], r[2]) for r in cred_rows
-        }
+        creds_by_user: dict[str, tuple[str, str]] = {r[0]: (r[1], r[2]) for r in cred_rows}
     except Exception:
         logger.exception("Garmin multi-user sync: could not load credentials")
         creds_by_user = {}
@@ -246,6 +244,7 @@ def _run_garmin_multi_user() -> None:
                     # Reusing existing tokens avoids hammering Garmin's auth
                     # endpoint every 15 minutes and triggering rate limits.
                     from src.clients.garmin_auth import has_garmin_token
+
                     if not has_garmin_token(user_id, db):
                         logger.info(
                             "Garmin multi-user sync: no tokens for user %s — authenticating",
@@ -387,8 +386,7 @@ def _run_whoop_multi_user() -> None:
             # transient errors like "Token refresh failed: 503" and would delete
             # a perfectly valid token just because Whoop had a blip.
             is_token_invalid = any(
-                kw in err_msg
-                for kw in ("401", "not authenticated", "no refresh token")
+                kw in err_msg for kw in ("401", "not authenticated", "no refresh token")
             )
             if is_token_invalid:
                 # Remove the stale token so the user gets prompted to reconnect
@@ -405,9 +403,7 @@ def _run_whoop_multi_user() -> None:
                             {"key": f"whoop_{user_id}"},
                         )
                 except Exception:
-                    logger.exception(
-                        "Could not remove Whoop token for user %s", user_id
-                    )
+                    logger.exception("Could not remove Whoop token for user %s", user_id)
             else:
                 logger.exception(
                     "Whoop multi-user sync: unexpected error for user %s — continuing",
@@ -477,9 +473,7 @@ def create_scheduler(
 # ---------------------------------------------------------------------------
 
 
-def _schedule_catchup_if_stale(
-    scheduler: BackgroundScheduler, engine: Engine
-) -> None:
+def _schedule_catchup_if_stale(scheduler: BackgroundScheduler, engine: Engine) -> None:
     """Schedule one-shot catchup syncs for sources with no recent successful sync.
 
     Checks whether *any* user has had a successful sync within the last
@@ -521,9 +515,7 @@ def _schedule_catchup_if_stale(
             if needs_catchup:
                 # Garmin gets a longer delay to let rate limit windows clear
                 # between deploys.  Whoop keeps the short 10-second delay.
-                delay_seconds = (
-                    _GARMIN_CATCHUP_DELAY_SECONDS if source == "garmin" else 10
-                )
+                delay_seconds = _GARMIN_CATCHUP_DELAY_SECONDS if source == "garmin" else 10
                 run_time = datetime.now(UTC) + timedelta(seconds=delay_seconds)
                 scheduler.add_job(
                     job_fn,
@@ -542,9 +534,7 @@ def _schedule_catchup_if_stale(
             else:
                 logger.info("%s: recent sync found — no catchup needed", source)
         except Exception:
-            logger.exception(
-                "Could not check stale status for %s — skipping catchup", source
-            )
+            logger.exception("Could not check stale status for %s — skipping catchup", source)
 
 
 # ---------------------------------------------------------------------------

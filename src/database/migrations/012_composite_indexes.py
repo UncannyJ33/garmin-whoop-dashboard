@@ -72,6 +72,4 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
             created += 1
             logger.info("012: created index %s on %s(%s)", idx_name, table, columns)
 
-    logger.info(
-        "012_composite_indexes: %d created, %d already existed", created, skipped
-    )
+    logger.info("012_composite_indexes: %d created, %d already existed", created, skipped)

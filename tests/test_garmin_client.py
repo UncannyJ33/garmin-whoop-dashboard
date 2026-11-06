@@ -61,7 +61,9 @@ def test_requests_use_bearer_and_base_url():
 
 def test_get_activities_pages_until_short_page():
     def h(r, n):
-        return httpx.Response(200, json=[{"activityId": i} for i in range(100 if n == 1 else 3)])
+        return httpx.Response(
+            200, json=[{"activityId": n * 1000 + i} for i in range(100 if n == 1 else 3)]
+        )
 
     client, reqs = make_client(h)
     out = client.get_activities("2026-10-01", "2026-10-31")
@@ -109,11 +111,89 @@ def test_get_sleep_returns_flat_dto():
     assert reqs[0].url.params["date"] == "2026-11-01"
 
 
-def test_get_sleep_all_null_dto_is_returned():
+def test_get_sleep_all_null_dto_is_none():
     client, _ = make_client(lambda r, n: httpx.Response(200, json=_fixture("sleep_empty.json")))
-    result = client.get_sleep("2026-11-01")
-    assert result is not None
-    assert "calendarDate" in result
+    assert client.get_sleep("2026-11-01") is None
+
+
+def test_get_daily_summary_all_null_returns_empty_dict():
+    client, _ = make_client(lambda r, n: httpx.Response(200, json={"a": None, "b": {}, "c": []}))
+    assert client.get_daily_summary("2026-11-01") == {}
+
+
+def test_get_user_settings_404_raises():
+    client, _ = make_client(lambda r, n: httpx.Response(404))
+    with pytest.raises(GarminTransientError):
+        client.get_user_settings()
+
+
+@pytest.mark.parametrize(
+    "resp", [httpx.Response(200, json={"a": 1}), httpx.Response(204), httpx.Response(404)]
+)
+def test_non_list_activities_raises(resp):
+    client, _ = make_client(lambda r, n: resp)
+    with pytest.raises(GarminTransientError):
+        client.get_activities("2026-10-01", "2026-10-31")
+
+
+def test_page2_400_raises():
+    def h(r, n):
+        if n == 1:
+            return httpx.Response(200, json=[{"activityId": i} for i in range(100)])
+        return httpx.Response(400)
+
+    client, _ = make_client(h)
+    with pytest.raises(GarminTransientError):
+        client.get_activities("2026-10-01", "2026-10-31")
+
+
+def test_repeated_first_activity_id_raises():
+    client, reqs = make_client(
+        lambda r, n: httpx.Response(200, json=[{"activityId": i} for i in range(100)])
+    )
+    with pytest.raises(GarminTransientError):
+        client.get_activities("2026-10-01", "2026-10-31")
+    assert len(reqs) == 2
+
+
+def test_oversized_page_raises():
+    client, _ = make_client(
+        lambda r, n: httpx.Response(200, json=[{"activityId": i} for i in range(101)])
+    )
+    with pytest.raises(GarminTransientError):
+        client.get_activities("2026-10-01", "2026-10-31")
+
+
+def test_page_cap_raises(monkeypatch):
+    monkeypatch.setattr(gc, "_MAX_PAGES", 3)
+    client, reqs = make_client(
+        lambda r, n: httpx.Response(200, json=[{"activityId": n * 1000 + i} for i in range(100)])
+    )
+    with pytest.raises(GarminTransientError):
+        client.get_activities("2026-10-01", "2026-10-31")
+    assert len(reqs) == 3
+
+
+@pytest.mark.parametrize("status", [422, 302])
+def test_other_non_2xx_raises(status):
+    client, _ = make_client(lambda r, n: httpx.Response(status))
+    with pytest.raises(GarminTransientError):
+        client.get_daily_summary("2026-11-01")
+
+
+def test_html_200_raises():
+    client, _ = make_client(lambda r, n: httpx.Response(200, content=b"<html>"))
+    with pytest.raises(GarminTransientError):
+        client.get_sleep("2026-11-01")
+
+
+def test_decoding_error_is_transient():
+    def h(r, n):
+        raise httpx.DecodingError("bad gzip")
+
+    client, _ = make_client(h)
+    with pytest.raises(GarminTransientError):
+        client.get_daily_summary("2026-11-01")
 
 
 def test_get_sleep_empty_returns_none():
@@ -181,13 +261,6 @@ def test_404_returns_none_and_logs_warning(caplog):
     assert any(rec.levelno == logging.WARNING for rec in caplog.records)
 
 
-def test_invalid_json_returns_none(caplog):
-    client, _ = make_client(lambda r, n: httpx.Response(200, content=b"<html>"))
-    with caplog.at_level(logging.WARNING):
-        assert client.get_sleep("2026-11-01") is None
-    assert caplog.records
-
-
 @pytest.mark.parametrize("failure", [500, 502, "connect"])
 def test_5xx_raises_transient(failure):
     def h(r, n):
@@ -205,7 +278,9 @@ def test_request_delay_enforced(monkeypatch):
     now = [100.0]
     slept: list[float] = []
     monkeypatch.setattr(gc.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(gc.time, "sleep", lambda s: (slept.append(s), now.__setitem__(0, now[0] + s)))
+    monkeypatch.setattr(
+        gc.time, "sleep", lambda s: (slept.append(s), now.__setitem__(0, now[0] + s))
+    )
     client, _ = make_client(lambda r, n: httpx.Response(200, json={"a": 1}), delay=1.0)
     client.get_daily_summary("2026-11-01")
     client.get_daily_summary("2026-11-02")

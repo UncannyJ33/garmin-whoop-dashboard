@@ -193,7 +193,11 @@ def authenticate_user_garmin(user_id: str, email: str, password: str, db: Sessio
                 raise GarminAuthError(
                     "Garmin rate limit reached (429). Wait a few minutes before retrying."
                 ) from exc
-            if "401" in err_msg or "authentication" in err_msg.lower() or "Authentication" in exc_type:
+            if (
+                "401" in err_msg
+                or "authentication" in err_msg.lower()
+                or "Authentication" in exc_type
+            ):
                 raise GarminAuthError(
                     f"Garmin credentials are invalid or the session expired (401). {exc}"
                 ) from exc

@@ -39,8 +39,8 @@ def _get_key() -> bytes:
         raise ValueError(
             f"{_ENV_VAR} environment variable is not set. "
             "Generate a key with: "
-            "python -c \"from cryptography.fernet import Fernet; "
-            "print(Fernet.generate_key().decode())\""
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
         )
     return raw.encode()
 
@@ -75,9 +75,7 @@ def decrypt_credential(ciphertext: str) -> str:
     try:
         return Fernet(_get_key()).decrypt(ciphertext.encode()).decode()
     except InvalidToken as exc:
-        raise ValueError(
-            "Could not decrypt credential — wrong key or corrupted data."
-        ) from exc
+        raise ValueError("Could not decrypt credential — wrong key or corrupted data.") from exc
 
 
 def rotate_key(old_key: str, new_key: str, ciphertext: str) -> str:

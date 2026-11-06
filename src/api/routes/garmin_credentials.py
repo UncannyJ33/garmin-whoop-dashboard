@@ -105,8 +105,7 @@ def store_credentials(
         raise HTTPException(
             status_code=503,
             detail=(
-                "Credential encryption is not configured on this server. "
-                "Contact the administrator."
+                "Credential encryption is not configured on this server. Contact the administrator."
             ),
         ) from exc
 
@@ -213,9 +212,7 @@ def credentials_status(
     indicating whether credentials exist and whether auto-sync is enabled.
     """
     row = db.execute(
-        text(
-            "SELECT auto_sync_enabled FROM garmin_credentials WHERE user_id = :uid"
-        ),
+        text("SELECT auto_sync_enabled FROM garmin_credentials WHERE user_id = :uid"),
         {"uid": current_user.id},
     ).one_or_none()
 

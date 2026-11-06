@@ -110,18 +110,20 @@ def refresh_anomalies(
         explanation = _build_enriched_explanation(
             metric, metric_label, a["value"], a["direction"], severity, context
         )
-        rows.append({
-            "user_id": user_id,
-            "date": d_iso,
-            "metric": metric,
-            "metric_label": metric_label,
-            "value": a["value"],
-            "direction": a["direction"],
-            "severity": round(severity, 2),
-            "context_json": json.dumps(context),
-            "explanation": explanation,
-            "computed_at": now_iso,
-        })
+        rows.append(
+            {
+                "user_id": user_id,
+                "date": d_iso,
+                "metric": metric,
+                "metric_label": metric_label,
+                "value": a["value"],
+                "direction": a["direction"],
+                "severity": round(severity, 2),
+                "context_json": json.dumps(context),
+                "explanation": explanation,
+                "computed_at": now_iso,
+            }
+        )
 
     # 6. Delete old + insert new (within a transaction)
     _delete_range(engine, user_id, start_date, end_date)
@@ -130,7 +132,10 @@ def refresh_anomalies(
 
     logger.info(
         "refresh_anomalies: stored %d anomalies for user %s (%s → %s)",
-        len(rows), user_id, start_date, end_date,
+        len(rows),
+        user_id,
+        start_date,
+        end_date,
     )
     return len(rows)
 
@@ -226,8 +231,7 @@ def _delete_range(engine: Engine, user_id: str, start: date, end: date) -> None:
         with engine.begin() as conn:
             conn.execute(
                 text(
-                    "DELETE FROM anomaly_cache"
-                    " WHERE user_id = :uid AND date >= :s AND date <= :e"
+                    "DELETE FROM anomaly_cache WHERE user_id = :uid AND date >= :s AND date <= :e"
                 ),
                 {"uid": user_id, "s": start.isoformat(), "e": end.isoformat()},
             )

@@ -107,7 +107,10 @@ async def admin_waitlist(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin not configured.")
 
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth.removeprefix("Bearer ").strip() != settings.admin_email:
+    if (
+        not auth.startswith("Bearer ")
+        or auth.removeprefix("Bearer ").strip() != settings.admin_email
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
 
     with engine.connect() as conn:

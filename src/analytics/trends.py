@@ -806,18 +806,14 @@ def get_batch_metric_trends(
     for metric_name, _, _ in standard:
         raw = raw_by_metric.get(metric_name, [])
         calendar = _calendar_fill(raw, lookback_start, end_date)
-        results[metric_name] = _build_trend_from_calendar(
-            metric_name, calendar, start_date
-        )
+        results[metric_name] = _build_trend_from_calendar(metric_name, calendar, start_date)
 
     # Process special metrics (each needs its own fetch)
     for metric_name in special:
         full_calendar = _fetch_metric_calendar(
             engine, metric_name, lookback_start, end_date, user_id
         )
-        results[metric_name] = _build_trend_from_calendar(
-            metric_name, full_calendar, start_date
-        )
+        results[metric_name] = _build_trend_from_calendar(metric_name, full_calendar, start_date)
 
     return results
 
@@ -1079,7 +1075,9 @@ def _build_enriched_explanation(
 
 
 def _batch_fetch_training_ctx(
-    engine: Engine, user_id: str | None, anomaly_dates: list[date],
+    engine: Engine,
+    user_id: str | None,
+    anomaly_dates: list[date],
 ) -> dict[str, dict]:
     """Batch-fetch training context for all anomaly dates in a single query.
 
@@ -1126,7 +1124,9 @@ def _batch_fetch_training_ctx(
 
 
 def _batch_fetch_sleep_ctx(
-    engine: Engine, user_id: str | None, anomaly_dates: list[date],
+    engine: Engine,
+    user_id: str | None,
+    anomaly_dates: list[date],
 ) -> dict[str, dict]:
     """Batch-fetch sleep context for all anomaly dates in a single query."""
     if not anomaly_dates:
@@ -1176,7 +1176,9 @@ def _batch_fetch_sleep_ctx(
 
 
 def _batch_fetch_recovery_ctx(
-    engine: Engine, user_id: str | None, anomaly_dates: list[date],
+    engine: Engine,
+    user_id: str | None,
+    anomaly_dates: list[date],
 ) -> dict[str, str]:
     """Batch-fetch recovery trend for all anomaly dates in a single query."""
     if not anomaly_dates:
@@ -1190,10 +1192,7 @@ def _batch_fetch_recovery_ctx(
     result: dict[str, str] = {}
     for ad in anomaly_dates:
         d_iso = ad.isoformat()
-        values = [
-            by_date.get((ad - timedelta(days=i)).isoformat())
-            for i in range(6, -1, -1)
-        ]
+        values = [by_date.get((ad - timedelta(days=i)).isoformat()) for i in range(6, -1, -1)]
         valid = [float(v) for v in values if v is not None]
         rolling = _rolling_avg(valid, len(valid))
         result[d_iso] = calculate_trend_direction(rolling)
@@ -1360,9 +1359,7 @@ def get_enriched_anomalies(
     recovery_cache = _batch_fetch_recovery_ctx(engine, user_id, anomaly_dates)
 
     enriched: list[EnrichedAnomaly] = [
-        _enrich_from_cache(
-            metric, a, co_map, training_cache, sleep_cache, recovery_cache
-        )
+        _enrich_from_cache(metric, a, co_map, training_cache, sleep_cache, recovery_cache)
         for metric, a in raw_pairs
     ]
 
