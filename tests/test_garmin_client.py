@@ -222,10 +222,10 @@ def test_get_exercise_sets_stub_makes_no_request():
 
 def test_401_retries_once_with_forced_refresh():
     def h(r, n):
-        return httpx.Response(401 if n == 1 else 200, json={"ok": 1})
+        return httpx.Response(401 if n == 1 else 200, json={"totalSteps": 1})
 
     client, reqs = make_client(h)
-    assert client.get_daily_summary("2026-11-01") == {"ok": 1}
+    assert client.get_daily_summary("2026-11-01") == {"totalSteps": 1}
     assert len(reqs) == 2
     assert reqs[1].headers["Authorization"] == "Bearer t2"
 
