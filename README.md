@@ -150,9 +150,10 @@ and `./config`:
 docker compose up --build        # http://localhost:8000
 ```
 
-The old Railway + Supabase production deployment (engine.pulsebuilt.net, `railway.toml`) is
-legacy and being retired, pending roadmap Q1 (recommendation: local Docker Compose + SQLite).
-Do not treat any production URL as live.
+**It runs locally only.** The old Railway + Supabase deployment (engine.pulsebuilt.net) is gone:
+Railway is shut down, and the Supabase project and its data were deleted. History gets
+re-pulled from the APIs (roadmap Phase 6). `railway.toml` and `frontend-react/vercel.json` are
+leftovers that Phase 5 deletes.
 
 ## Docs map
 

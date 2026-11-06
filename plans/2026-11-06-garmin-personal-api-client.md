@@ -54,7 +54,10 @@ Phases 1–2. The endpoint and schema source of truth is
 - Repo conventions:
   - Type hints and docstrings on public functions.
   - `datetime.UTC`, not `timezone.utc`.
-  - `make lint` must stay clean.
+  - `make lint` must stay clean. The baseline had 25 existing errors; the roadmap's Phase 0
+    "clean lint baseline" item fixes them before Task 1.
+  - Run tests **serially** (`.venv/bin/pytest -q`). xdist (`-n auto`) is broken at baseline. The
+    baseline is 909 passed.
   - Use the `.venv` created by `uv sync`.
 - Do not delete migration files or drop tables. Existing databases have run them.
 
@@ -205,7 +208,6 @@ and report back. Don't fabricate fixtures from the schema.
     - `garmin_personal_api_key: str` (env `GARMIN_PERSONAL_API_KEY`, default `""`)
     - `garmin_personal_api_base_url: str` (env `GARMIN_PERSONAL_API_BASE_URL`, default
       `"https://personal.connectapi.garmin.com"`)
-    - `owner_email: str` (env `OWNER_EMAIL`, default `""`; used by Task 7's owner helper)
     - `garmin_poll_interval_minutes` default changes from `15` to `30`.
   - `DEFAULT_BASE_URL: str`, `TOKEN_PATH: str` and `KEY_PAGE_URL: str` constants.
   - `class GarminPersonalApiError(Exception)`: base for the three below, so `run()` can catch one
@@ -584,10 +586,10 @@ and report back. Don't fabricate fixtures from the schema.
 **Interfaces:**
 - Produces:
   - `def get_owner_user_id(engine: Engine) -> str | None`: the single `users.id`. Returns `None`
-    when there are no users. With more than one user: if `settings.owner_email` is set, return
-    that user's id; otherwise raise `RuntimeError` naming `OWNER_EMAIL`. (A Supabase export may
-    carry several SaaS-era users; the scheduler must not crash-loop on it.) The `users` table
-    has no role or owner column (`src/auth/models.py:11–20`), so email is the only handle.
+    when there are no users. Raises `RuntimeError` when there is more than one user. The DB starts
+    fresh (Supabase was deleted, 2026-11-06), and Phase 3's `create_owner.py` refuses a second
+    user, so more than one user means misconfiguration. The scheduler jobs catch this, log an
+    error and skip the run instead of crash-looping.
   - `def _run_garmin_sync() -> None`:
     - No key → log once at INFO and return.
     - No owner → log a warning and return.
@@ -612,8 +614,10 @@ and report back. Don't fabricate fixtures from the schema.
       not set `last_error`.
 
 - [ ] **Step 1: Write the failing tests:**
-  - `test_get_owner_user_id_none_one_many`: 0 users → `None`, 1 user → its id, 2 users and no
-    `owner_email` → `RuntimeError`, 2 users and `owner_email` set → that user's id.
+  - `test_get_owner_user_id_none_one_many`: 0 users → `None`, 1 user → its id, 2 users →
+    `RuntimeError`.
+  - `test_garmin_job_skips_when_multiple_users`: with 2 users, the job logs an error and
+    constructs no pipeline (no exception escapes).
   - `test_garmin_job_skips_without_key`: with an empty key setting, no pipeline is constructed
     (monkeypatch `GarminPipeline`).
   - `test_garmin_job_runs_for_owner`: the pipeline is constructed with `user_id=<owner>`.
@@ -660,8 +664,9 @@ and report back. Don't fabricate fixtures from the schema.
     `garmin_encryption_key`.
   - `.env.example`: drop `GARMIN_EMAIL`, `GARMIN_PASSWORD`, `GARMIN_TOKEN_DIR` and
     `GARMIN_ENCRYPTION_KEY`. Add `GARMIN_PERSONAL_API_KEY=` with a comment pointing at the key
-    page and the 365-day recommendation, and `OWNER_EMAIL=` (optional; only needed when the DB
-    holds more than one user). Change `GARMIN_POLL_INTERVAL_MINUTES` to 30.
+    page and the 365-day recommendation. Change `GARMIN_POLL_INTERVAL_MINUTES` to 30. (The
+    local `.env`, created 2026-11-06, already has `GARMIN_PERSONAL_API_KEY=` and a 30-minute
+    poll interval.)
   - `docker-compose.yml`: drop the token-dir volume comments.
   - `pyproject.toml`: drop `garminconnect`. Then run `uv lock`; `curl_cffi` and `requests` are
     transitive from it and should disappear from `uv.lock`. `cryptography` stays (it comes from
@@ -679,7 +684,7 @@ and report back. Don't fabricate fixtures from the schema.
 - [ ] **Step 1:** Run `grep -rn -E "garminconnect|curl_cffi|garth|garmin_auth|GarminAuth|has_garmin_token|load_garmin_tokens|save_garmin_tokens|encrypt_credential|decrypt_credential|garmin_email|garmin_password|garmin_token_dir|garmin_encryption_key|GARMIN_EMAIL|GARMIN_PASSWORD|GARMIN_TOKEN_DIR|GARMIN_ENCRYPTION_KEY" src scripts tests config docker-compose.yml Dockerfile railway.toml`.
   Every hit is something to remove or update, except `account.py` and migration files.
 - [ ] **Step 2:** Make the deletions and edits.
-- [ ] **Step 3:** Run `.venv/bin/pytest -n auto`. Expected: all pass. Record the new total, which
+- [ ] **Step 3:** Run `.venv/bin/pytest -q`. Expected: all pass. Record the new total, which
   will be lower than the baseline because the deleted test files are gone.
 - [ ] **Step 4:** Run `make lint`. Expected: clean. Re-run the Step 1 grep. Expected: no hits
   outside `account.py`, migration files, and the research and plan docs.

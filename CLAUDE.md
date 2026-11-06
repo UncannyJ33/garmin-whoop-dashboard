@@ -14,14 +14,14 @@ Code that still exists but is **slated for removal. Don't extend it; don't add m
 - Whoop webhook receiver (`src/api/routes/webhooks.py`)
 - legacy Streamlit app (`frontend/`)
 
-Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, open questions Q1–Q3). Phase 2 plan: `plans/2026-11-06-garmin-personal-api-client.md`.
+Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan: `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
 - **D1** Keep JWT login + `user_id` plumbing with exactly one owner user (`scripts/create_owner.py`, planned). Don't rip out `user_id`.
 - **D2** Own small `httpx` client for the Garmin Personal API. Don't use Garmin's official package (reference only).
 - **D3** Polling only. No webhooks.
 - **D4** Strength = `summarizedExerciseSets` (per-exercise), not set-level, for now.
 - **D5** Keep SQLite + Postgres support, default SQLite. **D6** Leave `landing/` alone (pulsebuilt.net studio page, Cloudflare Pages). **D7** No frontend major upgrades yet.
-- Open: Q1 hosting (rec. local Docker Compose), Q2 is the Supabase project alive, Q3 `landing/` placement.
+- **Q1 answered:** it runs locally (Docker Compose + SQLite); Railway is dead. **Q2 answered:** Supabase was deleted and the old data is gone, so history gets pulled from scratch. Q3 (`landing/` placement) is still open.
 
 ## Docs map
 - `README.md` — setup/overview
@@ -97,7 +97,7 @@ Whoop notes (Nov 2026; research §7):
 - **Never commit** `.env`, credentials, tokens, DB files, Garmin/Whoop exports, or personal health data. Raw API samples go in gitignored `data/`; test fixtures must be sanitized.
 
 ## Local dev
-No `.venv` or `node_modules` exist yet in a fresh checkout: run `uv sync` and `cd frontend-react && npm ci`. `uv` is at `/opt/homebrew/bin/uv`; fresh shells may need `export PATH="/opt/homebrew/bin:$PATH"`.
+A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As of 2026-11-06 the local `.venv` (Python 3.12) and `node_modules` exist, and `.env` exists (gitignored). `uv` is **not** installed globally (`brew install uv`); the old `/opt/homebrew/bin/uv` note is stale.
 - Backend (port 8000): `make run-api`
 - Frontend: `cd frontend-react && npm run dev` — Vite port **5173** (per `vite.config.ts`; old docs also said 5175, wrong), proxies `/api` → `VITE_API_URL` or `http://localhost:8000`
 - `make test` (pytest), `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`), `make run-frontend` (legacy Streamlit, port 8501)
@@ -111,18 +111,18 @@ No `.venv` or `node_modules` exist yet in a fresh checkout: run `uv sync` and `c
 - Mock httpx: patch `httpx.AsyncClient` at module level; set `__aenter__`/`__aexit__` on the mock instance
 - Mock sleep: `patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock)`
 - Digit-prefixed migrations (`001_initial.py`) can't be imported directly; loaded via `importlib.util` in `migrations/__init__.py`
-- Last recorded test count: 946 passing (Mar 2026). **Re-verify** with `make test`; don't treat as current.
+- Baseline (2026-11-06): **909 passed** with serial `.venv/bin/pytest -q`. xdist (`-n auto`, pytest-xdist is installed) is **broken**: SQLite collection errors in `test_data_isolation.py` and `test_garmin_credentials.py`. Run serially.
+- Lint baseline: 25 existing ruff errors, scheduled for cleanup at the start of Phase 2.
 
 ## Database gotchas
 - Postgres BOOLEAN columns (`nap`, `matched`, `auto_sync_enabled`): use `true`/`false` literals in SQL and `.is_(False)` in ORM; never compare with 0/1 (DatatypeMismatch).
 - SQLite: WAL mode + `check_same_thread` set in `src/database/connection.py`. `DATABASE_URL` selects the engine.
 - Migration 009 (RLS) checks `pg_class.relrowsecurity` and skips already-protected tables (it timed out otherwise).
 
-### Legacy Railway/Supabase deployment (being retired, roadmap Q1)
-- Use the Supabase **direct** connection, port 5432 (`db.[ref].supabase.co`). The pooler on 6543 (PgBouncer) drops connections; the old env-var list saying 6543 was stale.
-- `scripts/start.sh`: migrations on a single connection (pool_size=1, `sslmode=require`), sequence reset, then uvicorn on `$PORT`.
+### Deployment: local only
+- Railway (engine.pulsebuilt.net) is shut down, and the Supabase project and its data were deleted (2026-11-06). Don't try to reach either one.
 - FastAPI serves `frontend-react/dist/` (`/assets` StaticFiles + `spa_fallback`, with a `/demo` special case) when `dist/` exists. Same-origin, so `VITE_API_URL` is unneeded.
-- `railway.toml`, `frontend-react/vercel.json` are deploy leftovers. Details in `docs/history/build-log.md`.
+- Leftovers that Phase 5 removes or simplifies: `railway.toml`, `frontend-react/vercel.json`, and Supabase tuning in `scripts/start.sh` (single-connection migrations, `sslmode=require`, sequence reset). Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
 
 ## Streamlit (legacy, slated for removal)
 - Run: `streamlit run frontend/app.py`. Views live in `frontend/views/`; never use `frontend/pages/` (Streamlit auto-discovers it and breaks manual routing).

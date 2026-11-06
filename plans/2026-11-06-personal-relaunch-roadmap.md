@@ -29,13 +29,13 @@ tables, the React pages and the Whoop ingestion. The work is a swap (the Garmin 
 | D6 | **Leave `landing/` untouched.** | It's the pulsebuilt.net studio page, deployed by Cloudflare Pages from this repo, not part of the dashboard. |
 | D7 | **Defer frontend major upgrades** (React 19, Vite 7, Tailwind 4, Recharts 3, React Router 7). | That work is separate from the relaunch. Phase 5 only bumps versions within the current majors. |
 
-## Open questions (SJ's to answer; only the phases noted are blocked)
+## Questions for SJ
 
-| # | Question | Recommendation | Blocks |
-|---|---|---|---|
-| Q1 | Where does it run? | **Local Docker Compose with SQLite on disk.** Add Tailscale if you want phone access. Railway and Supabase are the fallback if you want it always on without leaving a machine running. Incremental sync catches up after downtime either way. | Phase 5 |
-| Q2 | Is the Supabase project (and the history in it) still alive? Free projects pause after inactivity and are eventually deleted. | Check in the Supabase dashboard. If it's alive, export before anything else. | Phase 6 |
-| Q3 | Should `landing/` and pulsebuilt.net stay in this repo? | Leave them for now (D6). Move them to their own repo when convenient. | Nothing |
+| # | Question | Answer |
+|---|---|---|
+| Q1 | Where does it run? | **Answered 2026-11-06: locally.** Railway is dead. Docker Compose + SQLite on disk. Incremental sync catches up after the machine has been off. |
+| Q2 | Is the Supabase history still alive? | **Answered 2026-11-06: no.** Supabase was deleted. The old data is gone, and everything gets pulled from scratch (Phase 6). |
+| Q3 | Should `landing/` and pulsebuilt.net stay in this repo? | Open. Leave them for now (D6), and move them to their own repo when convenient. Blocks nothing. |
 
 ## Phase dependency graph
 
@@ -51,11 +51,11 @@ Phase 0 (preconditions) ──► Phase 1 (spike, needs Garmin key)
                                   ▼
                            Phase 4 (frontend cleanup)
                                   │
-              Q1 ───────────────► ▼
-                           Phase 5 (hosting + dependency refresh)
+                                  ▼
+                           Phase 5 (local hosting + dependency refresh)
                                   │
-              Q2 ───────────────► ▼
-                           Phase 6 (history migration / backfill)
+                                  ▼
+                           Phase 6 (backfill from scratch)
                                   │
                                   ▼
                            Phase 7 (docs final pass)
@@ -77,17 +77,32 @@ Phases 3–7 each get a detailed plan when they're picked up. The task lists bel
 - [ ] Create a Garmin Personal API key at <https://connect.garmin.com/app/settings/personalApiToken>.
       Pick **365 days**. Save it in your password manager and put it in `.env` as
       `GARMIN_PERSONAL_API_KEY`. Set a calendar reminder for expiry.
-- [ ] In the WHOOP developer dashboard: confirm the app still exists, and that its redirect URI
-      includes `http://localhost:8000/api/auth/whoop/callback`. Copy the client ID and secret
-      into `.env`. Remove the webhook URL, or switch it to v2 if you keep Railway.
-- [ ] Answer Q1 and Q2 (above).
+- [x] WHOOP app still exists (confirmed 2026-11-06).
+- [ ] In the WHOOP developer dashboard, make sure the redirect URIs include
+      `http://localhost:8000/api/auth/whoop/callback`. The old one was engine.pulsebuilt.net.
+      Copy the client ID and secret into `.env`, and remove the webhook URL (D3).
+- [x] Answer Q1 and Q2 (above).
+- [x] `.env` created from `.env.example` (gitignored, mode 600, JWT secret generated). Still
+      needs the Whoop client ID/secret and the Garmin key.
 
 **Agent:**
-- [ ] Bootstrap the local env. There is no `.venv` or `node_modules` right now. Run
-      `uv sync` (Python 3.11+) and `cd frontend-react && npm ci`.
-- [ ] Baseline: run `make test`, `make lint`, `npm run typecheck` and `npm run build`, and record
-      the results in the Phase 1 notes. (CLAUDE.md last claimed 946 passing tests. Verify that
-      number; don't trust it.)
+- [x] Bootstrap the local env (2026-11-06). `uv sync --frozen` produced `.venv` on Python
+      3.12.13, and `npm ci` ran on Node 25.9.0. `uv` is **not installed globally**; the agent used
+      a throwaway copy. SJ: `brew install uv`.
+- [x] Baseline, recorded 2026-11-06 on `main` code:
+  - `pytest -q` (serial): **909 passed**, 0 failed, 1 warning (an un-awaited coroutine in
+    `test_scheduler_multiuser.py::TestCatchupOnRestart`). The old "946" was stale.
+  - `pytest -n auto` (xdist) is **broken**: 18 collection errors (SQLite `OperationalError` in
+    `test_data_isolation.py` and `test_garmin_credentials.py`, plus "different tests collected
+    between workers"). Run tests serially until that's fixed. `test_garmin_credentials.py` is
+    deleted in Phase 2; check whether `test_data_isolation.py` still fails under xdist afterwards.
+  - `make lint`: **25 existing ruff errors** (F401 unused imports, I001 import order, F841 unused
+    locals; 23 auto-fixable).
+  - `npm run typecheck` and `npm run build`: pass. `npm ci` reports 25 vulnerabilities (3 low,
+    11 moderate, 11 high), to be handled in the Phase 5 dependency refresh.
+- [ ] Clean lint baseline: `.venv/bin/ruff check --fix .`, fix the 2 non-auto-fixable errors by
+      hand, and confirm `pytest -q` still reports 909 passed. Do this first in Phase 2, so "lint
+      stays clean" means something.
 
 ## Phase 1: Spike (needs the key)
 
@@ -109,8 +124,7 @@ The detailed plan is [`2026-11-06-garmin-personal-api-client.md`](2026-11-06-gar
   (migration 014). Incremental runs re-fetch a 2-day overlap, because the activity filter is on
   local start date and the container clock is UTC.
 - Strength API routes read the summaries and still show existing set-level history.
-- `get_owner_user_id()` (with an `OWNER_EMAIL` tie-break for DBs that hold SaaS-era users). The
-  scheduler collapses to one Garmin job and one Whoop job for the owner.
+- `get_owner_user_id()`. The scheduler collapses to one Garmin job and one Whoop job for the owner.
 - Delete `garminconnect`, `garmin_auth.py`, `encryption.py`, the credential routes and the
   settings fields that went with them.
 - Frontend: the Garmin card in Settings and the Connect-devices panel reads the key status
@@ -120,12 +134,11 @@ The detailed plan is [`2026-11-06-garmin-personal-api-client.md`](2026-11-06-gar
 
 Scope for its detailed plan:
 1. **Owner bootstrap.** Add `scripts/create_owner.py --email you@x` (password via `getpass`) and
-   delete `POST /api/auth/register`. Keep login, refresh and change-password. If a user row
-   already exists (for example from migrated Supabase data), that row is the owner. Refuse to
-   create a second one. Also make `get_current_user` (`src/auth/dependencies.py`) reject a token
-   whose `sub` is not `get_owner_user_id()` with a 401. Today it builds `User(id=sub)` with no DB
-   check, so after a DB swap (Phase 6) a stale 30-day refresh token would log you into an empty
-   dashboard instead of bouncing you to login. Cache the owner id in-process.
+   delete `POST /api/auth/register`. Keep login, refresh and change-password. Refuse to create a
+   second user. Also make `get_current_user` (`src/auth/dependencies.py`) reject a token whose
+   `sub` is not `get_owner_user_id()` with a 401. Today it builds `User(id=sub)` with no DB
+   check, so after the DB is wiped and rebuilt, a stale 30-day refresh token would log you into
+   an empty dashboard instead of bouncing you to login. Cache the owner id in-process.
 2. **Remove the waitlist**: `src/api/routes/waitlist.py`, its `main.py` registration and
    `_NO_CACHE_PREFIXES` entry, `ADMIN_EMAIL`, and `tests/test_waitlist.py`. **Leave migration
    files in place**, because existing DBs have run them. Don't delete tables.
@@ -174,13 +187,15 @@ Scope for its detailed plan:
    The Training charts keep their current endpoints.
 6. Delete `pulse-demo/`, its Dockerfile stage and copy line, and the `/demo` special-case in
    `main.py`'s `spa_fallback`.
-7. PWA: keep it only if Q1 allows phone access. Otherwise remove `vite-plugin-pwa`,
-   `InstallPrompt` and `manifest.json`.
+7. PWA: remove `vite-plugin-pwa`, `InstallPrompt`, `useOnlineStatus` (if nothing else uses it)
+   and `manifest.json`. The app runs locally (Q1), and a service worker on localhost only causes
+   stale-cache confusion. Re-add it if remote access via Tailscale (Phase 5.7) gets used on a
+   phone.
 
 **Done when:** `npm run typecheck` and `npm run build` are clean, and no frontend code calls a
 backend route deleted in Phases 2–3 (grep `useApi.ts` against `src/api/routes`).
 
-## Phase 5: Hosting + dependency refresh (blocked on Q1)
+## Phase 5: Local hosting + dependency refresh
 
 1. **Dockerfile**: drop the pulse-demo stage, and move to `python:3.12-slim` and `node:22-slim`.
    Update ruff's `target-version` and `requires-python` to match.
@@ -189,8 +204,7 @@ backend route deleted in Phases 2–3 (grep `useApi.ts` against `src/api/routes`
 3. **`scripts/start.sh`**: only pass the Supabase-specific `sslmode=require` when `DATABASE_URL`
    is Postgres. Add `garmin_exercise_summaries` to its Postgres sequence-reset list next to
    `garmin_exercise_sets`.
-4. If Q1 is local: delete `railway.toml` and `frontend-react/vercel.json`. If Q1 is Railway: keep
-   `railway.toml` and delete `vercel.json`.
+4. Delete `railway.toml` and `frontend-react/vercel.json` (Q1: local; Railway is dead).
 5. **Makefile**: switch to `uv run`, and add `make up` (compose), `make owner`
    (`create_owner.py`) and `make backfill START=… END=…`. The backfill target needs a script
    that takes `--start/--end/--source`; `scripts/initial_sync.py` has no arguments today (fixed
@@ -203,21 +217,23 @@ backend route deleted in Phases 2–3 (grep `useApi.ts` against `src/api/routes`
    the current majors. Then re-run the full test suite and the build.
 7. Remote access (optional): document `tailscale serve 8000`.
 
-## Phase 6: History (blocked on Q2)
+## Phase 6: Backfill from scratch
 
-1. If Supabase is alive, add `scripts/export_postgres_to_sqlite.py` (the reverse of
-   `scripts/migrate_to_postgres.py`; include `garmin_exercise_summaries` in its table list) and
-   copy **only the owner's rows**: the one `users` row plus every table filtered by that
-   `user_id`, so the owner id and `user_id` values carry over. The SaaS had open registration,
-   so other people's accounts and health data are in that database; they must not land on the
-   personal box. Skip `waitlist`, `garmin_credentials` and the garmin `token_store` rows.
+Supabase was deleted (Q2), so there's nothing to migrate. The DB is a fresh SQLite file at
+`data/fitness_dashboard.db`, created by migrations on first start.
+
+1. `make owner` (Phase 3.1 / 5.5) creates the single user, then connect Whoop via Settings
+   (OAuth).
 2. **Whoop**: backfill through the existing pipeline with an explicit date range. The Whoop API
-   serves full history.
+   serves full history. Pick a start date (for example 2 years back), and at 100 req/min the
+   default rate limit is not a concern.
 3. **Garmin**: backfill through the Personal API as deep as the Phase 1 spike showed, with
    `make backfill` (Phase 5.5: ≤31-day chunks, oldest first, API stopped). At 1 call/s and three
    calls per day, two years is about 40 minutes. For anything older, request a Garmin account
-   data export and load it with `scripts/import_data.py`.
-4. Re-run `normalize_all` and recompute the anomaly cache.
+   data export and load it with `scripts/import_data.py`. Old strength sessions from the export
+   come in with set-level rows, which Phase 2's "sets win over summaries" rule already handles.
+4. Re-run `normalize_all` and recompute the anomaly cache. Backfill Whoop and Garmin before
+   normalizing, so dedup sees both sides.
 
 ## Phase 7: Docs final pass
 
@@ -236,4 +252,4 @@ banner) and `.env.example`. Fold any spike findings into the research doc.
 | Key expires silently | The status endpoint and Settings card surface "key rejected/expired". Pick the 365-day expiry, and Garmin emails about a week before. |
 | Undocumented rate limits | 1 s between calls, abort the run on the first 429, poll every 30 min, and backfill in chunks so an abort loses little. Range endpoints are a later optimization, not part of the client: `dailySleepSummariesByDate` (31 d) and `hrv/daily` (same `hrvSummary` shape) would be drop-ins, but the daily-summary range (`v2/dailysummaries`) is a different nested shape and needs its own transform. |
 | A 5xx or outage mid-run | The run ends as `error` and the window doesn't advance, so nothing is skipped; the next interval re-pulls. Incremental runs also overlap the previous `sync_end` by 2 days. |
-| Supabase data is already gone | Backfill from the Whoop API, the Garmin Personal API and the Garmin export. Some derived data (anomaly cache) gets recomputed. |
+| Old history lost with Supabase (confirmed) | Backfill from the Whoop API, the Garmin Personal API and the Garmin export (Phase 6). Derived data (unified tables, anomaly cache) gets recomputed. |
