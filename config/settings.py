@@ -67,9 +67,8 @@ settings = Settings(
     streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
     cors_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()],
     garmin_personal_api_key=os.getenv("GARMIN_PERSONAL_API_KEY", ""),
-    garmin_personal_api_base_url=os.getenv(
-        "GARMIN_PERSONAL_API_BASE_URL", "https://personal.connectapi.garmin.com"
-    ),
+    garmin_personal_api_base_url=os.getenv("GARMIN_PERSONAL_API_BASE_URL")
+    or "https://personal.connectapi.garmin.com",
     garmin_poll_interval_minutes=int(os.getenv("GARMIN_POLL_INTERVAL_MINUTES", "30")),
     jwt_secret=os.getenv("JWT_SECRET", ""),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),

@@ -213,3 +213,53 @@ def test_key_never_in_exception_text_or_logs(caplog):
         assert KEY not in str(ei.value)
     assert KEY not in caplog.text
     assert jwt not in caplog.text
+
+
+def test_http_and_base_url_properties():
+    _, h = ok(timedelta(hours=24))
+    auth, _ = make_auth(h)
+    assert isinstance(auth.http, httpx.Client)
+    assert auth.base_url == BASE
+    client = httpx.Client()
+    a2 = GarminPersonalAuth(api_key="x", base_url=BASE + "/", http=client)
+    assert a2.http is client
+    assert a2.base_url == BASE
+
+
+def test_force_refresh_race_exchanges_once():
+    jwt, h = ok(timedelta(hours=24))
+    auth, calls = make_auth(h)
+    auth.get_token()
+    assert len(calls) == 1
+    # Simulate: this caller saw the old token, then another thread refreshed
+    # before it got the lock. Emulate by holding the lock while swapping.
+    stale = auth._token
+    auth._lock.acquire()
+    import threading
+
+    result = []
+    t = threading.Thread(target=lambda: result.append(auth.get_token(force_refresh=True)))
+    # Make the thread's pre-lock snapshot the stale token, then refresh under it.
+    t.start()
+    import time
+
+    time.sleep(0.1)
+    auth._token = gpa.BearerToken(access_token=jwt, expires_at=stale.expires_at + timedelta(hours=1))
+    auth._lock.release()
+    t.join()
+    assert result == [jwt]
+    assert len(calls) == 1
+
+
+def test_huge_exp_raises_key_error():
+    tok = f"{_b64({'alg': 'none'})}.{_b64({'exp': 1e17})}."
+    with pytest.raises(GarminKeyError):
+        gpa.decode_jwt_exp(tok)
+
+
+def test_reset_default_auth_closes_owned_client():
+    reset_default_auth()
+    a = get_default_auth()
+    assert not a.http.is_closed
+    reset_default_auth()
+    assert a.http.is_closed

@@ -57,7 +57,7 @@ def decode_jwt_exp(token: str) -> datetime:
         claims = jwt.get_unverified_claims(token)
         exp = claims["exp"]
         return datetime.fromtimestamp(float(exp), UTC)
-    except (JWTError, KeyError, TypeError, ValueError, OverflowError) as exc:
+    except (JWTError, KeyError, TypeError, ValueError, OverflowError, OSError) as exc:
         raise GarminKeyError(
             f"Garmin returned an unreadable token; regenerate your key at {KEY_PAGE_URL}"
         ) from exc
@@ -76,10 +76,26 @@ class GarminPersonalAuth:
         self._base_url = (
             settings.garmin_personal_api_base_url if base_url is None else base_url
         ).rstrip("/")
+        self._owns_http = http is None
         self._http = http or httpx.Client(timeout=30.0)
         self._lock = threading.Lock()
         self._token: BearerToken | None = None
         self.last_error: str | None = None
+
+    @property
+    def http(self) -> httpx.Client:
+        """The shared (thread-safe) HTTP client."""
+        return self._http
+
+    @property
+    def base_url(self) -> str:
+        """The Personal API base URL, without a trailing slash."""
+        return self._base_url
+
+    def close(self) -> None:
+        """Close the HTTP client if this instance created it."""
+        if self._owns_http:
+            self._http.close()
 
     @property
     def token_expires_at(self) -> datetime | None:
@@ -95,8 +111,10 @@ class GarminPersonalAuth:
         """Return a valid bearer JWT, re-exchanging when under 1 h remains."""
         if not force_refresh and self._fresh():
             return self._token.access_token  # type: ignore[union-attr]
+        seen = self._token
         with self._lock:
-            if not force_refresh and self._fresh():
+            if self._fresh() and (not force_refresh or self._token is not seen):
+                # Fresh, or another thread already refreshed while we waited.
                 return self._token.access_token  # type: ignore[union-attr]
             self._token = self._exchange()
             return self._token.access_token
@@ -159,4 +177,6 @@ def reset_default_auth() -> None:
     """Discard the process-wide instance (for tests)."""
     global _default_auth
     with _default_lock:
-        _default_auth = None
+        old, _default_auth = _default_auth, None
+    if old is not None:
+        old.close()
