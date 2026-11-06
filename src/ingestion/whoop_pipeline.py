@@ -302,7 +302,7 @@ class WhoopPipeline:
             logger.info("Normalization complete: %s", norm_counts)
 
         except Exception as exc:
-            logger.exception("Whoop sync failed")
+            logger.error("Whoop sync failed: %s", exc)  # caller logs the traceback
             try:
                 self._db.rollback()
                 mark_sync_error(log, exc)

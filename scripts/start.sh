@@ -32,8 +32,7 @@ if not settings.database_url.startswith('sqlite'):
                 f\"COALESCE((SELECT MAX(id) FROM {t}), 0) + 1, false)\"
             ))
     print('Sequences reset.')
-
-engine.dispose()
+    engine.dispose()
 "
 echo "Startup DB tasks complete."
 

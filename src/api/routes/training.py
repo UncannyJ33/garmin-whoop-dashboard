@@ -34,8 +34,7 @@ async def training_load_ratio(
     """Compute the Acute:Chronic Workload Ratio for today (or the supplied date).
 
     Returns the ACWR value, zone classification, trend direction, and a per-week
-    load breakdown for the last 4 weeks.  Returns 204 No Content when no training
-    data exists for this user.
+    load breakdown for the last 4 weeks.
     """
     try:
         target = local_date or date.today()

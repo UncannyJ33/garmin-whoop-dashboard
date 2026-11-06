@@ -246,6 +246,18 @@ def test_403_raises_key_error_without_retry():
     assert len(reqs) == 1
 
 
+def test_success_clears_stale_key_error():
+    def h(r, n):
+        return httpx.Response(403) if n == 1 else httpx.Response(200, json={"totalSteps": 1})
+
+    client, _ = make_client(h)
+    with pytest.raises(GarminKeyError):
+        client.get_daily_summary("2026-11-01")
+    assert "HTTP 403" in client._auth.last_error
+    assert client.get_daily_summary("2026-11-01") == {"totalSteps": 1}
+    assert client._auth.last_error is None
+
+
 def test_429_raises_rate_limit(monkeypatch):
     slept: list[float] = []
     monkeypatch.setattr(gc.time, "sleep", lambda s: slept.append(s))

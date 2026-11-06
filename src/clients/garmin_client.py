@@ -231,6 +231,9 @@ class GarminClient:
                 return None
             if not 200 <= status < 300:
                 raise GarminTransientError(f"Unexpected Garmin response for {path} (HTTP {status})")
+            # A successful data response proves the cached bearer token is accepted,
+            # so drop any stale bearer-level rejection recorded by an earlier call.
+            self._auth.last_error = None
             if status == 204 or not resp.content.strip():
                 return None
             try:

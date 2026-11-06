@@ -299,7 +299,7 @@ class TestColumnMapping:
         assert _single(_RUN_ROW)["max_running_cadence"] == pytest.approx(172.0)
 
     def test_avg_stride_length(self):
-        assert _single(_RUN_ROW)["avg_stride_length"] == pytest.approx(0.95)
+        assert _single(_RUN_ROW)["avg_stride_length"] == pytest.approx(95.0)
 
     def test_avg_vertical_ratio(self):
         assert _single(_RUN_ROW)["avg_vertical_ratio"] == pytest.approx(9.2)

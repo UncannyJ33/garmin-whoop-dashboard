@@ -475,7 +475,7 @@ class GarminPipeline:
             self._db.rollback()
             mark_sync_error(log, exc)
             self._db.commit()
-            logger.exception("Garmin sync failed")
+            logger.error("Garmin sync failed: %s", exc)  # caller logs the traceback
             raise
 
         return log

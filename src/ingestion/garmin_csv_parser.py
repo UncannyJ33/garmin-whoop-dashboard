@@ -97,6 +97,12 @@ def _null(val: str) -> bool:
     return not val or val.strip() in {"--", "-", ""}
 
 
+def _stride_cm(val: str) -> float | None:
+    """Parse Garmin's CSV stride length (metres) into centimetres, matching the API path."""
+    metres = _parse_float(val)
+    return None if metres is None else round(metres * 100, 1)
+
+
 def _parse_float(val: str) -> float | None:
     if _null(val):
         return None
@@ -263,7 +269,7 @@ def parse_activities_csv(
                     "max_speed": None,  # not in CSV
                     "elevation_gain": elevation_gain,
                     "elevation_loss": elevation_loss,
-                    "avg_stride_length": _parse_float(raw.get("Avg Stride Length", "")),
+                    "avg_stride_length": _stride_cm(raw.get("Avg Stride Length", "")),
                     "vo2_max": None,  # not in CSV
                     "training_effect_aerobic": aerobic_te,
                     "training_effect_anaerobic": None,  # not in CSV
