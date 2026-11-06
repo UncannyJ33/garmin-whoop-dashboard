@@ -16,7 +16,6 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = "https://personal.connectapi.garmin.com"
 TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
 KEY_PAGE_URL = "https://connect.garmin.com/app/settings/personalApiToken"
 
