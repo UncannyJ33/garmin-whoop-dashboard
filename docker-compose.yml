@@ -9,8 +9,3 @@ services:
       - ./data:/app/data
       - ./config:/app/config
     restart: unless-stopped
-    # Garmin tokens are cached in GARMIN_TOKEN_DIR after first login.
-    # By default this is data/garmin_tokens/ which is already inside ./data above.
-    # If you set GARMIN_TOKEN_DIR to an absolute host path (e.g. ~/.garminconnect),
-    # uncomment and adjust the line below:
-    # - ~/.garminconnect:/app/data/garmin_tokens

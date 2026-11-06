@@ -246,33 +246,6 @@ async def whoop_connection_status(
     return JSONResponse({"connected": connected})
 
 
-# ── Garmin credential-based connect ───────────────────────────────────────────
-
-
-class GarminConnectBody(BaseModel):
-    email: str
-    password: str
-
-
-@router.post("/garmin/connect", summary="Connect Garmin with email and password")
-async def garmin_connect(
-    body: GarminConnectBody,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> JSONResponse:
-    """Authenticate with Garmin Connect and persist per-user session tokens.
-
-    The raw password is never stored — only the session tokens.
-    """
-    from src.clients.garmin_auth import GarminAuthError, authenticate_user_garmin
-
-    try:
-        authenticate_user_garmin(current_user.id, body.email, body.password, db)
-    except GarminAuthError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return JSONResponse({"connected": True, "message": "Garmin connected successfully."})
-
-
 @router.get("/feature-flags", summary="Return feature flags for the current user")
 async def feature_flags(request: Request) -> JSONResponse:
     """Return feature flags that control frontend behaviour.

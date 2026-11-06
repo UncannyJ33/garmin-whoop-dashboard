@@ -13,11 +13,6 @@ class Settings:
     whoop_client_secret: str
     whoop_redirect_uri: str
 
-    # Garmin credentials
-    garmin_email: str
-    garmin_password: str
-    garmin_token_dir: str
-
     # Database
     database_url: str
 
@@ -46,9 +41,6 @@ class Settings:
     # Whoop even when whoop_public_oauth_enabled is False
     whoop_allowed_user_ids: list[str]
 
-    # Encryption key for stored Garmin credentials (Fernet base64 key)
-    garmin_encryption_key: str
-
     # Admin email for protected admin endpoints
     admin_email: str
 
@@ -59,9 +51,6 @@ settings = Settings(
     whoop_redirect_uri=os.getenv(
         "WHOOP_REDIRECT_URI", "http://localhost:8000/api/auth/whoop/callback"
     ),
-    garmin_email=os.getenv("GARMIN_EMAIL", ""),
-    garmin_password=os.getenv("GARMIN_PASSWORD", ""),
-    garmin_token_dir=os.getenv("GARMIN_TOKEN_DIR", "data/garmin_tokens"),
     database_url=os.getenv("DATABASE_URL", "sqlite:///data/fitness_dashboard.db"),
     app_port=int(os.getenv("PORT") or os.getenv("APP_PORT", "8000")),
     streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
@@ -79,6 +68,5 @@ settings = Settings(
         for uid in os.getenv("WHOOP_ALLOWED_USER_IDS", "").split(",")
         if uid.strip()
     ],
-    garmin_encryption_key=os.getenv("GARMIN_ENCRYPTION_KEY", ""),
     admin_email=os.getenv("ADMIN_EMAIL", ""),
 )

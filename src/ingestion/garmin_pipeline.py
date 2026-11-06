@@ -235,12 +235,6 @@ def transform_sleep(date_str: str, record: dict, fetched_at: str) -> dict:
     }
 
 
-# Garmin activity typeKey values that have exercise set data
-_STRENGTH_TYPES: frozenset[str] = frozenset(
-    {"strength_training", "weight_training", "indoor_cardio", "hiit", "pilates", "yoga"}
-)
-
-
 def transform_exercise_sets(activity_id: str, raw: dict, fetched_at: str) -> list[dict]:
     """Map a Garmin exerciseSets response to a list of garmin_exercise_sets rows.
 

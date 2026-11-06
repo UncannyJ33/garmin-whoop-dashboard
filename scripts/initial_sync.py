@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
+from src.database.owner import get_owner_user_id
 from src.ingestion.garmin_pipeline import GarminPipeline
 from src.ingestion.whoop_pipeline import WhoopPipeline
 
@@ -35,6 +36,7 @@ async def main() -> None:
     engine = get_engine()
     run_migrations(engine=engine)
     db = get_session_factory(engine)()
+    owner = get_owner_user_id(engine)
 
     try:
         now = datetime.now(tz=UTC)
@@ -42,12 +44,12 @@ async def main() -> None:
 
         # ── Whoop ──────────────────────────────────────────────────────
         print(f"\nStarting Whoop sync: {start.date()} → {now.date()}\n")
-        whoop_log = await WhoopPipeline(db).run(start=start, end=now)
+        whoop_log = await WhoopPipeline(db, user_id=owner).run(start=start, end=now)
         _print_summary("Whoop", whoop_log)
 
         # ── Garmin ─────────────────────────────────────────────────────
         print(f"\nStarting Garmin sync: {start.date()} → {now.date()}\n")
-        garmin_log = GarminPipeline(db).run(start=start.date(), end=now.date())
+        garmin_log = GarminPipeline(db, user_id=owner).run(start=start.date(), end=now.date())
         _print_summary("Garmin", garmin_log)
 
     finally:

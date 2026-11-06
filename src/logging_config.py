@@ -47,8 +47,6 @@ def configure_logging(log_level: str = "INFO") -> None:
             "loggers": {
                 "httpx": {"level": "WARNING", "propagate": True},
                 "httpcore": {"level": "WARNING", "propagate": True},
-                "garminconnect": {"level": "WARNING", "propagate": True},
-                "curl_cffi": {"level": "WARNING", "propagate": True},
                 "sqlalchemy.engine": {"level": "WARNING", "propagate": True},
                 "apscheduler": {"level": "WARNING", "propagate": True},
                 "watchdog": {"level": "WARNING", "propagate": True},
