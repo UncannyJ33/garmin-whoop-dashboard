@@ -7,15 +7,22 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from src.clients.garmin_personal_auth import (
+    GarminKeyError,
+    GarminRateLimitError,
+    GarminTransientError,
+)
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
 from src.database.models import (
     GarminActivity,
     GarminDailySummary,
+    GarminExerciseSummary,
     GarminHRV,
     GarminSleep,
     SyncLog,
 )
+from src.ingestion import garmin_pipeline
 from src.ingestion.garmin_pipeline import (
     GarminPipeline,
     _ms_to_iso,
@@ -379,7 +386,7 @@ def test_sync_activities_skips_on_empty_list(db):
     mock_client.get_activities.return_value = []
 
     pipeline = GarminPipeline(db, client=mock_client)
-    fetched, stored, _ = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
+    fetched, stored = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
 
     assert fetched == 0
     assert stored == 0
@@ -391,7 +398,7 @@ def test_sync_activities_stores_multiple(db):
     mock_client.get_activities.return_value = [SAMPLE_ACTIVITY, second_activity]
 
     pipeline = GarminPipeline(db, client=mock_client)
-    fetched, stored, _ = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
+    fetched, stored = pipeline._sync_activities(date(2024, 3, 1), date(2024, 3, 5), "ts")
 
     assert fetched == 2
     assert stored == 2
@@ -411,21 +418,22 @@ def test_sync_window_defaults_to_30_days(db):
     assert end == datetime.now(tz=UTC).date()
 
 
-def test_sync_window_uses_last_successful_sync(db):
-    yesterday = (datetime.now(tz=UTC).date() - timedelta(days=1)).isoformat()
+def test_sync_window_overlaps_previous_end(db):
+    d = datetime.now(tz=UTC).date() - timedelta(days=1)
     log = SyncLog(
         source="garmin",
         sync_type="incremental",
         started_at="2024-03-04T00:00:00+00:00",
         status="success",
-        metadata_json=json.dumps({"sync_start": "2024-03-01", "sync_end": yesterday}),
+        metadata_json=json.dumps({"sync_start": "2024-03-01", "sync_end": d.isoformat()}),
     )
     db.add(log)
     db.commit()
 
     pipeline = GarminPipeline(db, client=MagicMock())
     start, end = pipeline._get_sync_window()
-    assert start.isoformat() == yesterday
+    assert start == d - timedelta(days=2)
+    assert end == datetime.now(tz=UTC).date()
 
 
 def test_sync_window_ignores_failed_syncs(db):
@@ -577,3 +585,130 @@ def test_migration_014_creates_table_idempotent():
         "fetched_at",
         "user_id",
     }
+
+
+# ---------------------------------------------------------------------------
+# Pipeline wiring on the Personal API client (Task 5)
+# ---------------------------------------------------------------------------
+
+
+class FakeClient:
+    """Records every call; no network."""
+
+    def __init__(self, activities=None, summary=None, sleep=None, hrv=None):
+        self.activities = activities or []
+        self.summary = SAMPLE_DAILY_SUMMARY if summary is None else summary
+        self.sleep = sleep
+        self.hrv = hrv
+        self.calls: list[str] = []
+        self.activities_exc: Exception | None = None
+        self.summary_exc: Exception | None = None
+
+    def get_activities(self, start, end):
+        self.calls.append("get_activities")
+        if self.activities_exc:
+            raise self.activities_exc
+        return self.activities
+
+    def get_daily_summary(self, d):
+        self.calls.append("get_daily_summary")
+        if self.summary_exc:
+            raise self.summary_exc
+        return self.summary
+
+    def get_sleep(self, d):
+        self.calls.append("get_sleep")
+        return self.sleep
+
+    def get_hrv(self, d):
+        self.calls.append("get_hrv")
+        return self.hrv
+
+
+def _strength_record() -> dict:
+    acts = _fx("activities.json")
+    acts = acts if isinstance(acts, list) else acts.get("activities", acts)
+    return next(a for a in acts if a.get("summarizedExerciseSets"))
+
+
+def test_strength_activity_writes_summaries_without_extra_call(db):
+    rec = _strength_record()
+    client = FakeClient(activities=[rec])
+    d = date(2024, 3, 5)
+    log = GarminPipeline(db, client=client, user_id="u1").run(start=d, end=d)
+    assert log.status == "success"
+    rows = db.query(GarminExerciseSummary).all()
+    assert len(rows) == len(rec["summarizedExerciseSets"])
+    assert {r.user_id for r in rows} == {"u1"}
+    assert set(client.calls) <= {"get_activities", "get_daily_summary", "get_sleep", "get_hrv"}
+    assert client.calls.count("get_activities") == 1
+
+
+def test_resync_replaces_summaries(db):
+    rec = _strength_record()
+    d = date(2024, 3, 5)
+    for _ in range(2):
+        GarminPipeline(db, client=FakeClient(activities=[rec])).run(start=d, end=d)
+    assert db.query(GarminExerciseSummary).count() == len(rec["summarizedExerciseSets"])
+
+
+def test_run_records_key_error(db):
+    client = FakeClient()
+    client.activities_exc = GarminKeyError("key rejected - see settings")
+    d = date(2024, 3, 5)
+    log = GarminPipeline(db, client=client).run(start=d, end=d)
+    assert log.status == "error"
+    assert "key rejected" in log.error_message
+
+
+def test_run_aborts_on_rate_limit(db):
+    client = FakeClient(activities=[SAMPLE_ACTIVITY])
+    client.summary_exc = GarminRateLimitError("429")
+    log = GarminPipeline(db, client=client).run(start=date(2024, 3, 1), end=date(2024, 3, 5))
+    assert client.calls.count("get_daily_summary") == 1
+    assert log.status == "error"
+
+
+def test_run_records_transient_error(db):
+    client = FakeClient()
+    client.activities_exc = GarminTransientError("503")
+    d = date(2024, 3, 5)
+    log = GarminPipeline(db, client=client).run(start=d, end=d)
+    assert log.status == "error"
+
+
+def test_failed_run_does_not_advance_window(db):
+    client = FakeClient()
+    client.activities_exc = GarminTransientError("503")
+    GarminPipeline(db, client=client).run()
+    start, _ = GarminPipeline(db, client=MagicMock())._get_sync_window()
+    assert (datetime.now(tz=UTC).date() - start).days == 30
+
+
+def test_no_watch_night_writes_no_sleep_or_hrv_rows(db):
+    client = FakeClient(sleep=None, hrv=None)
+    d = date(2024, 3, 5)
+    GarminPipeline(db, client=client).run(start=d, end=d)
+    assert db.query(GarminSleep).count() == 0
+    assert db.query(GarminHRV).count() == 0
+    assert db.get(GarminDailySummary, "2024-03-05") is not None
+
+
+def test_concurrent_run_skipped(db):
+    client = FakeClient()
+    assert garmin_pipeline._RUN_LOCK.acquire(blocking=False)
+    try:
+        assert GarminPipeline(db, client=client).run() is None
+    finally:
+        garmin_pipeline._RUN_LOCK.release()
+    assert client.calls == []
+    assert db.query(SyncLog).count() == 0
+
+
+def test_lock_released_after_exception(db):
+    client = FakeClient()
+    client.activities_exc = RuntimeError("boom")
+    with pytest.raises(RuntimeError):
+        GarminPipeline(db, client=client).run()
+    assert garmin_pipeline._RUN_LOCK.acquire(blocking=False)
+    garmin_pipeline._RUN_LOCK.release()

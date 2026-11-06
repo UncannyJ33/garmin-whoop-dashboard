@@ -214,12 +214,6 @@ def test_get_user_settings():
     assert reqs[0].url.path == "/userprofile-service/userprofile/settings"
 
 
-def test_get_exercise_sets_stub_makes_no_request():
-    client, reqs = make_client(lambda r, n: httpx.Response(200, json={}))
-    assert client.get_exercise_sets(123) is None
-    assert reqs == []
-
-
 def test_401_retries_once_with_forced_refresh():
     def h(r, n):
         return httpx.Response(401 if n == 1 else 200, json={"totalSteps": 1})

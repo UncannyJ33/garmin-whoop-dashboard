@@ -7,16 +7,18 @@ independently — a broken endpoint skips that type without stopping the sync.
 
 import json
 import logging
+import threading
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, TypeVar
 
 from sqlalchemy.orm import Session
 
 from src.clients.garmin_client import GarminClient
+from src.clients.garmin_personal_auth import GarminPersonalApiError
 from src.database.models import (
     GarminActivity,
     GarminDailySummary,
-    GarminExerciseSet,
+    GarminExerciseSummary,
     GarminHRV,
     GarminSleep,
     SyncLog,
@@ -26,6 +28,13 @@ from src.normalization.normalizer import Normalizer
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOOKBACK_DAYS = 30
+# startDate/endDate filter on the activity's local start date while the container
+# clock is UTC, and Garmin keeps revising yesterday's summary, so re-fetch 2 days.
+INCREMENTAL_OVERLAP_DAYS = 2
+
+# Serialises runs (scheduled + manual) so exercise-summary delete/insert and the
+# call rate are not doubled by overlapping syncs.
+_RUN_LOCK = threading.Lock()
 
 # Fixed by the Task 1 spike (docs/research/2026-11-garmin-personal-api.md §9).
 SLEEP_SCORE_KEY = "overall"
@@ -373,22 +382,12 @@ class GarminPipeline:
         Args:
             db: Active SQLAlchemy session used for all reads and writes.
             client: Pre-built GarminClient, useful for injection in tests.
-                    Defaults to a new GarminClient (or per-user client when tokens exist).
+                    Defaults to a new GarminClient on the Personal API.
             user_id: App user UUID to tag all stored records.
         """
-        from src.clients.garmin_auth import GarminAuth, has_garmin_token
-
         self._db = db
         self.user_id = user_id
-        self._user_auth: GarminAuth | None = None
-
-        if client is not None:
-            self._client = client
-        elif user_id is not None and has_garmin_token(user_id, db):
-            self._user_auth = GarminAuth.for_user(user_id, db)
-            self._client = GarminClient(auth=self._user_auth)
-        else:
-            self._client = GarminClient()
+        self._client = client if client is not None else GarminClient()
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -398,17 +397,28 @@ class GarminPipeline:
         self,
         start: date | None = None,
         end: date | None = None,
-    ) -> SyncLog:
+    ) -> SyncLog | None:
         """Fetch and store Garmin data for the given window.
 
         Args:
-            start: Sync window start date. Defaults to the end date of the
-                   last successful garmin sync (or 30 days ago if none exists).
+            start: Sync window start date. Defaults to the last successful sync's
+                   end date minus the overlap (or 30 days ago if none exists).
             end: Sync window end date. Defaults to today.
 
         Returns:
-            The completed SyncLog entry.
+            The completed SyncLog entry, or None if another run holds the lock
+            (no SyncLog is written in that case).
         """
+        if not _RUN_LOCK.acquire(blocking=False):
+            logger.info("Garmin sync already running — skipping this run")
+            return None
+        try:
+            return self._run_locked(start, end)
+        finally:
+            _RUN_LOCK.release()
+
+    def _run_locked(self, start: date | None, end: date | None) -> SyncLog:
+        """Body of :meth:`run`; the caller holds ``_RUN_LOCK``."""
         auto_start, auto_end = self._get_sync_window()
         sync_start = start or auto_start
         sync_end = end or auto_end
@@ -437,18 +447,8 @@ class GarminPipeline:
             records_fetched = 0
             records_stored = 0
 
-            # Activities — single batch call for the whole window
-            n_fetched, n_stored, strength_ids = self._sync_activities(
-                sync_start, sync_end, fetched_at
-            )
-            records_fetched += n_fetched
-            records_stored += n_stored
-
-            # Exercise sets — newly fetched strength activities + any existing
-            # strength activities in the window that are still missing sets
-            missing_ids = self._find_strength_activities_without_sets(sync_start, sync_end)
-            all_strength_ids = list({*strength_ids, *missing_ids})
-            n_fetched, n_stored = self._sync_strength_sets(all_strength_ids, fetched_at)
+            # Activities (and strength summaries) — single batch call for the window
+            n_fetched, n_stored = self._sync_activities(sync_start, sync_end, fetched_at)
             records_fetched += n_fetched
             records_stored += n_stored
 
@@ -473,16 +473,16 @@ class GarminPipeline:
             norm_counts = normalizer.normalize_all(sync_start, sync_end)
             logger.info("Normalization complete: %s", norm_counts)
 
-            # Persist any refreshed session tokens back to DB
-            if self._user_auth is not None and self.user_id is not None:
-                try:
-                    self._user_auth.save_for_user(self.user_id, self._db)
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "Garmin: could not save refreshed tokens for user %s", self.user_id
-                    )
-
+        except GarminPersonalApiError as exc:
+            # Key / rate-limit / transient: abort without advancing the window.
+            self._db.rollback()
+            log.status = "error"
+            log.error_message = str(exc)
+            log.completed_at = datetime.now(tz=UTC).isoformat()
+            self._db.commit()
+            logger.error("Garmin sync aborted: %s", exc)
         except Exception as exc:
+            self._db.rollback()
             log.status = "error"
             log.error_message = str(exc)
             log.completed_at = datetime.now(tz=UTC).isoformat()
@@ -499,8 +499,9 @@ class GarminPipeline:
     def _get_sync_window(self) -> tuple[date, date]:
         """Return (start, end) dates for the next sync window.
 
-        Start is the ``sync_end`` of the last successful Garmin sync, or
-        30 days ago if no prior sync exists.  End is always today.
+        Start is the ``sync_end`` of the last successful Garmin sync minus
+        ``INCREMENTAL_OVERLAP_DAYS``, or 30 days ago if no prior sync exists.
+        End is always today.
         """
         last = (
             self._db.query(SyncLog)
@@ -513,16 +514,19 @@ class GarminPipeline:
         if last and last.metadata_json:
             try:
                 meta = json.loads(last.metadata_json)
-                start = date.fromisoformat(meta["sync_end"])
+                start = date.fromisoformat(meta["sync_end"]) - timedelta(
+                    days=INCREMENTAL_OVERLAP_DAYS
+                )
                 return start, today
             except (KeyError, ValueError):
                 pass
         return today - timedelta(days=DEFAULT_LOOKBACK_DAYS), today
 
-    def _sync_activities(
-        self, start: date, end: date, fetched_at: str
-    ) -> tuple[int, int, list[str]]:
+    def _sync_activities(self, start: date, end: date, fetched_at: str) -> tuple[int, int]:
         """Fetch and upsert all activities in the date range.
+
+        Strength summaries come from each record's ``summarizedExerciseSets``
+        (delete-then-insert per activity); no extra HTTP call is made.
 
         Args:
             start: Range start date.
@@ -530,100 +534,33 @@ class GarminPipeline:
             fetched_at: ISO 8601 fetch timestamp.
 
         Returns:
-            Tuple of (records_fetched, records_stored, strength_activity_ids).
+            Tuple of (records_fetched, records_stored).
         """
         logger.info("Fetching activities %s → %s", start, end)
         activities = self._client.get_activities(start, end)
         if not activities:
             logger.info("No activities returned for %s → %s", start, end)
-            return 0, 0, []
+            return 0, 0
 
-        strength_ids: list[str] = []
+        n_summaries = 0
         for record in activities:
             data = transform_activity(record, fetched_at)
             data["user_id"] = self.user_id
             self._upsert(GarminActivity, "activity_id", data)
-            atype = (record.get("activityType") or {}).get("typeKey") or ""
-            if atype in _STRENGTH_TYPES:
-                strength_ids.append(data["activity_id"])
+            rows = transform_exercise_summaries(data["activity_id"], record, fetched_at)
+            if rows:
+                self._db.flush()
+                self._db.query(GarminExerciseSummary).filter_by(
+                    activity_id=data["activity_id"]
+                ).delete()
+                for row in rows:
+                    row["user_id"] = self.user_id
+                    self._db.add(GarminExerciseSummary(**row))
+                n_summaries += len(rows)
         self._db.commit()
 
-        logger.info("Stored %d activities (%d strength)", len(activities), len(strength_ids))
-        return len(activities), len(activities), strength_ids
-
-    def _find_strength_activities_without_sets(self, start: date, end: date) -> list[str]:
-        """Return garmin_activity IDs for strength sessions in the window with no sets stored.
-
-        This catches activities that were ingested in a previous sync before
-        exercise-set fetching was implemented.
-
-        Args:
-            start: Window start date (inclusive).
-            end: Window end date (inclusive).
-
-        Returns:
-            List of activity ID strings.
-        """
-        from sqlalchemy import text as _text
-
-        strength_type_list = ", ".join(f"'{t}'" for t in _STRENGTH_TYPES)
-        rows = self._db.execute(
-            _text(f"""
-                SELECT ga.activity_id
-                FROM garmin_activities ga
-                WHERE ga.activity_type IN ({strength_type_list})
-                  AND DATE(ga.start_time) BETWEEN :start AND :end
-                  AND NOT EXISTS (
-                      SELECT 1 FROM garmin_exercise_sets es
-                      WHERE es.activity_id = ga.activity_id
-                  )
-            """),
-            {"start": start.isoformat(), "end": end.isoformat()},
-        ).fetchall()
-        ids = [r[0] for r in rows]
-        if ids:
-            logger.info(
-                "Found %d strength activities missing exercise sets — backfilling", len(ids)
-            )
-        return ids
-
-    def _sync_strength_sets(self, activity_ids: list[str], fetched_at: str) -> tuple[int, int]:
-        """Fetch and store exercise sets for the given strength activity IDs.
-
-        Existing sets for each activity are deleted before reinsertion so that
-        a re-sync always reflects the latest data from Garmin.
-
-        Args:
-            activity_ids: Garmin activity IDs to fetch sets for.
-            fetched_at: ISO 8601 fetch timestamp.
-
-        Returns:
-            Tuple of (records_fetched, records_stored).
-        """
-        if not activity_ids:
-            return 0, 0
-
-        fetched = 0
-        stored = 0
-        for aid in activity_ids:
-            raw = self._client.get_exercise_sets(aid)
-            if raw is None:
-                logger.warning("Exercise sets unavailable for activity %s — skipping", aid)
-                continue
-
-            rows = transform_exercise_sets(aid, raw, fetched_at)
-            fetched += len(rows)
-
-            # Delete stale rows before reinserting
-            self._db.query(GarminExerciseSet).filter_by(activity_id=aid).delete()
-            for row in rows:
-                row["user_id"] = self.user_id
-                self._db.add(GarminExerciseSet(**row))
-            self._db.commit()
-            stored += len(rows)
-            logger.info("Stored %d sets for activity %s", len(rows), aid)
-
-        return fetched, stored
+        logger.info("Stored %d activities (%d exercise summaries)", len(activities), n_summaries)
+        return len(activities), len(activities)
 
     def _sync_daily(self, d: date, fetched_at: str) -> tuple[int, int]:
         """Fetch and upsert daily summary, sleep, and HRV for a single date.

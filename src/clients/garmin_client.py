@@ -172,14 +172,6 @@ class GarminClient:
             raise GarminTransientError("unexpected user settings response")
         return data
 
-    def get_exercise_sets(self, activity_id: str | int) -> None:
-        """No-op stub: exercise sets are unavailable on the Personal API.
-
-        Kept only because garmin_pipeline still calls it; Task 5 removes it.
-        """
-        logger.debug("Exercise sets unavailable on the Personal API (activity %s)", activity_id)
-        return None
-
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
