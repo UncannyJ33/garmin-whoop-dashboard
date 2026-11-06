@@ -1,335 +1,216 @@
-"""Tests for the Garmin API client."""
+"""Tests for the Garmin Personal API client (httpx.MockTransport, stub auth)."""
 
+import json
+import logging
 from datetime import date
-from unittest.mock import MagicMock, call, patch
+from pathlib import Path
 
-from garminconnect import (
-    GarminConnectAuthenticationError,
-    GarminConnectConnectionError,
-    GarminConnectTooManyRequestsError,
+import httpx
+import pytest
+
+from src.clients import garmin_client as gc
+from src.clients.garmin_client import GarminClient
+from src.clients.garmin_personal_auth import (
+    GarminKeyError,
+    GarminRateLimitError,
+    GarminTransientError,
 )
 
-from src.clients.garmin_client import GarminClient, _fmt_date
+FIX = Path(__file__).parent / "fixtures" / "garmin_personal"
+BASE = "https://personal.connectapi.garmin.com"
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
+def _fixture(name: str):
+    return json.loads((FIX / name).read_text())
 
-def _make_connection_error(status_code: int) -> GarminConnectConnectionError:
-    """Build a GarminConnectConnectionError that embeds a status code in the message."""
-    return GarminConnectConnectionError(f"Error {status_code}: request failed")
 
+class StubAuth:
+    """Returns t1, or t2 after a forced refresh."""
 
-def _make_client(api_mock: MagicMock, request_delay: float = 0.0) -> GarminClient:
-    """Build a GarminClient whose auth always returns the given mock Garmin instance."""
-    auth = MagicMock()
-    auth.get_client.return_value = api_mock
-    return GarminClient(auth=auth, request_delay=request_delay)
+    base_url = BASE
 
+    def __init__(self) -> None:
+        self.http: httpx.Client | None = None
+        self.refreshed = False
 
-# ---------------------------------------------------------------------------
-# _fmt_date
-# ---------------------------------------------------------------------------
+    def get_token(self, force_refresh: bool = False) -> str:
+        if force_refresh:
+            self.refreshed = True
+        return "t2" if self.refreshed else "t1"
 
 
-def test_fmt_date_from_date_object():
-    assert _fmt_date(date(2024, 3, 15)) == "2024-03-15"
+def make_client(handler, delay: float = 0.0):
+    reqs: list[httpx.Request] = []
 
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        reqs.append(request)
+        return handler(request, len(reqs))
 
-def test_fmt_date_from_string_passthrough():
-    assert _fmt_date("2024-03-15") == "2024-03-15"
+    auth = StubAuth()
+    auth.http = httpx.Client(transport=httpx.MockTransport(wrapped))
+    return GarminClient(auth=auth, request_delay=delay), reqs
 
 
-def test_fmt_date_from_datetime():
-    from datetime import datetime
+def test_requests_use_bearer_and_base_url():
+    client, reqs = make_client(lambda r, n: httpx.Response(200, json={"a": 1}))
+    client.get_daily_summary("2026-11-01")
+    assert str(reqs[0].url).startswith(BASE + "/")
+    assert reqs[0].headers["Authorization"] == "Bearer t1"
+    assert reqs[0].headers["Accept"] == "application/json"
 
-    assert _fmt_date(datetime(2024, 3, 15, 10, 30)) == "2024-03-15"
 
+def test_get_activities_pages_until_short_page():
+    def h(r, n):
+        return httpx.Response(200, json=[{"activityId": i} for i in range(100 if n == 1 else 3)])
 
-# ---------------------------------------------------------------------------
-# Rate limiting
-# ---------------------------------------------------------------------------
+    client, reqs = make_client(h)
+    out = client.get_activities("2026-10-01", "2026-10-31")
+    assert len(out) == 103
+    p = reqs[1].url.params
+    assert (p["start"], p["limit"]) == ("100", "100")
+    assert (p["startDate"], p["endDate"]) == ("2026-10-01", "2026-10-31")
 
 
-def test_rate_limit_sleeps_between_calls():
-    """With a non-zero delay, time.sleep should be called before each API call."""
-    api = MagicMock()
-    api.get_stats.return_value = {}
-    client = _make_client(api, request_delay=1.5)
+def test_get_activities_exact_page_stops_on_empty():
+    def h(r, n):
+        return httpx.Response(200, json=[{"activityId": i} for i in range(100)] if n == 1 else [])
 
-    with patch("src.clients.garmin_client.time.sleep") as mock_sleep:
-        # Force _last_call_time to 0 so elapsed ≈ 0 and the full delay is needed
-        client._last_call_time = 0.0
-        client.get_daily_summary("2024-03-15")
+    client, reqs = make_client(h)
+    assert len(client.get_activities(date(2026, 10, 1), date(2026, 10, 31))) == 100
+    assert len(reqs) == 2
 
-    # sleep must have been called at least once (once per sub-call in get_daily_summary)
-    assert mock_sleep.called
-    # Every sleep call should be <= request_delay (never oversleeping)
-    for sleep_call in mock_sleep.call_args_list:
-        assert sleep_call.args[0] <= 1.5
 
+def test_get_activities_fixture_parses():
+    client, _ = make_client(lambda r, n: httpx.Response(200, json=_fixture("activities.json")))
+    out = client.get_activities("2026-10-01", "2026-10-31")
+    assert isinstance(out, list) and isinstance(out[0]["activityId"], int)
 
-def test_no_sleep_when_delay_is_zero():
-    """With request_delay=0 the sleep should never be called."""
-    api = MagicMock()
-    api.get_activities_by_date.return_value = []
-    client = _make_client(api, request_delay=0.0)
 
-    with patch("src.clients.garmin_client.time.sleep") as mock_sleep:
-        client.get_activities("2024-01-01", "2024-01-31")
+def test_get_daily_summary_single_call():
+    fx = _fixture("daily_summary.json")
+    client, reqs = make_client(lambda r, n: httpx.Response(200, json=fx))
+    assert client.get_daily_summary("2026-11-01") == fx
+    assert len(reqs) == 1
+    assert reqs[0].url.path == "/usersummary-service/usersummary/daily"
+    assert reqs[0].url.params["calendarDate"] == "2026-11-01"
 
-    mock_sleep.assert_not_called()
 
+def test_get_daily_summary_no_data_returns_empty_dict():
+    client, _ = make_client(lambda r, n: httpx.Response(204))
+    assert client.get_daily_summary("2026-11-01") == {}
 
-def test_rate_limit_not_called_when_enough_time_has_passed():
-    """If elapsed >= request_delay, no sleep is needed."""
-    api = MagicMock()
-    api.get_activities_by_date.return_value = [{"id": 1}]
-    client = _make_client(api, request_delay=1.5)
 
-    with patch("src.clients.garmin_client.time.monotonic", return_value=1000.0):
-        # _last_call_time = 0 → elapsed = 1000s >> 1.5s → no sleep
-        client._last_call_time = 0.0
-        with patch("src.clients.garmin_client.time.sleep") as mock_sleep:
-            client.get_activities("2024-01-01", "2024-01-31")
+def test_get_sleep_returns_flat_dto():
+    client, reqs = make_client(lambda r, n: httpx.Response(200, json=_fixture("sleep.json")))
+    result = client.get_sleep("2026-11-01")
+    assert "sleepTimeSeconds" in result
+    assert "dailySleepDTO" not in result
+    assert reqs[0].url.path == "/sleep-service/sleep/dailySleep"
+    assert reqs[0].url.params["date"] == "2026-11-01"
 
-    mock_sleep.assert_not_called()
 
+def test_get_sleep_all_null_dto_is_returned():
+    client, _ = make_client(lambda r, n: httpx.Response(200, json=_fixture("sleep_empty.json")))
+    result = client.get_sleep("2026-11-01")
+    assert result is not None
+    assert "calendarDate" in result
 
-# ---------------------------------------------------------------------------
-# get_activities
-# ---------------------------------------------------------------------------
 
+def test_get_sleep_empty_returns_none():
+    client, _ = make_client(lambda r, n: httpx.Response(200, json={}))
+    assert client.get_sleep("2026-11-01") is None
 
-def test_get_activities_returns_list():
-    api = MagicMock()
-    api.get_activities_by_date.return_value = [{"activityId": 1}, {"activityId": 2}]
-    client = _make_client(api)
 
-    result = client.get_activities("2024-01-01", "2024-01-31")
+def test_get_hrv_204_returns_none():
+    client, reqs = make_client(lambda r, n: httpx.Response(204))
+    assert client.get_hrv("2026-11-01") is None
+    assert reqs[0].url.path == "/hrv-service/hrv/2026-11-01"
 
-    assert result == [{"activityId": 1}, {"activityId": 2}]
-    api.get_activities_by_date.assert_called_once_with("2024-01-01", "2024-01-31")
 
+def test_get_user_settings():
+    fx = _fixture("user_settings.json")
+    client, reqs = make_client(lambda r, n: httpx.Response(200, json=fx))
+    assert client.get_user_settings() == fx
+    assert reqs[0].url.path == "/userprofile-service/userprofile/settings"
 
-def test_get_activities_returns_empty_list_on_404():
-    api = MagicMock()
-    api.get_activities_by_date.side_effect = _make_connection_error(404)
-    client = _make_client(api)
 
-    result = client.get_activities("2024-01-01", "2024-01-31")
+def test_get_exercise_sets_stub_makes_no_request():
+    client, reqs = make_client(lambda r, n: httpx.Response(200, json={}))
+    assert client.get_exercise_sets(123) is None
+    assert reqs == []
 
-    assert result == []
 
+def test_401_retries_once_with_forced_refresh():
+    def h(r, n):
+        return httpx.Response(401 if n == 1 else 200, json={"ok": 1})
 
-def test_get_activities_returns_empty_list_on_unexpected_error():
-    api = MagicMock()
-    api.get_activities_by_date.side_effect = RuntimeError("network failure")
-    client = _make_client(api)
+    client, reqs = make_client(h)
+    assert client.get_daily_summary("2026-11-01") == {"ok": 1}
+    assert len(reqs) == 2
+    assert reqs[1].headers["Authorization"] == "Bearer t2"
 
-    result = client.get_activities("2024-01-01", "2024-01-31")
 
-    assert result == []
+def test_401_twice_raises_key_error():
+    client, reqs = make_client(lambda r, n: httpx.Response(401))
+    with pytest.raises(GarminKeyError):
+        client.get_daily_summary("2026-11-01")
+    assert len(reqs) == 2
 
 
-# ---------------------------------------------------------------------------
-# get_activity_detail
-# ---------------------------------------------------------------------------
+def test_403_raises_key_error_without_retry():
+    client, reqs = make_client(lambda r, n: httpx.Response(403))
+    with pytest.raises(GarminKeyError):
+        client.get_daily_summary("2026-11-01")
+    assert len(reqs) == 1
 
 
-def test_get_activity_detail_returns_dict():
-    api = MagicMock()
-    api.get_activity.return_value = {"activityId": "123", "distance": 10000}
-    client = _make_client(api)
+def test_429_raises_rate_limit(monkeypatch):
+    slept: list[float] = []
+    monkeypatch.setattr(gc.time, "sleep", lambda s: slept.append(s))
+    client, reqs = make_client(lambda r, n: httpx.Response(429))
+    with pytest.raises(GarminRateLimitError):
+        client.get_daily_summary("2026-11-01")
+    assert len(reqs) == 1
+    assert slept == []
 
-    result = client.get_activity_detail(123)
 
-    assert result == {"activityId": "123", "distance": 10000}
-    api.get_activity.assert_called_once_with("123")
+def test_404_returns_none_and_logs_warning(caplog):
+    client, _ = make_client(lambda r, n: httpx.Response(404))
+    with caplog.at_level(logging.WARNING):
+        assert client.get_hrv("2026-11-01") is None
+    assert any(rec.levelno == logging.WARNING for rec in caplog.records)
 
 
-def test_get_activity_detail_returns_none_on_404():
-    api = MagicMock()
-    api.get_activity.side_effect = _make_connection_error(404)
-    client = _make_client(api)
+def test_invalid_json_returns_none(caplog):
+    client, _ = make_client(lambda r, n: httpx.Response(200, content=b"<html>"))
+    with caplog.at_level(logging.WARNING):
+        assert client.get_sleep("2026-11-01") is None
+    assert caplog.records
 
-    assert client.get_activity_detail("missing") is None
 
+@pytest.mark.parametrize("failure", [500, 502, "connect"])
+def test_5xx_raises_transient(failure):
+    def h(r, n):
+        if failure == "connect":
+            raise httpx.ConnectError("boom")
+        return httpx.Response(failure)
 
-# ---------------------------------------------------------------------------
-# get_daily_summary
-# ---------------------------------------------------------------------------
+    client, reqs = make_client(h)
+    with pytest.raises(GarminTransientError):
+        client.get_activities("2026-10-01", "2026-10-31")
+    assert len(reqs) == 1
 
 
-def test_get_daily_summary_merges_all_sources():
-    api = MagicMock()
-    api.get_stats.return_value = {"totalSteps": 8000}
-    api.get_heart_rates.return_value = {"restingHeartRate": 55}
-    api.get_body_battery.return_value = [{"charged": 80}]
-    api.get_stress_data.return_value = {"avgStressLevel": 25}
-    client = _make_client(api)
+def test_request_delay_enforced(monkeypatch):
+    now = [100.0]
+    slept: list[float] = []
+    monkeypatch.setattr(gc.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(gc.time, "sleep", lambda s: (slept.append(s), now.__setitem__(0, now[0] + s)))
+    client, _ = make_client(lambda r, n: httpx.Response(200, json={"a": 1}), delay=1.0)
+    client.get_daily_summary("2026-11-01")
+    client.get_daily_summary("2026-11-02")
+    assert slept and sum(slept) == pytest.approx(1.0)
 
-    result = client.get_daily_summary("2024-03-15")
 
-    assert result["totalSteps"] == 8000
-    assert result["restingHeartRate"] == 55
-    assert result["charged"] == 80
-    assert result["avgStressLevel"] == 25
-
-
-def test_get_daily_summary_tolerates_failed_sub_calls():
-    """A 404 on one sub-endpoint should not prevent the others from running."""
-    api = MagicMock()
-    api.get_stats.return_value = {"totalSteps": 5000}
-    api.get_heart_rates.side_effect = _make_connection_error(404)
-    api.get_body_battery.side_effect = _make_connection_error(404)
-    api.get_stress_data.return_value = {"avgStressLevel": 30}
-    client = _make_client(api)
-
-    result = client.get_daily_summary("2024-03-15")
-
-    assert result["totalSteps"] == 5000
-    assert result["avgStressLevel"] == 30
-    # missing endpoints contribute nothing, not an exception
-    assert "restingHeartRate" not in result
-
-
-def test_get_daily_summary_empty_body_battery_list():
-    """Empty body battery list should not crash the merge."""
-    api = MagicMock()
-    api.get_stats.return_value = {}
-    api.get_heart_rates.return_value = {}
-    api.get_body_battery.return_value = []
-    api.get_stress_data.return_value = {}
-    client = _make_client(api)
-
-    result = client.get_daily_summary("2024-03-15")
-    assert result == {}
-
-
-# ---------------------------------------------------------------------------
-# get_sleep / get_hrv
-# ---------------------------------------------------------------------------
-
-
-def test_get_sleep_returns_dict():
-    api = MagicMock()
-    api.get_sleep_data.return_value = {"dailySleepDTO": {"sleepTimeSeconds": 28800}}
-    client = _make_client(api)
-
-    result = client.get_sleep("2024-03-15")
-
-    assert result["dailySleepDTO"]["sleepTimeSeconds"] == 28800
-    api.get_sleep_data.assert_called_once_with("2024-03-15")
-
-
-def test_get_sleep_returns_none_on_400():
-    api = MagicMock()
-    api.get_sleep_data.side_effect = _make_connection_error(400)
-    client = _make_client(api)
-
-    assert client.get_sleep("2024-03-15") is None
-
-
-def test_get_hrv_returns_dict():
-    api = MagicMock()
-    api.get_hrv_data.return_value = {"hrvSummary": {"lastNight": 62}}
-    client = _make_client(api)
-
-    result = client.get_hrv("2024-03-15")
-
-    assert result["hrvSummary"]["lastNight"] == 62
-
-
-def test_get_hrv_returns_none_on_404():
-    api = MagicMock()
-    api.get_hrv_data.side_effect = _make_connection_error(404)
-    client = _make_client(api)
-
-    assert client.get_hrv("2024-03-15") is None
-
-
-# ---------------------------------------------------------------------------
-# 401 retry — re-auth then retry once
-# ---------------------------------------------------------------------------
-
-
-def test_401_triggers_reauth_and_retries():
-    """On a 401, the client should clear auth, then retry the call once."""
-    api_stale = MagicMock()
-    api_stale.get_activities_by_date.side_effect = GarminConnectAuthenticationError("session expired")
-
-    api_fresh = MagicMock()
-    api_fresh.get_activities_by_date.return_value = [{"activityId": 99}]
-
-    auth = MagicMock()
-    auth.get_client.side_effect = [api_stale, api_fresh]
-
-    client = GarminClient(auth=auth, request_delay=0.0)
-    result = client.get_activities("2024-01-01", "2024-01-31")
-
-    assert result == [{"activityId": 99}]
-    # Auth client was cleared to force rebuild
-    assert auth._client is None or auth.get_client.call_count == 2
-
-
-def test_401_does_not_retry_twice():
-    """If the retry also returns 401, return None rather than looping."""
-    api = MagicMock()
-    api.get_activities_by_date.side_effect = GarminConnectAuthenticationError("still expired")
-
-    auth = MagicMock()
-    auth.get_client.return_value = api
-
-    client = GarminClient(auth=auth, request_delay=0.0)
-    result = client.get_activities("2024-01-01", "2024-01-31")
-
-    assert result == []
-    assert auth.get_client.call_count == 2
-
-
-# ---------------------------------------------------------------------------
-# 429 retry — sleep 60s then retry once
-# ---------------------------------------------------------------------------
-
-
-def test_429_sleeps_60s_and_retries():
-    """On a 429, client should sleep 60 seconds then retry once."""
-    api_first = MagicMock()
-    api_first.get_stats.side_effect = GarminConnectTooManyRequestsError("rate limited")
-
-    api_retry = MagicMock()
-    api_retry.get_stats.return_value = {"totalSteps": 9000}
-    api_retry.get_heart_rates.return_value = {}
-    api_retry.get_body_battery.return_value = []
-    api_retry.get_stress_data.return_value = {}
-
-    auth = MagicMock()
-    auth.get_client.side_effect = [api_first, api_retry, api_retry, api_retry]
-
-    client = GarminClient(auth=auth, request_delay=0.0)
-
-    with patch("src.clients.garmin_client.time.sleep") as mock_sleep:
-        result = client.get_daily_summary("2024-03-15")
-
-    # 60-second sleep must have been triggered for the 429
-    assert call(60.0) in mock_sleep.call_args_list
-    assert result["totalSteps"] == 9000
-
-
-def test_429_does_not_retry_twice():
-    """If the retry also returns 429, return None rather than looping."""
-    api = MagicMock()
-    api.get_sleep_data.side_effect = GarminConnectTooManyRequestsError("rate limited")
-
-    auth = MagicMock()
-    auth.get_client.return_value = api
-
-    client = GarminClient(auth=auth, request_delay=0.0)
-
-    with patch("src.clients.garmin_client.time.sleep"):
-        result = client.get_sleep("2024-03-15")
-
-    assert result is None
-    assert auth.get_client.call_count == 2
+def test_default_delay_is_one_second():
+    assert GarminClient(auth=StubAuth()).__dict__["_request_delay"] == 1.0

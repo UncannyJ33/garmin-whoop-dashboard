@@ -1,31 +1,34 @@
-"""Garmin API client wrapping the garminconnect library.
+"""Garmin Personal API client (official API, bearer-token auth via httpx).
 
-Each public method is independently resilient: a broken endpoint returns None
-and logs a warning rather than crashing the caller.
+Failure policy: 204/empty/400/404 return "no data"; 401 retries once with a forced
+token refresh; 403 means a key/scope problem; 429 and 5xx/network errors raise so the
+caller can abort the run instead of advancing past a gap.
 """
 
 import logging
 import time
-from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
-from garminconnect import (
-    GarminConnectAuthenticationError,
-    GarminConnectConnectionError,
-    GarminConnectTooManyRequestsError,
-)
+import httpx
 
-from src.clients.garmin_auth import GarminAuth, _extract_status_code
+from src.clients.garmin_personal_auth import (
+    KEY_PAGE_URL,
+    GarminKeyError,
+    GarminPersonalAuth,
+    GarminRateLimitError,
+    GarminTransientError,
+    get_default_auth,
+)
 
 logger = logging.getLogger(__name__)
 
-# Seconds to sleep after a 429 before retrying
-_RATE_LIMIT_SLEEP_S = 60.0
+_PAGE_LIMIT = 100
+_ACTIVITIES_PATH = "/activitylist-service/activities/search/activities"
 
 
 def _fmt_date(d: date | datetime | str) -> str:
-    """Format a date/datetime/string to the YYYY-MM-DD string garminconnect expects.
+    """Format a date/datetime/string to a YYYY-MM-DD string.
 
     Args:
         d: A date, datetime, or already-formatted string.
@@ -39,32 +42,29 @@ def _fmt_date(d: date | datetime | str) -> str:
 
 
 class GarminClient:
-    """Synchronous client for the Garmin Connect API via garminconnect.
-
-    Wraps every garminconnect call with:
-    - Rate limiting (configurable delay between requests)
-    - Automatic re-auth and single retry on 401
-    - 60-second sleep and single retry on 429
-    - Graceful None return on 400/404 and unexpected errors
+    """Synchronous client for the Garmin Personal API.
 
     Usage::
 
         client = GarminClient()
-        activities = client.get_activities("2024-01-01", "2024-01-31")
+        activities = client.get_activities("2026-10-01", "2026-10-31")
     """
 
     def __init__(
         self,
-        auth: GarminAuth | None = None,
-        request_delay: float = 1.5,
+        auth: GarminPersonalAuth | None = None,
+        request_delay: float = 1.0,
+        http: httpx.Client | None = None,
     ) -> None:
         """Initialise the client.
 
         Args:
-            auth: Pre-built GarminAuth instance. Defaults to a new one.
-            request_delay: Minimum seconds between consecutive API calls.
+            auth: Auth instance; defaults to the process-wide one.
+            request_delay: Minimum seconds between consecutive API calls (per instance).
+            http: HTTP client; defaults to the auth instance's shared client.
         """
-        self._auth = auth or GarminAuth()
+        self._auth = auth or get_default_auth()
+        self._http = http or self._auth.http
         self._request_delay = request_delay
         self._last_call_time: float = 0.0
 
@@ -77,91 +77,53 @@ class GarminClient:
         start_date: date | datetime | str,
         end_date: date | datetime | str,
     ) -> list[dict]:
-        """Fetch all activities in the given date range.
+        """Fetch all activities in the date range (local start date), paging 100 at a time.
 
-        Args:
-            start_date: Range start (inclusive).
-            end_date: Range end (inclusive).
-
-        Returns:
-            List of activity dicts, or an empty list on error.
+        Raises:
+            GarminKeyError, GarminRateLimitError, GarminTransientError: on API failure.
         """
-        start, end = _fmt_date(start_date), _fmt_date(end_date)
-        result = self._call(lambda c: c.get_activities_by_date(start, end))
-        return result if result is not None else []
-
-    def get_activity_detail(self, activity_id: str | int) -> dict | None:
-        """Fetch full detail for a single activity (used for running dynamics).
-
-        Args:
-            activity_id: Garmin activity ID.
-
-        Returns:
-            Activity detail dict, or None on error.
-        """
-        aid = str(activity_id)
-        return self._call(lambda c: c.get_activity(aid))
-
-    def get_exercise_sets(self, activity_id: str | int) -> dict | None:
-        """Fetch exercise set data for a single strength training activity.
-
-        Args:
-            activity_id: Garmin activity ID.
-
-        Returns:
-            Dict with an ``exerciseSets`` list, or None on error / unavailable.
-        """
-        aid = str(activity_id)
-        return self._call(lambda c: c.get_activity_exercise_sets(aid))
+        s, e = _fmt_date(start_date), _fmt_date(end_date)
+        out: list[dict] = []
+        start = 0
+        while True:
+            page = self._get(
+                _ACTIVITIES_PATH,
+                {"startDate": s, "endDate": e, "start": start, "limit": _PAGE_LIMIT},
+            )
+            if not isinstance(page, list):
+                page = []
+            out.extend(page)
+            if len(page) < _PAGE_LIMIT:
+                return out
+            start += _PAGE_LIMIT
 
     def get_daily_summary(self, date_: date | datetime | str) -> dict:
-        """Combine stats, heart rate, body battery, and stress into one dict.
-
-        Each sub-call is independent — a failed endpoint contributes an empty
-        dict rather than preventing the others from running.
-
-        Args:
-            date_: The calendar date to fetch.
-
-        Returns:
-            Merged dict with keys from all four endpoints (non-overlapping keys
-            are preserved; overlapping keys prefer the later merge source).
-        """
-        d = _fmt_date(date_)
-
-        stats = self._call(lambda c: c.get_stats(d)) or {}
-        heart_rates = self._call(lambda c: c.get_heart_rates(d)) or {}
-        body_battery_list = self._call(lambda c: c.get_body_battery(d, d)) or []
-        stress = self._call(lambda c: c.get_stress_data(d)) or {}
-
-        # get_body_battery returns a list; grab the first entry for this date
-        body_battery = body_battery_list[0] if body_battery_list else {}
-
-        return {**stats, **heart_rates, **body_battery, **stress}
+        """Fetch the daily user summary. Returns {} when there is no data."""
+        data = self._get("/usersummary-service/usersummary/daily", {"calendarDate": _fmt_date(date_)})
+        return data if isinstance(data, dict) else {}
 
     def get_sleep(self, date_: date | datetime | str) -> dict | None:
-        """Fetch sleep data for a single date.
-
-        Args:
-            date_: The calendar date to fetch.
-
-        Returns:
-            Sleep data dict, or None on error.
-        """
-        d = _fmt_date(date_)
-        return self._call(lambda c: c.get_sleep_data(d))
+        """Fetch the flat DailySleepDTO (may be all-null values); None on 204/empty/{}."""
+        data = self._get("/sleep-service/sleep/dailySleep", {"date": _fmt_date(date_)})
+        return data if isinstance(data, dict) and data else None
 
     def get_hrv(self, date_: date | datetime | str) -> dict | None:
-        """Fetch HRV data for a single date.
+        """Fetch HRV for a night; None on 204/empty."""
+        data = self._get(f"/hrv-service/hrv/{_fmt_date(date_)}")
+        return data if isinstance(data, dict) and data else None
 
-        Args:
-            date_: The calendar date to fetch.
+    def get_user_settings(self) -> dict:
+        """Fetch user settings; used as the key-validity probe. Never log the body."""
+        data = self._get("/userprofile-service/userprofile/settings")
+        return data if isinstance(data, dict) else {}
 
-        Returns:
-            HRV data dict, or None if unavailable or on error.
+    def get_exercise_sets(self, activity_id: str | int) -> None:
+        """No-op stub: exercise sets are unavailable on the Personal API.
+
+        Kept only because garmin_pipeline still calls it; Task 5 removes it.
         """
-        d = _fmt_date(date_)
-        return self._call(lambda c: c.get_hrv_data(d))
+        logger.debug("Exercise sets unavailable on the Personal API (activity %s)", activity_id)
+        return None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -175,74 +137,45 @@ class GarminClient:
             time.sleep(wait)
         self._last_call_time = time.monotonic()
 
-    def _call(
-        self,
-        make_call: Callable[[Any], Any],
-        *,
-        _retried: bool = False,
-    ) -> Any:
-        """Execute a garminconnect API call with rate limiting and error handling.
-
-        Args:
-            make_call: Callable that receives a Garmin client and returns a result.
-            _retried: Internal flag — prevents infinite retry loops.
-
-        Returns:
-            The API result, or None if the call failed unrecoverably.
-        """
-        self._rate_limit()
-
-        try:
-            client = self._auth.get_client()
-            return make_call(client)
-
-        except GarminConnectAuthenticationError:
-            if not _retried:
-                logger.warning("Garmin API: session expired (401) — re-authenticating and retrying")
-                self._auth._client = None  # force GarminAuth to rebuild the session
-                return self._call(make_call, _retried=True)
-            logger.error("Garmin API: authentication failed after retry")
-            return None
-
-        except GarminConnectTooManyRequestsError:
-            if not _retried:
-                logger.error(
-                    "Garmin API: rate limited (429) — sleeping %ds then retrying",
-                    int(_RATE_LIMIT_SLEEP_S),
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """GET a Personal API path and return parsed JSON, or None for no data."""
+        url = f"{self._auth.base_url}{path}"
+        force_refresh = False
+        while True:
+            self._rate_limit()
+            headers = {
+                "Authorization": f"Bearer {self._auth.get_token(force_refresh=force_refresh)}",
+                "Accept": "application/json",
+            }
+            try:
+                resp = self._http.get(url, params=params, headers=headers)
+            except httpx.TransportError as exc:
+                raise GarminTransientError(
+                    f"Garmin request failed: {type(exc).__name__}"
+                ) from None
+            status = resp.status_code
+            if status == 401:
+                if not force_refresh:
+                    force_refresh = True
+                    continue
+                raise GarminKeyError(
+                    f"Garmin rejected the bearer token twice; check your key at {KEY_PAGE_URL}"
                 )
-                time.sleep(_RATE_LIMIT_SLEEP_S)
-                return self._call(make_call, _retried=True)
-            logger.error("Garmin API: still rate limited after retry (429)")
-            return None
-
-        except GarminConnectConnectionError as exc:
-            code = _extract_status_code(exc)
-
-            if code in (400, 404):
-                logger.warning("Garmin API: endpoint unavailable (HTTP %s) — skipping", code)
+            if status == 403:
+                raise GarminKeyError(
+                    f"Garmin denied access (HTTP 403); check key scopes at {KEY_PAGE_URL}"
+                )
+            if status == 429:
+                raise GarminRateLimitError("Garmin rate limited (HTTP 429)")
+            if status >= 500:
+                raise GarminTransientError(f"Garmin server error (HTTP {status})")
+            if status in (400, 404):
+                logger.warning("Garmin %s returned HTTP %s", path, status)
                 return None
-
-            if code == 401 and not _retried:
-                logger.warning("Garmin API: session expired (401) — re-authenticating and retrying")
-                self._auth._client = None
-                return self._call(make_call, _retried=True)
-
-            if code == 429 and not _retried:
-                logger.error(
-                    "Garmin API: rate limited (429) — sleeping %ds then retrying",
-                    int(_RATE_LIMIT_SLEEP_S),
-                )
-                time.sleep(_RATE_LIMIT_SLEEP_S)
-                return self._call(make_call, _retried=True)
-
-            logger.error("Garmin API: connection error (HTTP %s): %s", code, exc)
-            return None
-
-        except Exception as exc:  # noqa: BLE001
-            # Re-raise rate limit errors so the pipeline aborts on first failure
-            # rather than making N more failed OAuth calls (one per API call).
-            err_msg = str(exc)
-            if "429" in err_msg or "rate limit" in err_msg.lower() or "too many" in err_msg.lower():
-                raise
-            logger.error("Garmin API: unexpected error: %s", exc)
-            return None
+            if status == 204 or not resp.content.strip():
+                return None
+            try:
+                return resp.json()
+            except ValueError:
+                logger.warning("Garmin %s returned invalid JSON", path)
+                return None
