@@ -38,7 +38,7 @@ from src.api.dependencies import get_db, get_engine_dep
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.ingestion.csv_import import GarminImporter
-from src.ingestion.garmin_csv_parser import MAX_ROWS, parse_activities_csv
+from src.ingestion.garmin_csv_parser import parse_activities_csv
 
 logger = logging.getLogger(__name__)
 

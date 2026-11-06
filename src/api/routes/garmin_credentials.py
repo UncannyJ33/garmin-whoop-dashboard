@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db
 from src.auth.dependencies import get_current_user
-from src.auth.encryption import decrypt_credential, encrypt_credential
+from src.auth.encryption import encrypt_credential
 from src.auth.models import User
 
 logger = logging.getLogger(__name__)

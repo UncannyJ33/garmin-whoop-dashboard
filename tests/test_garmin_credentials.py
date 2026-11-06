@@ -14,9 +14,7 @@ Covers:
 
 from __future__ import annotations
 
-import io
-import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from cryptography.fernet import Fernet
@@ -146,6 +144,7 @@ class TestEncryption:
         monkeypatch.setenv("GARMIN_ENCRYPTION_KEY", wrong_key)
 
         import importlib
+
         import src.auth.encryption as enc_mod
         importlib.reload(enc_mod)
         with pytest.raises(ValueError, match="decrypt"):
@@ -154,6 +153,7 @@ class TestEncryption:
     def test_corrupted_ciphertext_raises(self, monkeypatch):
         monkeypatch.setenv("GARMIN_ENCRYPTION_KEY", TEST_KEY)
         import importlib
+
         import src.auth.encryption as enc_mod
         importlib.reload(enc_mod)
         with pytest.raises(ValueError):

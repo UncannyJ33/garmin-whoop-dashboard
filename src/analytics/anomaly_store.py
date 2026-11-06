@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 from sqlalchemy import Engine, text
 
@@ -28,7 +28,6 @@ from src.analytics.trends import (
     _batch_fetch_sleep_ctx,
     _batch_fetch_training_ctx,
     _build_enriched_explanation,
-    detect_anomalies,
     get_batch_metric_trends,
 )
 

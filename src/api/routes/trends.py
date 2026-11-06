@@ -7,7 +7,12 @@ from sqlalchemy import Engine
 
 from src.analytics.anomaly_store import get_cached_anomalies, get_cached_enriched_anomalies
 from src.analytics.cache import analytics_cache
-from src.analytics.trends import get_batch_metric_trends, get_enriched_anomalies, get_metric_trend, get_weekly_summary
+from src.analytics.trends import (
+    get_batch_metric_trends,
+    get_enriched_anomalies,
+    get_metric_trend,
+    get_weekly_summary,
+)
 from src.api.dependencies import get_engine_dep
 from src.api.models import (
     AnomalyItem,

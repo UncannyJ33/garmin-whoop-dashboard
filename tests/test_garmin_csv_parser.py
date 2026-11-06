@@ -21,8 +21,6 @@ Coverage
 
 from __future__ import annotations
 
-import io
-import csv
 import pytest
 
 from src.ingestion.garmin_csv_parser import (
@@ -96,7 +94,7 @@ def _single(row: str = _RUN_ROW, units: str = "miles", user_id: str = "u1") -> d
 
 class TestNullHandling:
     def test_dash_dash_becomes_none_float(self):
-        r = _single(_RUN_ROW)
+        _single(_RUN_ROW)
         # avg_vertical_ratio is '--' in _RUN_ROW (it's '9.2' actually — use walk)
         walk = _single(_WALK_ROW)
         assert walk["avg_vertical_ratio"] is None

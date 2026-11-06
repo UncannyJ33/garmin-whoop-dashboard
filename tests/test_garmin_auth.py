@@ -11,7 +11,6 @@ from garminconnect import (
 
 from src.clients.garmin_auth import GarminAuth, GarminAuthError, _extract_status_code
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

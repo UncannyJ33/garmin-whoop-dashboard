@@ -9,9 +9,8 @@ Covers:
 """
 
 import os
-import time
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from cryptography.fernet import Fernet
@@ -227,8 +226,9 @@ class TestSyncRegistry:
         assert u["garmin_auto_sync"] is True
 
     def test_returns_empty_on_db_error(self):
-        from src.ingestion.scheduler import get_users_to_sync
         from sqlalchemy import create_engine as ce
+
+        from src.ingestion.scheduler import get_users_to_sync
 
         bad_engine = ce("sqlite:///nonexistent_path_xyz/db.sqlite")
         result = get_users_to_sync(bad_engine)
@@ -634,8 +634,8 @@ def sync_client():
     client = _make_client(engine)
     yield client, engine
     # cleanup
-    from src.api.main import app
     from src.api.dependencies import get_db, get_engine_dep
+    from src.api.main import app
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(get_engine_dep, None)
 
@@ -758,8 +758,6 @@ class TestCatchupOnRestart:
 
         sched_mod._schedule_catchup_if_stale(mock_scheduler, engine)
 
-        added_ids = [c.kwargs.get("id") or c.args[0] if c.args else None
-                     for c in mock_scheduler.add_job.call_args_list]
         call_kwargs = [c[1] for c in mock_scheduler.add_job.call_args_list]
         scheduled_ids = {kw.get("id") for kw in call_kwargs}
         assert "garmin_catchup" in scheduled_ids

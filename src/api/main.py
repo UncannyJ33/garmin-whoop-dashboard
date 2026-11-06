@@ -10,7 +10,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.settings import settings
 from src.api.routes.account import router as account_router
-from src.api.routes.waitlist import router as waitlist_router
 from src.api.routes.auth import router as auth_router
 from src.api.routes.garmin_credentials import router as garmin_credentials_router
 from src.api.routes.garmin_csv import router as garmin_csv_router
@@ -22,6 +21,7 @@ from src.api.routes.sleep import router as sleep_router
 from src.api.routes.sync import router as sync_router
 from src.api.routes.training import router as training_router
 from src.api.routes.trends import router as trends_router
+from src.api.routes.waitlist import router as waitlist_router
 from src.api.routes.webhooks import router as webhooks_router
 from src.api.routes.workouts import router as workouts_router
 from src.ingestion.scheduler import start_scheduler, stop_scheduler
