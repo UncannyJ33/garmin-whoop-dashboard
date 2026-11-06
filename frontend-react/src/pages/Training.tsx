@@ -65,6 +65,11 @@ const TRACKED_EXERCISES: Record<string, string> = {
   INCLINE_DUMBBELL_BENCH_PRESS: 'Incline Press',
   BARBELL_DEADLIFT:             'Deadlift',
   ROMANIAN_DEADLIFT:            'Romanian DL',
+  // Category-level fallbacks from the Garmin Personal API (used when subCategory is absent)
+  SQUAT:                        'Back Squat',
+  BENCH_PRESS:                  'Bench Press',
+  DEADLIFT:                     'Deadlift',
+  SHOULDER_PRESS:               'OHP',
 }
 
 const EXERCISE_ORDER = ['Back Squat', 'Front Squat', 'OHP', 'Bench Press', 'Incline Press', 'Deadlift', 'Romanian DL']

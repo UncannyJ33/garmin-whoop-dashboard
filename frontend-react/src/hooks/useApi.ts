@@ -398,52 +398,10 @@ export function useGarminStatus() {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['auth', 'garmin-status', userId],
-    queryFn: ({ signal }) => api.get<{ connected: boolean }>('/api/auth/garmin/status', signal),
+    queryFn: ({ signal }) => api.get<{ connected: boolean; configured: boolean; error: string | null }>('/api/auth/garmin/status', signal),
     staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
-  })
-}
-
-export interface GarminCredentialsStatus {
-  has_credentials: boolean
-  auto_sync_enabled: boolean
-  last_sync_at: string | null
-}
-
-export function useGarminCredentialsStatus() {
-  const { userId } = useAuth()
-  return useQuery({
-    queryKey: ['garmin', 'credentials-status', userId],
-    queryFn: ({ signal }) => api.get<GarminCredentialsStatus>('/api/garmin/credentials/status', signal),
-    staleTime: STALE.SHORT,
-    retry: 1,
-    enabled: !!userId,
-  })
-}
-
-export function useStoreGarminCredentials() {
-  const { userId } = useAuth()
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (body: { email: string; password: string; consent: boolean }) =>
-      api.post<{ has_credentials: boolean; auto_sync_enabled: boolean }>('/api/garmin/credentials', body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['garmin', 'credentials-status', userId] })
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
-    },
-  })
-}
-
-export function useDeleteGarminCredentials() {
-  const { userId } = useAuth()
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () => api.delete('/api/garmin/credentials'),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['garmin', 'credentials-status', userId] })
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
-    },
   })
 }
 

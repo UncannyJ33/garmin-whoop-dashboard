@@ -21,6 +21,7 @@ import {
 } from '../hooks/useApi'
 import { useAuth } from '../context/AuthContext'
 import { GarminUpload } from './GarminUpload'
+import { GARMIN_KEY_LABEL, GarminKeyHint, garminKeyState } from './GarminKeyStatus'
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -38,144 +39,6 @@ function CheckIcon({ className = 'h-5 w-5' }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
     </svg>
-  )
-}
-
-// ── Garmin credential modal ──────────────────────────────────────────────────
-
-interface GarminModalProps {
-  onClose: () => void
-  onSuccess: () => void
-}
-
-function GarminCredentialModal({ onClose, onSuccess }: GarminModalProps) {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [connecting, setConnecting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [consent, setConsent] = useState(false)
-
-  async function handleConnect() {
-    if (!consent) {
-      setError('Please confirm that you consent to storing your encrypted credentials.')
-      return
-    }
-    setConnecting(true)
-    setError(null)
-    try {
-      await api.post('/api/garmin/credentials', { email, password, consent })
-      onSuccess()
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not connect Garmin. Check your credentials.',
-      )
-    } finally {
-      setConnecting(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-sm bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4 shadow-xl">
-        <div>
-          <h2 className="text-base font-semibold text-slate-100">Enable Garmin Auto-Sync</h2>
-          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Sync your Garmin data automatically every 15 minutes.
-          </p>
-        </div>
-
-        {/* Security disclosure */}
-        <div className="rounded-xl bg-blue-950/40 border border-blue-800/30 px-4 py-3 space-y-2">
-          <p className="text-xs font-semibold text-blue-400">How your credentials are protected</p>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            Your Garmin email and password are encrypted using AES-128-CBC + HMAC-SHA256
-            (Fernet) before being stored. The encryption key is separate from your data
-            and never logged. Your credentials are used only to authenticate with Garmin
-            Connect on your behalf during scheduled syncs.
-          </p>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            You can remove your credentials at any time from Settings.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1" htmlFor="gc-email">
-              Garmin Connect email
-            </label>
-            <input
-              id="gc-email"
-              type="email"
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
-              onBlur={e => (e.currentTarget.style.borderColor = '')}
-              placeholder="you@example.com"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1" htmlFor="gc-pw">
-              Password
-            </label>
-            <input
-              id="gc-pw"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
-              onBlur={e => (e.currentTarget.style.borderColor = '')}
-              placeholder="••••••••"
-            />
-          </div>
-
-          <label className="flex items-start gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-surface-border"
-              style={{ accentColor: 'var(--brand)' }}
-            />
-            <span className="text-xs text-slate-400 leading-relaxed">
-              I consent to my encrypted Garmin credentials being stored for automatic
-              background sync.
-            </span>
-          </label>
-        </div>
-
-        {error && (
-          <p className="text-poor text-xs bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">
-            {error}
-          </p>
-        )}
-
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 border border-surface-border rounded-lg py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleConnect()}
-            disabled={connecting || !email || !password}
-            className="flex-1 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2 text-sm transition-opacity flex items-center justify-center gap-2"
-            style={{ background: connecting || !email || !password ? undefined : 'var(--brand)' }}
-          >
-            {connecting && <Spinner />}
-            {connecting ? 'Connecting…' : 'Enable Auto-Sync'}
-          </button>
-        </div>
-      </div>
-    </div>
   )
 }
 
@@ -243,7 +106,7 @@ function UploadResultBanner({ result, onDismiss }: { result: UploadResult; onDis
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-type GarminModal = 'credentials' | 'upload' | null
+type GarminModal = 'upload' | null
 
 export interface ConnectDevicesPanelProps {
   /**
@@ -303,11 +166,6 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
     }
   }
 
-  function handleGarminCredentialSuccess() {
-    setGarminModal(null)
-    void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
-  }
-
   function handleCSVSuccess(result: UploadResult) {
     setGarminModal(null)
     setCsvResult(result)
@@ -332,12 +190,6 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
 
   return (
     <>
-      {garminModal === 'credentials' && (
-        <GarminCredentialModal
-          onClose={() => setGarminModal(null)}
-          onSuccess={handleGarminCredentialSuccess}
-        />
-      )}
       {garminModal === 'upload' && (
         <GarminUploadModal
           onClose={() => setGarminModal(null)}
@@ -400,6 +252,11 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
               <h2 className="text-sm font-semibold text-slate-100">Garmin</h2>
               <p className="text-xs text-slate-400">Activities, training load, Body Battery</p>
             </div>
+            {!garminConnected && !csvResult && garminStatusQ.data?.configured && (
+              <span className="text-xs text-poor font-medium">
+                {GARMIN_KEY_LABEL[garminKeyState(garminStatusQ.data)]}
+              </span>
+            )}
             {(garminConnected || !!csvResult) && (
               <span className="flex items-center gap-1 text-xs text-good font-medium">
                 <CheckIcon className="h-4 w-4" />
@@ -414,14 +271,7 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
 
           {!garminConnected && !csvResult && (
             <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setGarminModal('credentials')}
-                className="w-full text-white font-medium rounded-lg py-2 text-sm transition-opacity"
-                style={{ background: 'var(--brand)' }}
-              >
-                Connect with credentials
-              </button>
+              <GarminKeyHint data={garminStatusQ.data} />
               <button
                 type="button"
                 onClick={() => setGarminModal('upload')}
@@ -430,8 +280,8 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
                 Import from file (CSV / ZIP)
               </button>
               <p className="text-2xs text-slate-600 text-center leading-relaxed">
-                Credentials enable automatic background sync. File import is a
-                one-time privacy-preserving alternative.
+                A Personal API key enables automatic background sync. File import is a
+                one-time alternative.
               </p>
             </div>
           )}
