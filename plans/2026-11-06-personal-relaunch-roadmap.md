@@ -100,11 +100,13 @@ Phases 3–7 each get a detailed plan when they're picked up. The task lists bel
     locals; 23 auto-fixable).
   - `npm run typecheck` and `npm run build`: pass. `npm ci` reports 25 vulnerabilities (3 low,
     11 moderate, 11 high), to be handled in the Phase 5 dependency refresh.
-- [ ] Clean lint baseline: `.venv/bin/ruff check --fix .`, fix the 2 non-auto-fixable errors by
+- [x] (done 2026-11-06, Phase 2) Clean lint baseline: `.venv/bin/ruff check --fix .`, fix the 2 non-auto-fixable errors by
       hand, and confirm `pytest -q` still reports 909 passed. Do this first in Phase 2, so "lint
       stays clean" means something.
 
 ## Phase 1: Spike (needs the key)
+
+- [x] **Done 2026-11-06.** Live findings are in research §9; sanitized fixtures are in `tests/fixtures/garmin_personal/`.
 
 This is Task 1 of the Phase 2 plan. A probe script exchanges the key, hits each endpoint we use
 for a recent date and for a date about 2 years back, and saves raw responses to a gitignored
@@ -113,6 +115,8 @@ answers the open items in research §8: `sleepScores` key, HRV field names, whic
 are populated, `maxWeight` units, history depth and any 429 behavior.
 
 ## Phase 2: Garmin Personal API swap + single-owner scheduler
+
+- [x] **Done 2026-11-06** on branch `feat/garmin-personal-api` (about to fast-forward into `main`). 938 tests pass (serial), lint clean, live smoke test OK (30 days: 31 daily summaries, 44 activities, one token exchange, no 429s).
 
 The detailed plan is [`2026-11-06-garmin-personal-api-client.md`](2026-11-06-garmin-personal-api-client.md). Summary:
 - New `GarminPersonalAuth` (key → 24 h JWT, one process-wide instance, re-exchanged when < 1 h
@@ -167,6 +171,15 @@ Scope for its detailed plan:
 8. **Delete the legacy Streamlit app**: `frontend/`, the `streamlit` dev dependency and the
    `make run-frontend` target.
 9. **CORS**: add no middleware unless `CORS_ORIGINS` is set. Same-origin is the default.
+
+10. **Follow-ups found during Phase 2:**
+    - The normalizer leaves a stale `g_<garmin_activity_id>` `unified_workouts` row when a later
+      Whoop match creates `w_<id>` for the same activity. That duplicates workouts and
+      double-counts strength volume. Fix: delete or skip `g_<aid>` once matched.
+    - `scripts/initial_sync.py` runs the pipelines with `user_id=None` when no owner exists. It
+      should print "register first" and exit.
+    - While `/register` is open, a second account makes the owner check fail: background syncs
+      stop, and that account sees the owner's key status. Item 1 closes this.
 
 **Done when:** `make test` and `make lint` are green, there are no references to waitlist,
 register, feature-flags or webhooks under `src/`, and the concurrent-refresh test passes.
@@ -232,6 +245,8 @@ Supabase was deleted (Q2), so there's nothing to migrate. The DB is a fresh SQLi
    calls per day, two years is about 40 minutes. For anything older, request a Garmin account
    data export and load it with `scripts/import_data.py`. Old strength sessions from the export
    come in with set-level rows, which Phase 2's "sets win over summaries" rule already handles.
+   Phase 2 finding: daily-summary history reaches only ~180 days back (activities ~690), so
+   older daily data must come from the export. VO2 max is absent from the API and won't backfill.
 4. Re-run `normalize_all` and recompute the anomaly cache. Backfill Whoop and Garmin before
    normalizing, so dedup sees both sides.
 
@@ -247,7 +262,7 @@ banner) and `.env.example`. Fold any spike findings into the research doc.
 
 | Risk | Mitigation |
 |---|---|
-| Personal API returns empty `vO2MaxValue` or `activityTrainingLoad` | The spike checks this. The readiness score already redistributes weights when a component is missing. |
+| Personal API returns empty `vO2MaxValue` or `activityTrainingLoad` | **Confirmed live (2026-11-06):** `vO2MaxValue` is absent (the VO2 max chart gets no new points); `activityTrainingLoad` is present. The readiness score redistributes weights when a component is missing. |
 | History depth is shallow | Fall back to the Garmin data export plus the existing importer (Phase 6.3). |
 | Key expires silently | The status endpoint and Settings card surface "key rejected/expired". Pick the 365-day expiry, and Garmin emails about a week before. |
 | Undocumented rate limits | 1 s between calls, abort the run on the first 429, poll every 30 min, and backfill in chunks so an abort loses little. Range endpoints are a later optimization, not part of the client: `dailySleepSummariesByDate` (31 d) and `hrv/daily` (same `hrvSummary` shape) would be drop-ins, but the daily-summary range (`v2/dailysummaries`) is a different nested shape and needs its own transform. |

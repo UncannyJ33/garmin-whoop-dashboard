@@ -8,10 +8,11 @@ Tailwind / Recharts.
 
 This README is internal documentation for the owner (SJ) and Claude agents.
 
-> **Status: relaunch in progress (Nov 2026).** `main` still contains the multi-user SaaS surface
-> (open registration, waitlist, landing page, account deletion, Whoop webhook) and the unofficial
-> `garminconnect` password-login Garmin integration, which has been degraded since April 2026.
-> The relaunch swaps Garmin to the official Personal API and strips the SaaS bits.
+> **Status: relaunch in progress (Nov 2026).** **Phase 2 is done** (branch
+> `feat/garmin-personal-api`, 2026-11-06): Garmin now comes from the official Personal API, and
+> the unofficial `garminconnect` password login is gone. **The SaaS cut (roadmap Phases 3-4) is
+> still pending**: open registration, waitlist, landing page, account deletion and the Whoop
+> webhook still exist.
 > Plan: [`plans/2026-11-06-personal-relaunch-roadmap.md`](plans/2026-11-06-personal-relaunch-roadmap.md).
 > Research: [`docs/research/2026-11-garmin-personal-api.md`](docs/research/2026-11-garmin-personal-api.md).
 > Sections below are marked **(current code)** or **(after relaunch)**.
@@ -32,16 +33,16 @@ Garmin (see below) ─────────┘   (raw whoop_* / garmin_* tabl
   by start time (within 5 min) and duration (within 20%).
 - Raw API responses are kept in a `raw_json` column for reprocessing.
 - A background scheduler (APScheduler) does incremental syncs from the last `sync_log` entry:
-  Whoop every 30 min, Garmin every 15 min (`GARMIN_POLL_INTERVAL_MINUTES`).
+  Whoop and Garmin every 30 min (`GARMIN_POLL_INTERVAL_MINUTES`), for the single owner.
 - Pages: Today `/`, Training `/training`, Recovery `/recovery`, Insights `/insights`, Settings `/settings`.
 
 ```
 src/
   analytics/      readiness, training load/ACWR, sleep, trends, weekly digest, anomaly cache
   api/            FastAPI app (main.py) + routes/; serves frontend-react/dist when built
-  auth/           JWT auth, password hashing, Fernet encryption (Garmin creds)
-  clients/        whoop_auth/whoop_client, garmin_auth/garmin_client
-  database/       SQLAlchemy models, connection, migrations/ (001-013)
+  auth/           JWT auth, password hashing
+  clients/        whoop_auth/whoop_client, garmin_personal_auth/garmin_client (Personal API)
+  database/       SQLAlchemy models, connection, migrations/ (001-014)
   ingestion/      whoop/garmin pipelines, scheduler, Garmin CSV/ZIP importers
   normalization/  mappers, deduplication, normalizer
 config/           settings.py (env vars), field_mappings.yaml
@@ -71,9 +72,11 @@ Edit `.env`; these matter locally:
 | `JWT_SECRET` | required, even locally: `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | from your Whoop app (see Whoop below) |
 | `WHOOP_REDIRECT_URI` | `http://localhost:8000/api/auth/whoop/callback` |
+| `GARMIN_PERSONAL_API_KEY` | Garmin Personal API key (see Garmin data below); optional `GARMIN_PERSONAL_API_BASE_URL` |
+| `GARMIN_POLL_INTERVAL_MINUTES` | optional, default 30 |
 
-The Garmin vars (`GARMIN_EMAIL`, `GARMIN_PASSWORD`, `GARMIN_ENCRYPTION_KEY`, ...) and
-`ADMIN_EMAIL` belong to the SaaS-era code and are not needed for a CSV-only setup.
+`ADMIN_EMAIL` belongs to the SaaS-era waitlist and is not needed. Without a Garmin key the app
+still runs; Garmin data then comes only from the export import.
 
 Two terminals (migrations run automatically on API startup):
 
@@ -83,7 +86,8 @@ cd frontend-react && npm run dev  # Vite on :5173 (proxies /api to :8000)
 ```
 
 Open http://localhost:5173. **Register an account at `/login`** (open registration still exists;
-after the relaunch this becomes `scripts/create_owner.py`), then **Settings -> connect Whoop**
+Phase 3 replaces it with `scripts/create_owner.py`). Register exactly one account: with a second
+user, background syncs stop and the Garmin owner check fails, then **Settings -> connect Whoop**
 (OAuth). To serve the built app from FastAPI instead: `cd frontend-react && npm run build`, then
 `make run-api` and open http://localhost:8000.
 
@@ -91,11 +95,24 @@ Initial Whoop backfill: Settings -> Sync Now, or `make run-sync` (runs `scripts/
 
 ## Garmin data
 
-**Current code.** `garminconnect` 0.3.1 with username/password login (entered in Settings,
-stored Fernet-encrypted; session tokens in the `token_store` table). Degraded since April 2026:
-Garmin login returns 429, garth is deprecated. Treat live Garmin sync as unreliable.
+Garmin data comes from Garmin's official **Personal API** (implemented, Phase 2). Create a key at
+<https://connect.garmin.com/app/settings/personalApiToken> (pick 365 days; shown once) and put it
+in `.env` as `GARMIN_PERSONAL_API_KEY`. The app exchanges it for a 24 h token itself
+(`src/clients/garmin_personal_auth.py`) and polls through `src/clients/garmin_client.py`
+(`https://personal.connectapi.garmin.com`, 1 s between calls). Settings shows the key status:
+Connected / Key not set / Key rejected / Can't reach Garmin. Manual sync
+(`POST /api/sync/trigger/garmin`) is owner-only.
 
-**What works today: Garmin export import.** Garmin Connect -> Settings -> Data Management ->
+- Any Garmin failure (bad key, 429, 5xx, bad response) ends the run as `error` without advancing
+  the sync window; the next run re-pulls, with a 2-day overlap.
+- **History depth:** daily summaries reach about 180 days back, activities about 690 days. VO2 max
+  is not provided by the API, so that chart gets no new points. Training load, training effect,
+  HR zones and running dynamics are present.
+- Sleep and HRV come back empty on nights the watch isn't worn, so those tables are normally empty.
+- Strength: no per-set endpoint. Per-exercise summaries land in `garmin_exercise_summaries`;
+  older set-level rows from an export still win when present.
+
+**Backfill past ~180 days: Garmin export import.** Garmin Connect -> Settings -> Data Management ->
 Export Your Data (ZIP), or Activities -> Export CSV.
 
 ```bash
@@ -107,11 +124,6 @@ Export Your Data (ZIP), or Activities -> Export CSV.
 Or upload in the UI (Settings / Connect Devices panel -> `POST /api/garmin/upload`, CSV/JSON/ZIP,
 50 MB limit, `units` = miles|km for CSVs). Re-imports are idempotent. Normalization runs after
 import and fills the unified tables.
-
-**After the relaunch (not implemented yet, roadmap Phase 2).** Create a Personal API key at
-<https://connect.garmin.com/app/settings/personalApiToken> (pick 365 days; shown once) and put it
-in `.env` as `GARMIN_PERSONAL_API_KEY`. The app exchanges it for a 24 h token itself. The
-unofficial library, credential storage, and password login are then deleted.
 
 ## Whoop
 
