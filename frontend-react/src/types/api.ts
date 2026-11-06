@@ -379,6 +379,8 @@ export interface UploadResult {
 
 export interface WhoopStatus {
   connected: boolean
+  needs_reauth: boolean
+  error: string | null
 }
 
 export interface GarminStatus {

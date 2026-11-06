@@ -170,6 +170,10 @@ export function Settings() {
     for (const source of prevRunning.current) {
       if (!nowRunning.has(source)) {
         const item = statusQ.data.find((s) => s.source === source)
+        // A sync that hit re-auth flips the Whoop status; refresh it without a reload
+        if (source === 'whoop') {
+          void queryClient.invalidateQueries({ queryKey: ['auth', 'whoop-status', userId] })
+        }
         if (item?.status === 'error') {
           setSyncError({ source, message: item.error_message ?? 'Sync failed' })
         } else {
@@ -308,11 +312,15 @@ export function Settings() {
           const whoopConnected = whoopStatus.data?.connected ?? false
           const garminConnected = garminStatus.data?.connected ?? false
           const isConnected = isWhoop ? whoopConnected : garminConnected
+          // needs_reauth wins over connected (the token row is kept, so both are true)
+          const needsReauth = isWhoop && (whoopStatus.data?.needs_reauth ?? false)
 
           const rawStatus = !isConnected ? null : source.status
           const garminKey = garminKeyState(garminStatus.data)
           const base = statusLabel(rawStatus)
-          const { text, color, dot } = isGarmin && garminKey !== 'connected'
+          const { text, color, dot } = needsReauth
+            ? { text: 'Needs reconnect', color: 'text-poor', dot: 'bg-poor' }
+            : isGarmin && garminKey !== 'connected'
             ? { text: GARMIN_KEY_LABEL[garminKey], color: garminKey === 'not_set' ? 'text-slate-500' : 'text-poor', dot: garminKey === 'not_set' ? 'bg-slate-500' : 'bg-poor' }
             : base
 
@@ -330,7 +338,19 @@ export function Settings() {
                 </div>
 
                 {/* Show Connect button when not connected, Sync Now when connected */}
-                {!isConnected ? (
+                {needsReauth ? (
+                  <button
+                    onClick={() => {
+                      void handleConnectWhoop()
+                    }}
+                    disabled={connectingWhoop}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      connectingWhoop ? 'bg-slate-500 text-slate-400 cursor-not-allowed' : 'bg-red-500 text-white'
+                    }`}
+                  >
+                    {connectingWhoop ? <><Spinner /> Connecting…</> : 'Reconnect Whoop'}
+                  </button>
+                ) : !isConnected ? (
                   isGarmin ? null : (
                     <button
                       onClick={() => {
@@ -425,7 +445,7 @@ export function Settings() {
               </div>
 
               {/* Stale sync warning */}
-              {isConnected && isStale(source.last_sync_at) && (
+              {isConnected && !needsReauth && isStale(source.last_sync_at) && (
                 <div className="rounded-lg bg-moderate/10 border border-moderate/30 px-3 py-2 text-xs text-moderate flex items-start gap-2">
                   <span className="mt-0.5 flex-shrink-0">⚠</span>
                   <span>
@@ -433,6 +453,13 @@ export function Settings() {
                       ? 'Last sync was over 24 hours ago — your data may be outdated. Tap Sync Now to refresh.'
                       : 'No sync on record — tap Sync Now to load your data.'}
                   </span>
+                </div>
+              )}
+
+              {/* Whoop re-auth error */}
+              {needsReauth && whoopStatus.data?.error && (
+                <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+                  {whoopStatus.data.error}
                 </div>
               )}
 

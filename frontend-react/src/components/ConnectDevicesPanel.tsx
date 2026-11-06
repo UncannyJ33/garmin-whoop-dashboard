@@ -102,7 +102,9 @@ export function ConnectDevicesPanel() {
   const whoopStatusQ = useWhoopStatus()
   const garminStatusQ = useGarminStatus()
 
-  const whoopConnected = whoopStatusQ.data?.connected ?? false
+  const needsReauth = whoopStatusQ.data?.needs_reauth ?? false
+  // needs_reauth wins over connected
+  const whoopConnected = (whoopStatusQ.data?.connected ?? false) && !needsReauth
   const garminConnected = garminStatusQ.data?.connected ?? false
 
   const [garminModal, setGarminModal] = useState<GarminModal>(null)
@@ -153,7 +155,16 @@ export function ConnectDevicesPanel() {
                 <CheckIcon className="h-4 w-4" /> Connected
               </span>
             )}
+            {needsReauth && (
+              <span className="text-xs text-poor font-medium">Needs reconnect</span>
+            )}
           </div>
+
+          {needsReauth && whoopStatusQ.data?.error && (
+            <p className="text-poor text-xs bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">
+              {whoopStatusQ.data.error}
+            </p>
+          )}
 
           {whoopError && (
             <p className="text-poor text-xs bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">
@@ -169,7 +180,7 @@ export function ConnectDevicesPanel() {
               className="w-full bg-red-600 hover:bg-red-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg py-2 text-sm transition-colors flex items-center justify-center gap-2"
             >
               {connectingWhoop && <Spinner />}
-              {connectingWhoop ? 'Redirecting…' : 'Connect Whoop'}
+              {connectingWhoop ? 'Redirecting…' : needsReauth ? 'Reconnect Whoop' : 'Connect Whoop'}
             </button>
           )}
         </div>
