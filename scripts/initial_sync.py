@@ -6,6 +6,7 @@ Usage (from project root, venv active):
 
 import asyncio
 import logging
+import sys
 from datetime import UTC, datetime, timedelta
 
 from src.database.connection import get_engine, get_session_factory
@@ -37,6 +38,12 @@ async def main() -> None:
     run_migrations(engine=engine)
     db = get_session_factory(engine)()
     owner = get_owner_user_id(engine)
+
+    if owner is None:
+        print("No owner account. Run `make owner EMAIL=...` first.")
+        db.close()
+        engine.dispose()
+        sys.exit(1)
 
     try:
         now = datetime.now(tz=UTC)
