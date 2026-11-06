@@ -165,6 +165,26 @@ class GarminExerciseSet(Base):
     user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
+class GarminExerciseSummary(Base):
+    """Per-exercise summary from a Garmin activity (Personal API ``summarizedExerciseSets``)."""
+
+    __tablename__ = "garmin_exercise_summaries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    activity_id = Column(
+        String, ForeignKey("garmin_activities.activity_id"), nullable=False, index=True
+    )
+    exercise_category = Column(String)  # e.g. BENCH_PRESS
+    exercise_name = Column(String)  # subCategory, falling back to category
+    set_count = Column(Integer)
+    repetition_count = Column(Integer)
+    volume_kg = Column(Float)
+    max_weight_kg = Column(Float)
+    duration_seconds = Column(Float)
+    fetched_at = Column(String, nullable=False)
+    user_id = Column(Text, nullable=True, index=True)  # app user UUID
+
+
 class GarminDailySummary(Base):
     """Daily wellness summary from the Garmin Connect API."""
 

@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOOKBACK_DAYS = 30
 
+# Fixed by the Task 1 spike (docs/research/2026-11-garmin-personal-api.md §9).
+SLEEP_SCORE_KEY = "overall"
+SUMMARY_WEIGHT_DIVISOR = 1000  # SummarizedExerciseSet maxWeight/volume: grams -> kg
+
 _M = TypeVar("_M")
 
 
@@ -52,6 +56,30 @@ def _ms_to_iso(ms: int | None) -> str | None:
     if ms is None:
         return None
     return datetime.fromtimestamp(ms / 1000, tz=UTC).isoformat()
+
+
+def _ts_to_iso(value: int | float | str | None) -> str | None:
+    """Convert a Garmin timestamp to an aware UTC ISO 8601 string.
+
+    Args:
+        value: Unix milliseconds (legacy ``raw_json``), an ISO 8601 string
+            (the Personal API's ``date-time``; naive strings are taken as UTC),
+            or None.
+
+    Returns:
+        ISO 8601 UTC string (e.g. ``"2024-03-05T22:30:00+00:00"``), or None.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(value / 1000, tz=UTC).isoformat()
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat()
 
 
 def _date_range(start: date, end: date) -> list[date]:
@@ -171,22 +199,28 @@ def transform_sleep(date_str: str, record: dict, fetched_at: str) -> dict:
     Returns:
         Dict of column name → value ready for GarminSleep construction.
     """
-    dto = record.get("dailySleepDTO") or {}
+    dto = record.get("dailySleepDTO") or record
+    score = ((dto.get("sleepScores") or {}).get(SLEEP_SCORE_KEY) or {}).get("value")
+    if score is None:
+        score = dto.get("sleepScore")
+    stress = dto.get("avgSleepStress")
+    if stress is None:
+        stress = dto.get("averageStressLevel")
     return {
         "date": date_str,
-        "start_time": _ms_to_iso(dto.get("sleepStartTimestampGMT")),
-        "end_time": _ms_to_iso(dto.get("sleepEndTimestampGMT")),
+        "start_time": _ts_to_iso(dto.get("sleepStartTimestampGMT")),
+        "end_time": _ts_to_iso(dto.get("sleepEndTimestampGMT")),
         "total_sleep_seconds": dto.get("sleepTimeSeconds"),
         "deep_sleep_seconds": dto.get("deepSleepSeconds"),
         "light_sleep_seconds": dto.get("lightSleepSeconds"),
         "rem_sleep_seconds": dto.get("remSleepSeconds"),
         "awake_seconds": dto.get("awakeSleepSeconds"),
         # Fields below only present when watch is worn and scored
-        "sleep_score": dto.get("sleepScore"),
+        "sleep_score": score,
         "avg_spo2_sleep": dto.get("averageSpO2Value"),
         "avg_respiration": dto.get("averageRespirationValue"),
         "lowest_respiration": dto.get("lowestRespirationValue"),
-        "avg_stress_sleep": dto.get("averageStressLevel"),
+        "avg_stress_sleep": stress,
         "fetched_at": fetched_at,
         "raw_json": json.dumps(record),
     }
@@ -239,6 +273,45 @@ def transform_exercise_sets(activity_id: str, raw: dict, fetched_at: str) -> lis
     return rows
 
 
+def transform_exercise_summaries(activity_id: str, record: dict, fetched_at: str) -> list[dict]:
+    """Map an activity's ``summarizedExerciseSets`` to garmin_exercise_summaries rows.
+
+    Units per the Personal API spec: ``maxWeight``/``volume`` in grams,
+    ``duration`` in milliseconds.  ``exercise_name`` is ``subCategory`` with a
+    fallback to ``category``.  Entries without a category are skipped.
+
+    Args:
+        activity_id: Garmin activity ID string (the FK value).
+        record: Activity list record.
+        fetched_at: ISO 8601 fetch timestamp.
+
+    Returns:
+        One dict per exercise, or [] when the field is absent or empty.
+    """
+    rows = []
+    for s in record.get("summarizedExerciseSets") or []:
+        category = s.get("category")
+        if not category:
+            continue
+        weight = s.get("maxWeight")
+        volume = s.get("volume")
+        duration = s.get("duration")
+        rows.append(
+            {
+                "activity_id": activity_id,
+                "exercise_category": category,
+                "exercise_name": s.get("subCategory") or category,
+                "set_count": _int(s.get("sets")),
+                "repetition_count": _int(s.get("reps")),
+                "volume_kg": volume / SUMMARY_WEIGHT_DIVISOR if volume is not None else None,
+                "max_weight_kg": weight / SUMMARY_WEIGHT_DIVISOR if weight is not None else None,
+                "duration_seconds": duration / 1000 if duration is not None else None,
+                "fetched_at": fetched_at,
+            }
+        )
+    return rows
+
+
 def transform_hrv(date_str: str, record: dict, fetched_at: str) -> dict:
     """Map a Garmin HRV response to garmin_hrv column values.
 
@@ -255,7 +328,11 @@ def transform_hrv(date_str: str, record: dict, fetched_at: str) -> dict:
     return {
         "date": date_str,
         "weekly_avg_ms": summary.get("weeklyAvg"),
-        "last_night_avg_ms": summary.get("lastNight"),
+        "last_night_avg_ms": (
+            summary["lastNightAvg"]
+            if summary.get("lastNightAvg") is not None
+            else summary.get("lastNight")
+        ),
         "last_night_5min_high": summary.get("lastNight5MinHigh"),
         "baseline_low_ms": baseline.get("lowUpper"),
         "baseline_balanced_low": baseline.get("balancedLow"),

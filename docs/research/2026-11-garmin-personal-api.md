@@ -226,8 +226,9 @@ had no Garmin sleep or HRV data. Raw samples live in `data/garmin_personal_sampl
 - `subCategory` vs historical `exercise_name`: **differs.** No local history DB exists; the
   `GarminExerciseSet` model comment gives `exercise_category` like `CHEST_PRESS` and `exercise_name`
   like `BENCH_PRESS`. Personal API `category` is the `BENCH_PRESS`-style value, while `subCategory`
-  is finer-grained and often missing. Map `exercise_name` from `category`, and keep `subCategory`
-  (when present) only as extra detail. There are no per-set rows in the list payload, only
+  is finer-grained and often missing. Map `exercise_name` from `subCategory`, falling back to `category`
+  (ruling R6): the frontend's tracked-exercise keys (`frontend-react/src/pages/Training.tsx:59`) are
+  subCategory-style (`BARBELL_BENCH_PRESS`, ...), which is what historical `exercise_name` held. There are no per-set rows in the list payload, only
   per-exercise summaries (one row per `category`).
 
 **Sleep**

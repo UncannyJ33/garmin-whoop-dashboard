@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,8 +19,10 @@ from src.database.models import (
 from src.ingestion.garmin_pipeline import (
     GarminPipeline,
     _ms_to_iso,
+    _ts_to_iso,
     transform_activity,
     transform_daily_summary,
+    transform_exercise_summaries,
     transform_hrv,
     transform_sleep,
 )
@@ -474,3 +477,103 @@ def test_run_marks_error_on_exception(db):
     log = db.query(SyncLog).filter_by(source="garmin").first()
     assert log.status == "error"
     assert "API exploded" in log.error_message
+
+
+# ---------------------------------------------------------------------------
+# Personal API shapes (Task 4)
+# ---------------------------------------------------------------------------
+
+_PFIX = Path(__file__).parent / "fixtures" / "garmin_personal"
+_TS = "2026-11-06T09:00:00+00:00"
+
+
+def _fx(name: str):
+    return json.loads((_PFIX / name).read_text())
+
+
+def test_transform_sleep_flat_fixture():
+    rec = _fx("sleep.json")
+    out = transform_sleep("2026-04-10", rec, _TS)
+    assert out["total_sleep_seconds"] == rec["sleepTimeSeconds"]
+    assert out["deep_sleep_seconds"] == rec["deepSleepSeconds"]
+    assert out["sleep_score"] == rec["sleepScores"]["overall"]["value"]
+    assert out["avg_stress_sleep"] == rec["avgSleepStress"]
+    assert out["start_time"] == "2026-04-10T04:30:00+00:00"
+
+
+@pytest.mark.parametrize("value", [1762387200000, "2025-11-06T00:00:00.0"])
+def test_transform_sleep_accepts_ms_and_iso_timestamps(value):
+    out = transform_sleep("2025-11-06", {"sleepStartTimestampGMT": value}, _TS)
+    assert out["start_time"] == "2025-11-06T00:00:00+00:00"
+    assert _ts_to_iso(None) is None
+
+
+def test_transform_sleep_flat_empty():
+    out = transform_sleep("2026-11-01", {"calendarDate": "2026-11-01"}, _TS)
+    assert out["start_time"] is None
+    assert out["total_sleep_seconds"] is None
+
+
+def test_transform_sleep_legacy_wrapper():
+    out = transform_sleep("2024-03-05", SAMPLE_SLEEP, _TS)
+    assert out["total_sleep_seconds"] == 27000
+    assert out["start_time"] is not None
+
+
+def test_transform_hrv_lastnightavg():
+    assert (
+        transform_hrv("2026-11-01", {"hrvSummary": {"lastNightAvg": 55}}, _TS)["last_night_avg_ms"]
+        == 55
+    )
+
+
+def test_transform_hrv_legacy_lastnight():
+    assert (
+        transform_hrv("2026-11-01", {"hrvSummary": {"lastNight": 62}}, _TS)["last_night_avg_ms"]
+        == 62
+    )
+
+
+def test_transform_exercise_summaries_maps_fixture():
+    acts = _fx("activities.json")
+    acts = acts if isinstance(acts, list) else acts.get("activities", acts)
+    rec = next(a for a in acts if a.get("summarizedExerciseSets"))
+    src = rec["summarizedExerciseSets"]
+    rows = transform_exercise_summaries("123", rec, _TS)
+    assert len(rows) == len(src)
+    for row, s in zip(rows, src, strict=True):
+        assert row["activity_id"] == "123"
+        assert row["exercise_category"] == s["category"]
+        assert row["exercise_name"] == (s.get("subCategory") or s["category"])
+        assert row["set_count"] == s["sets"]
+        assert row["repetition_count"] == s["reps"]
+        assert row["max_weight_kg"] == s["maxWeight"] / 1000
+        assert row["volume_kg"] == s["volume"] / 1000
+        assert row["duration_seconds"] == s["duration"] / 1000
+        assert row["fetched_at"] == _TS
+
+
+def test_transform_exercise_summaries_absent_field():
+    assert transform_exercise_summaries("1", {"activityId": 1}, _TS) == []
+
+
+def test_migration_014_creates_table_idempotent():
+    from sqlalchemy import inspect
+
+    eng = get_engine(IN_MEMORY)
+    run_migrations(engine=eng)
+    run_migrations(engine=eng)
+    cols = {c["name"] for c in inspect(eng).get_columns("garmin_exercise_summaries")}
+    assert cols == {
+        "id",
+        "activity_id",
+        "exercise_category",
+        "exercise_name",
+        "set_count",
+        "repetition_count",
+        "volume_kg",
+        "max_weight_kg",
+        "duration_seconds",
+        "fetched_at",
+        "user_id",
+    }
