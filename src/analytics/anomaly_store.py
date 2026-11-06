@@ -27,7 +27,7 @@ from src.analytics.trends import (
     _batch_fetch_recovery_ctx,
     _batch_fetch_sleep_ctx,
     _batch_fetch_training_ctx,
-    _build_enriched_explanation,
+    _enrich_from_cache,
     get_batch_metric_trends,
 )
 
@@ -60,7 +60,7 @@ def refresh_anomalies(
             engine, list(_ENRICHED_ANOMALY_METRICS), start_date, end_date, user_id
         )
     except Exception:  # noqa: BLE001
-        logger.warning("refresh_anomalies: batch trend fetch failed for user %s", user_id)
+        logger.exception("refresh_anomalies: batch trend fetch failed for user %s", user_id)
         return 0
 
     # 2. Collect raw anomalies
@@ -93,34 +93,18 @@ def refresh_anomalies(
     now_iso = datetime.now(tz=UTC).isoformat()
     rows: list[dict] = []
     for metric, a in raw_pairs:
-        d_iso = a["date"]
-        metric_label = _ENRICHED_METRIC_LABELS.get(metric, metric)
-        severity = abs(a["severity"])
-        same_day = co_map.get(d_iso, [])
-        co_anomalies = [lbl for lbl in same_day if lbl != metric_label]
-
-        context = {
-            "training_48h": training_cache.get(d_iso, {"total_strain": None, "workout_count": 0}),
-            "sleep_prior_night": sleep_cache.get(
-                d_iso, {"duration_hours": None, "quality_pct": None, "deep_pct": None}
-            ),
-            "recovery_trend": recovery_cache.get(d_iso, "stable"),
-            "co_anomalies": co_anomalies,
-        }
-        explanation = _build_enriched_explanation(
-            metric, metric_label, a["value"], a["direction"], severity, context
-        )
+        e = _enrich_from_cache(metric, a, co_map, training_cache, sleep_cache, recovery_cache)
         rows.append(
             {
                 "user_id": user_id,
-                "date": d_iso,
-                "metric": metric,
-                "metric_label": metric_label,
-                "value": a["value"],
-                "direction": a["direction"],
-                "severity": round(severity, 2),
-                "context_json": json.dumps(context),
-                "explanation": explanation,
+                "date": e.date,
+                "metric": e.metric,
+                "metric_label": e.metric_label,
+                "value": e.value,
+                "direction": e.direction,
+                "severity": e.severity,
+                "context_json": json.dumps(e.context),
+                "explanation": e.explanation,
                 "computed_at": now_iso,
             }
         )
@@ -176,6 +160,7 @@ def get_cached_anomalies(
         ]
     except Exception:  # noqa: BLE001
         # Table may not exist yet (pre-migration)
+        logger.warning("get_cached_anomalies failed", exc_info=True)
         return []
 
 
@@ -222,6 +207,8 @@ def get_cached_enriched_anomalies(
             for r in rows
         ]
     except Exception:  # noqa: BLE001
+        # Table may not exist yet (pre-migration), or a context_json row is corrupt
+        logger.warning("get_cached_enriched_anomalies failed", exc_info=True)
         return []
 
 
@@ -236,7 +223,8 @@ def _delete_range(engine: Engine, user_id: str, start: date, end: date) -> None:
                 {"uid": user_id, "s": start.isoformat(), "e": end.isoformat()},
             )
     except Exception:  # noqa: BLE001
-        pass  # Table may not exist yet
+        # Table may not exist yet (pre-migration); a failed delete can leave stale rows
+        logger.warning("anomaly_cache delete failed for user %s", user_id, exc_info=True)
 
 
 def _insert_rows(engine: Engine, rows: list[dict]) -> None:

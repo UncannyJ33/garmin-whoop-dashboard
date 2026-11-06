@@ -22,10 +22,27 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import Literal
 
 from sqlalchemy import Engine, text
 
 logger = logging.getLogger(__name__)
+
+Zone = Literal["detraining", "recovery", "sweet_spot", "overreaching", "danger"]
+AcwrTrend = Literal["increasing", "decreasing", "stable"]
+
+
+def user_clause(user_id: str | None, params: dict, alias: str = "") -> str:
+    """Return the ``AND <alias>user_id ...`` SQL fragment for a user-scoped query.
+
+    Adds ``uid`` to ``params`` when ``user_id`` is set; otherwise matches legacy
+    rows with a NULL ``user_id``.  ``alias`` is a table alias prefix (e.g. ``"uw."``).
+    """
+    if user_id is not None:
+        params["uid"] = user_id
+        return f"AND {alias}user_id = :uid"
+    return f"AND {alias}user_id IS NULL"
+
 
 _ACUTE_DAYS: int = 7
 _CHRONIC_DAYS: int = 28
@@ -40,7 +57,7 @@ _TREND_DIRECTION_THRESHOLD: float = 0.002  # relative OLS slope per day
 # Boundaries: 0.6, 0.8, 1.3, 1.5
 # ---------------------------------------------------------------------------
 
-_ZONE_TABLE: list[tuple[float, float, str, str]] = [
+_ZONE_TABLE: list[tuple[float, float, Zone, str]] = [
     (
         float("-inf"),
         0.6,
@@ -106,9 +123,9 @@ class TrainingLoadResult:
     acwr: float | None
     acute_load: float
     chronic_load: float
-    zone: str | None
+    zone: Zone | None
     zone_description: str | None
-    trend: str
+    trend: AcwrTrend
     weekly_loads: list[WeeklyLoad] = field(default_factory=list)
     confidence_note: str | None = None
 
@@ -118,7 +135,7 @@ class TrainingLoadResult:
 # ---------------------------------------------------------------------------
 
 
-def _classify_zone(acwr: float) -> tuple[str, str]:
+def _classify_zone(acwr: float) -> tuple[Zone, str]:
     """Return (zone_name, zone_description) for an ACWR value."""
     for low, high, name, desc in _ZONE_TABLE:
         if low <= acwr < high:
@@ -140,7 +157,7 @@ def _ols_slope(values: list[float]) -> float:
     return numerator / denominator if denominator != 0 else 0.0
 
 
-def _trend_direction(acwrs: list[float | None]) -> str:
+def _trend_direction(acwrs: list[float | None]) -> AcwrTrend:
     """Determine whether ACWR is "increasing", "decreasing", or "stable"
     based on the OLS slope of the non-None values."""
     valid = [v for v in acwrs if v is not None]
@@ -163,7 +180,7 @@ def _trend_direction(acwrs: list[float | None]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_daily_strain(
+def fetch_daily_strain(
     engine: Engine,
     start_date: date,
     end_date: date,
@@ -173,12 +190,8 @@ def _fetch_daily_strain(
 
     Returns {date_iso: total_strain}. Days with no workouts are absent.
     """
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"s": start_date.isoformat(), "e": end_date.isoformat(), "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"s": start_date.isoformat(), "e": end_date.isoformat()}
+    params: dict = {"s": start_date.isoformat(), "e": end_date.isoformat()}
+    uid_clause = user_clause(user_id, params)
 
     with engine.connect() as conn:
         rows = conn.execute(
@@ -299,7 +312,7 @@ def get_training_load_ratio(
         target_date = date.today()
 
     fetch_start = target_date - timedelta(days=_TREND_LOOKBACK)
-    raw = _fetch_daily_strain(engine, fetch_start, target_date, user_id)
+    raw = fetch_daily_strain(engine, fetch_start, target_date, user_id)
     daily = _fill_zeros(raw, fetch_start, target_date)
 
     target_idx = len(daily) - 1  # always the last element
@@ -322,7 +335,7 @@ def get_training_load_ratio(
 
     if chronic_avg == 0:
         acwr = None
-        zone: str | None = None
+        zone: Zone | None = None
         zone_description: str | None = None
         confidence_note: str | None = (
             "No training recorded in the last 28 days — ACWR is not available"
@@ -390,7 +403,7 @@ def get_training_load_history(
         ``acwr`` and ``zone`` are None when chronic_avg is 0.
     """
     fetch_start = start_date - timedelta(days=_CHRONIC_DAYS - 1)
-    raw = _fetch_daily_strain(engine, fetch_start, end_date, user_id)
+    raw = fetch_daily_strain(engine, fetch_start, end_date, user_id)
     daily = _fill_zeros(raw, fetch_start, end_date)
 
     start_iso = start_date.isoformat()

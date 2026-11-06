@@ -266,7 +266,7 @@ def get_limiting_factors(
     try:
         acwr = get_training_load_ratio(engine, user_id, target_date)
     except Exception:  # noqa: BLE001
-        logger.debug("ACWR unavailable for limiting factor explanation")
+        logger.warning("ACWR unavailable for limiting factor explanation", exc_info=True)
 
     limiting: list[LimitingFactor] = []
 

@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 # % change thresholds that distinguish "noteworthy" from "stable"
 _BIG_DELTA: float = 10.0
-_SMALL_DELTA: float = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +319,7 @@ def get_weekly_digest(
 
         acwr_result = get_training_load_ratio(engine, user_id, target_date)
     except Exception:  # noqa: BLE001
-        logger.debug("WeeklyDigest: ACWR unavailable")
+        logger.warning("WeeklyDigest: ACWR unavailable", exc_info=True)
 
     # ------------------------------------------------------------------
     # 3. Generate candidates
@@ -335,7 +334,7 @@ def get_weekly_digest(
         if factors:
             limiting_factor_name = factors[0].factor_name
     except Exception:  # noqa: BLE001
-        logger.debug("WeeklyDigest: limiting factors unavailable")
+        logger.warning("WeeklyDigest: limiting factors unavailable", exc_info=True)
 
     candidates: list[_Candidate] = []
 
