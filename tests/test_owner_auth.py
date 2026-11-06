@@ -79,10 +79,12 @@ def test_no_users_rejects_every_token(client):
     assert client.get("/api/auth/me", headers=_auth(OWNER)).status_code == 401
 
 
-def test_multiple_users_rejects_every_token(client, engine):
+def test_multiple_users_rejects_every_token(client, engine, caplog):
     _seed_user(engine, OWNER)
     _seed_user(engine, OTHER)
-    assert client.get("/api/auth/me", headers=_auth(OWNER)).status_code == 401
+    with caplog.at_level("ERROR", logger="src.auth.dependencies"):
+        assert client.get("/api/auth/me", headers=_auth(OWNER)).status_code == 401
+    assert any(r.levelname == "ERROR" and "more than one" in r.getMessage() for r in caplog.records)
 
 
 def test_owner_cache_sees_owner_created_after_first_request(client, engine):

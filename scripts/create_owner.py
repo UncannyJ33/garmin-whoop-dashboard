@@ -8,6 +8,8 @@ import argparse
 import getpass
 import sys
 
+from pydantic import EmailStr, TypeAdapter, ValidationError
+
 from src.auth.models import User
 from src.auth.security import hash_password
 from src.database.connection import get_engine, get_session_factory
@@ -22,6 +24,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create the single owner account.")
     parser.add_argument("--email", required=True)
     args = parser.parse_args(argv)
+
+    # Normalize exactly as /login's UserLogin.email does, or the owner could never log in.
+    try:
+        email = TypeAdapter(EmailStr).validate_python(args.email)
+    except ValidationError as exc:
+        reason = exc.errors()[0]["msg"]
+        print(f"Error: invalid email address: {reason}", file=sys.stderr)
+        return 1
 
     engine = get_engine()
     try:
@@ -47,10 +57,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         with get_session_factory(engine)() as db:
-            db.add(User(email=args.email, hashed_password=hash_password(password)))
+            db.add(User(email=email, hashed_password=hash_password(password)))
             db.commit()
         clear_owner_cache()
-        print(f"Owner created: {args.email}")
+        print(f"Owner created: {email}")
         return 0
     finally:
         # Tests patch get_engine with a shared in-memory engine; only dispose real ones.

@@ -190,6 +190,30 @@ class TestSyncStatusPerUser:
             app.dependency_overrides.pop(get_engine_dep, None)
 
 
+class TestNonOwnerTriggerGuard:
+    def test_non_owner_garmin_trigger_rejected_before_any_sync(self, monkeypatch):
+        """A non-owner token gets 401 and no sync task or pipeline is ever created."""
+        from src.api.dependencies import get_db, get_engine_dep
+        from src.api.main import app
+
+        monkeypatch.setattr(settings, "garmin_personal_api_key", "k")
+        engine = _make_engine()
+        _seed_user(engine, USER_A)
+        client = _make_client(engine)
+        try:
+            with (
+                patch("src.api.routes.sync.asyncio.create_task") as mock_task,
+                patch("src.ingestion.garmin_pipeline.GarminPipeline") as pipeline_cls,
+            ):
+                r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_B))
+            assert r.status_code == 401
+            mock_task.assert_not_called()
+            pipeline_cls.assert_not_called()
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_engine_dep, None)
+
+
 class TestManualSyncTask:
     """_run_sync_task handles the pipeline's None (lock-skipped) and error results."""
 

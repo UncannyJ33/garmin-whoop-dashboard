@@ -35,8 +35,9 @@ def get_owner_user_id_cached(engine: Engine) -> str | None:
     """
     global _owner_cache
     now = time.monotonic()
-    if _owner_cache is not None and now < _owner_cache[1]:
-        return _owner_cache[0]
+    cached = _owner_cache
+    if cached is not None and now < cached[1]:
+        return cached[0]
     owner_id = get_owner_user_id(engine)
     if owner_id is not None:
         _owner_cache = (owner_id, now + _OWNER_CACHE_TTL_SECONDS)
