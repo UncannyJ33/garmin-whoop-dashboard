@@ -316,6 +316,10 @@ def _probe_garmin_key() -> tuple[bool, str | None]:
         GarminClient().get_user_settings()
     except GarminPersonalApiError as exc:
         return False, str(exc)
+    except Exception as exc:
+        # Never echo the message (may contain a URL); log the type only.
+        logger.warning("Garmin status probe failed unexpectedly: %s", type(exc).__name__)
+        return False, type(exc).__name__
     return True, None
 
 

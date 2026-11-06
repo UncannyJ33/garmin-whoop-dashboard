@@ -190,21 +190,66 @@ class TestSyncStatusPerUser:
         r = client.post("/api/sync/trigger/whoop", headers=_auth_header(USER_A))
         assert r.status_code == 403
 
-    # ===========================================================================
-    # 5. Container restart triggers catch-up syncs
-    # ===========================================================================
-
-    def test_manual_garmin_sync_allowed_with_key(self, sync_client, monkeypatch):
-        """With the Personal API key set, the manual Garmin trigger is accepted."""
+    def test_manual_garmin_sync_allowed_with_key(self, monkeypatch):
+        """With the key set, the single owner may trigger a manual Garmin sync."""
+        from src.api.dependencies import get_db, get_engine_dep
+        from src.api.main import app
         from src.api.routes import sync as sync_mod
 
         monkeypatch.setattr(settings, "garmin_personal_api_key", "k")
-        client, _ = sync_client
-        with patch("src.api.routes.sync.asyncio.create_task") as mock_task:
-            mock_task.side_effect = lambda coro: coro.close()
-            r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_B))
-        assert r.status_code == 200
-        sync_mod._running_syncs.pop(sync_mod._sync_key("garmin", USER_B), None)
+        engine = _make_engine()
+        _seed_user(engine, USER_A)
+        client = _make_client(engine)
+        try:
+            with patch("src.api.routes.sync.asyncio.create_task") as mock_task:
+                mock_task.side_effect = lambda coro: coro.close()
+                r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_A))
+            assert r.status_code == 200
+        finally:
+            sync_mod._running_syncs.pop(sync_mod._sync_key("garmin", USER_A), None)
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_engine_dep, None)
+
+    def test_manual_garmin_sync_rejected_for_non_owner(self, monkeypatch):
+        """With two users, nobody may start a Garmin sync; the pipeline is never built."""
+        from src.api.dependencies import get_db, get_engine_dep
+        from src.api.main import app
+
+        monkeypatch.setattr(settings, "garmin_personal_api_key", "k")
+        engine = _make_engine()
+        _seed_user(engine, USER_A)
+        _seed_user(engine, USER_B)
+        client = _make_client(engine)
+        try:
+            with (
+                patch("src.api.routes.sync.asyncio.create_task") as mock_task,
+                patch("src.ingestion.garmin_pipeline.GarminPipeline") as pipeline_cls,
+            ):
+                r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_B))
+            assert r.status_code == 403
+            mock_task.assert_not_called()
+            pipeline_cls.assert_not_called()
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_engine_dep, None)
+
+    def test_manual_garmin_sync_rejected_for_non_owner_single_other(self, monkeypatch):
+        """A token for a user id that is not the (only) owner is rejected."""
+        from src.api.dependencies import get_db, get_engine_dep
+        from src.api.main import app
+
+        monkeypatch.setattr(settings, "garmin_personal_api_key", "k")
+        engine = _make_engine()
+        _seed_user(engine, USER_A)
+        client = _make_client(engine)
+        try:
+            with patch("src.api.routes.sync.asyncio.create_task") as mock_task:
+                r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_B))
+            assert r.status_code == 403
+            mock_task.assert_not_called()
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_engine_dep, None)
 
 
 class TestManualSyncTask:
@@ -306,6 +351,16 @@ class TestGarminStatus:
         r = self._get(status_client)
         assert r.json() == {"connected": False, "configured": True, "error": "boom"}
         assert get_default_auth().last_error is None
+
+    def test_garmin_status_unexpected_probe_exception_does_not_500(
+        self, status_client, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "garmin_personal_api_key", "k")
+        _stub_client(monkeypatch, raises=ValueError("https://secret.example/url"))
+        r = self._get(status_client)
+        assert r.status_code == 200
+        assert r.json() == {"connected": False, "configured": True, "error": "ValueError"}
+        assert "secret.example" not in r.text
 
     def test_garmin_status_reports_scheduler_key_error_without_probe(
         self, status_client, monkeypatch
