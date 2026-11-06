@@ -71,6 +71,7 @@ class WhoopClient:
 
         Raises:
             WhoopAPIError: After exhausting retries or on an unrecoverable error.
+            WhoopReauthRequired: A 401 persists after a forced token refresh.
         """
         url = f"{WHOOP_BASE_URL}{path}"
 

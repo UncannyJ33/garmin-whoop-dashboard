@@ -424,7 +424,7 @@ async def test_concurrent_refresh_single_post(auth, db):
 
     async def handler(request: httpx.Request) -> httpx.Response:
         posts.append(request.content.decode())
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0)
         return httpx.Response(
             200, json={"access_token": "new-access", "refresh_token": "r2", "expires_in": 3600}
         )
@@ -436,9 +436,35 @@ async def test_concurrent_refresh_single_post(auth, db):
     assert tokens == ["new-access", "new-access"]
 
 
+class _SpyLock:
+    """threading.Lock wrapper that signals on acquire calls (for deterministic tests)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.acquires = 0
+        self.second_call = threading.Event()
+        self.second_returned = threading.Event()
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        self.acquires += 1
+        n = self.acquires
+        if n == 2:
+            self.second_call.set()
+        got = self._lock.acquire(blocking, timeout)
+        if n == 2 and got:
+            self.second_returned.set()
+        return got
+
+    def release(self) -> None:
+        self._lock.release()
+
+    def locked(self) -> bool:
+        return self._lock.locked()
+
+
 @pytest.mark.asyncio
 async def test_refresh_lock_serialises_across_threads(auth, tmp_path):
-    """A refresh on another event loop/session waits for the lock, re-reads, and skips the POST."""
+    """A refresh on another loop/session blocks on the lock, then re-reads and skips the POST."""
     engine = get_engine(f"sqlite:///{tmp_path / 'tok.db'}")
     run_migrations(engine=engine)
     Session = get_session_factory(engine)
@@ -458,27 +484,85 @@ async def test_refresh_lock_serialises_across_threads(auth, tmp_path):
 
     results: dict[str, str] = {}
 
-    def run(name: str) -> None:
+    def run(name: str, direct: bool) -> None:
         async def go() -> None:
             with Session() as session:
-                results[name] = await auth.get_valid_token(session)
+                if direct:
+                    results[name] = (await auth.refresh_access_token(session)).access_token
+                else:
+                    results[name] = await auth.get_valid_token(session)
 
         asyncio.run(go())
 
-    with _transport_client(handler):
-        t1 = threading.Thread(target=run, args=("a",))
+    spy = _SpyLock()
+    with patch.object(whoop_auth_mod, "_REFRESH_LOCK", spy), _transport_client(handler):
+        t1 = threading.Thread(target=run, args=("a", False))
         t1.start()
-        assert in_post.wait(10)  # t1 holds the refresh lock, mid-POST
-        t2 = threading.Thread(target=run, args=("b",))
+        assert in_post.wait(10)  # t1 holds the lock, mid-POST
+        t2 = threading.Thread(target=run, args=("b", True))
         t2.start()
-        # t2 cannot be inside the lock; let t1 finish.
+        assert spy.second_call.wait(10)  # t2 reached the lock
+        assert not spy.second_returned.is_set()  # ...and is blocked on it
         release_post.set()
         t1.join(10)
         t2.join(10)
 
     engine.dispose()
+    assert spy.acquires == 2
     assert len(posts) == 1
     assert results == {"a": "new-access", "b": "new-access"}
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_does_not_leak_lock(auth, db):
+    _seed(db, expired=True)
+    spy = _SpyLock()
+    assert spy.acquire()  # holder (call 1)
+    with patch.object(whoop_auth_mod, "_REFRESH_LOCK", spy):
+        task = asyncio.create_task(auth.refresh_access_token(db))
+        assert await asyncio.to_thread(spy.second_call.wait, 10)  # waiter parked in executor
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        spy.release()  # worker now wins the lock after the waiter is gone
+        assert await asyncio.to_thread(spy.second_returned.wait, 10)
+        for _ in range(200):
+            if not spy.locked():
+                break
+            await asyncio.sleep(0.01)
+        assert not spy.locked()
+
+
+@pytest.mark.asyncio
+async def test_stale_rejection_does_not_flag_after_reconnect(auth, engine, db):
+    """A 400 for a refresh token rotated by a concurrent reconnect must not set the flag."""
+    _seed(db, expired=True, refresh_token="old-refresh")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        with get_session_factory(engine)() as other:  # reconnect lands mid-POST
+            row = other.get(TokenStore, "whoop")
+            row.refresh_token = "reconnected-refresh"
+            other.commit()
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    with _transport_client(handler):
+        with pytest.raises(WhoopAuthError, match="rotated concurrently") as exc_info:
+            await auth.refresh_access_token(db)
+    assert not isinstance(exc_info.value, WhoopReauthRequired)
+    assert whoop_auth_error(None, db) is None
+    assert db.get(TokenStore, "whoop").refresh_token == "reconnected-refresh"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", [None, ""])
+async def test_row_without_refresh_token_flags_reauth(auth, db, empty):
+    _seed(db, expired=True)
+    db.get(TokenStore, "whoop").refresh_token = empty
+    db.commit()
+    with pytest.raises(WhoopReauthRequired):
+        await auth.refresh_access_token(db)
+    assert whoop_auth_error(None, db) is not None
+    assert db.get(TokenStore, "whoop") is not None
 
 
 @pytest.mark.asyncio

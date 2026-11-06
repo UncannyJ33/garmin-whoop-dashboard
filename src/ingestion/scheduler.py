@@ -118,7 +118,7 @@ def _run_whoop_sync() -> None:
     sync holds the run lock.
     """
     from src.api.dependencies import _engine as app_engine
-    from src.clients.whoop_auth import WhoopReauthRequired, _auth_error_from_json
+    from src.clients.whoop_auth import WhoopReauthRequired, auth_error_from_json
     from src.ingestion.whoop_pipeline import WhoopPipeline
 
     owner = _resolve_owner(app_engine, "Whoop")
@@ -137,7 +137,7 @@ def _run_whoop_sync() -> None:
     if row is None:
         logger.info("Whoop sync: owner has no Whoop token — skipping")
         return
-    if _auth_error_from_json(row[0]) is not None:
+    if auth_error_from_json(row[0]) is not None:
         logger.info("Whoop sync: needs re-auth — skipping")
         return
 

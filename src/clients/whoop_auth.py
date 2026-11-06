@@ -51,7 +51,7 @@ def _service_key(user_id: str | None) -> str:
     return f"whoop_{user_id}" if user_id else "whoop"
 
 
-def _auth_error_from_json(raw: str | None) -> str | None:
+def auth_error_from_json(raw: str | None) -> str | None:
     """Extract the persisted ``auth_error`` from a ``token_data_json`` value.
 
     NULL, non-JSON and non-object values mean "no error".
@@ -73,7 +73,29 @@ def whoop_auth_error(user_id: str | None, db: Session) -> str | None:
     record = db.get(TokenStore, _service_key(user_id))
     if record is None:
         return None
-    return _auth_error_from_json(record.token_data_json)
+    return auth_error_from_json(record.token_data_json)
+
+
+async def _acquire_refresh_lock() -> bool:
+    """Acquire ``_REFRESH_LOCK`` off-loop; cancellation-safe.
+
+    If the awaiting task is cancelled while the worker thread is still waiting,
+    the worker may yet win the lock; a done-callback then releases it so it is
+    never leaked.
+    """
+    loop = asyncio.get_running_loop()
+    fut = loop.run_in_executor(None, _REFRESH_LOCK.acquire, True, _REFRESH_LOCK_TIMEOUT_S)
+    try:
+        # shield: cancelling the waiter must not cancel fut, or its result is lost.
+        return await asyncio.shield(fut)
+    except asyncio.CancelledError:
+
+        def _release_if_acquired(f: asyncio.Future[bool]) -> None:
+            if not f.cancelled() and f.exception() is None and f.result():
+                _REFRESH_LOCK.release()
+
+        fut.add_done_callback(_release_if_acquired)
+        raise
 
 
 def set_whoop_auth_error(user_id: str | None, message: str | None, db: Session) -> None:
@@ -82,6 +104,9 @@ def set_whoop_auth_error(user_id: str | None, message: str | None, db: Session) 
     No token row means no-op. The message must never contain token values.
     """
     record = db.get(TokenStore, _service_key(user_id))
+    if record is not None:
+        db.expire(record)  # re-read before the read-modify-write
+        record = db.get(TokenStore, _service_key(user_id))
     if record is None:
         return
     try:
@@ -184,7 +209,7 @@ class WhoopAuth:
             WhoopAuthError: No refresh token, lock timeout, or a transient failure.
         """
         service_key = _service_key(user_id)
-        acquired = await asyncio.to_thread(_REFRESH_LOCK.acquire, True, _REFRESH_LOCK_TIMEOUT_S)
+        acquired = await _acquire_refresh_lock()
         if not acquired:
             raise WhoopAuthError("Timed out waiting for Whoop token refresh")
         try:
@@ -193,18 +218,23 @@ class WhoopAuth:
                 # Force a real SELECT: db.get alone returns the identity-map copy.
                 db.expire(record)
                 record = db.get(TokenStore, service_key)
-            if record is None or not record.refresh_token:
+            if record is None:
                 raise WhoopAuthError("No refresh token available. Complete the OAuth flow first.")
+            if not record.refresh_token:
+                msg = "Stored Whoop token has no refresh token; reconnect Whoop"
+                set_whoop_auth_error(user_id, msg, db)
+                raise WhoopReauthRequired(msg)
             if not force and not is_token_expired(record):
                 return record
 
+            sent_refresh_token = record.refresh_token
             async with httpx.AsyncClient() as client:
                 try:
                     response = await client.post(
                         WHOOP_TOKEN_URL,
                         data={
                             "grant_type": "refresh_token",
-                            "refresh_token": record.refresh_token,
+                            "refresh_token": sent_refresh_token,
                             "client_id": settings.whoop_client_id,
                             "client_secret": settings.whoop_client_secret,
                         },
@@ -213,6 +243,15 @@ class WhoopAuth:
                 except httpx.HTTPStatusError as e:
                     status = e.response.status_code
                     if status in (400, 401):
+                        current = db.get(TokenStore, service_key)
+                        if current is not None:
+                            db.expire(current)
+                            current = db.get(TokenStore, service_key)
+                        if current is None or current.refresh_token != sent_refresh_token:
+                            # A reconnect/rotation landed meanwhile; the rejection is stale.
+                            raise WhoopAuthError(
+                                "refresh token was rotated concurrently; retry"
+                            ) from e
                         msg = f"Whoop rejected the token refresh ({status}); reconnect Whoop"
                         logger.warning("Whoop token refresh rejected: %s", status)
                         set_whoop_auth_error(user_id, msg, db)

@@ -430,7 +430,7 @@ def test_whoop_job_runs_for_owner_only():
     assert pipeline_cls.call_args.kwargs["user_id"] == OWNER
 
 
-def test_auth_failure_keeps_token_sets_needs_reauth(caplog):
+def test_reauth_required_keeps_token_and_warns(caplog):
     """WhoopReauthRequired: WARNING logged, token row kept, no exception escapes."""
     from src.clients.whoop_auth import WhoopReauthRequired
 
