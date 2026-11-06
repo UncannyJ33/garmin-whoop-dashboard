@@ -83,7 +83,16 @@ export function ACWRGauge({ acwr, zone, zoneDescription, className = '' }: ACWRG
               {acwr.toFixed(2)}x
             </span>
           ) : (
-            <span className="skeleton inline-block w-16 h-5 rounded" />
+            <span
+              style={{
+                fontSize:   20,
+                fontWeight: 600,
+                color:      'var(--text-muted)',
+                fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+              }}
+            >
+              --
+            </span>
           )}
         </div>
         <span className="text-xs font-medium" style={{ color: zoneColor }}>

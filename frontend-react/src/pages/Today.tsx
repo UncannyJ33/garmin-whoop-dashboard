@@ -13,6 +13,7 @@
 import { useMemo, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import { ACWRGauge } from '../components/ACWRGauge'
+import { ErrorState } from '../components/ErrorState'
 import { LimitingFactorCard } from '../components/LimitingFactorCard'
 import { ReadinessArcGauge } from '../components/ReadinessArcGauge'
 import { SleepStageBar } from '../components/SleepStageBar'
@@ -179,6 +180,19 @@ export function Today() {
   ]
 
   // ---------------------------------------------------------------------------
+  // Error state — any core query failed
+  const failedQueries = [readiness, sleepData, recentWorkouts].filter(q => q.isError)
+  if (failedQueries.length > 0) {
+    return (
+      <div style={{ maxWidth: 480, margin: '48px auto', padding: '0 16px' }}>
+        <ErrorState
+          message="Couldn't load your data."
+          onRetry={() => failedQueries.forEach(q => { void q.refetch() })}
+        />
+      </div>
+    )
+  }
+
   // Empty state — all main queries settled with no data
   const allSettled = readiness.isSuccess && sleepData.isSuccess && recentWorkouts.isSuccess
   const hasNoData  = allSettled && (readinessData?.confidence ?? 0) === 0 && sleepArr.length === 0

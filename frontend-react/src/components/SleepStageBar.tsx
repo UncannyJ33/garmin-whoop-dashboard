@@ -54,7 +54,14 @@ export function SleepStageBar({
   const barHeight = variant === 'compact' ? 14 : 22
 
   if (total === 0) {
-    return <div className="skeleton rounded-full" style={{ height: barHeight }} />
+    return (
+      <div
+        className="flex items-center justify-center rounded-full text-xs"
+        style={{ height: barHeight, backgroundColor: 'var(--bg-card)', color: 'var(--text-muted)', lineHeight: 1 }}
+      >
+        --
+      </div>
+    )
   }
 
   return (

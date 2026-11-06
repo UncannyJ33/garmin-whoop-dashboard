@@ -99,7 +99,8 @@ export function ReadinessArcGauge({
 }: ReadinessArcGaugeProps) {
   const displayScore = score ?? 0
   const { color: arcColor, glow, shadow } = arcFillColor(displayScore)
-  const badgeLevel = recommendation ?? fallbackLevel(displayScore)
+  // No score → no-data state: don't invent a level from a fake 0
+  const badgeLevel = recommendation ?? (score !== null ? fallbackLevel(displayScore) : undefined)
 
   // Animated dashoffset: starts full (hidden), transitions to target
   const [dashOffset, setDashOffset] = useState(SEMI_C)
@@ -118,7 +119,7 @@ export function ReadinessArcGauge({
   }, [displayScore, skipAnimation])
 
   // Arc fill uses spec §3.1 thresholds; score number/badge use recommendation level
-  const scoreColor = levelToColor(badgeLevel)
+  const scoreColor = badgeLevel ? levelToColor(badgeLevel) : 'var(--text-muted)'
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -152,7 +153,7 @@ export function ReadinessArcGauge({
           viewBox="0 0 260 160"
           width="260"
           height="160"
-          aria-label={`Readiness score ${displayScore}`}
+          aria-label={score !== null ? `Readiness score ${displayScore}` : 'Readiness score unavailable'}
           style={{ overflow: 'visible' }}
         >
           {/* Zone background segments */}
@@ -209,10 +210,20 @@ export function ReadinessArcGauge({
               {Math.round(score)}
             </span>
           ) : (
-            <div className="skeleton w-16 h-14 rounded-lg" />
+            <span
+              style={{
+                fontSize:   62,
+                fontWeight: 700,
+                lineHeight: 1,
+                color:      'var(--text-muted)',
+                fontFamily: "'Barlow Condensed', system-ui, sans-serif",
+              }}
+            >
+              --
+            </span>
           )}
 
-          <StatusBadge level={badgeLevel} />
+          {badgeLevel && <StatusBadge level={badgeLevel} />}
         </div>
       </div>
 

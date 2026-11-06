@@ -20,6 +20,20 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
   )
 }
 
+function Mono({ children }: { children: React.ReactNode }) {
+  return <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">{children}</span>
+}
+
+function Steps({ steps }: { steps: React.ReactNode[] }) {
+  return (
+    <ol className="space-y-3">
+      {steps.map((content, i) => (
+        <Step key={i} n={i + 1}>{content}</Step>
+      ))}
+    </ol>
+  )
+}
+
 function Section({
   title,
   badge,
@@ -76,29 +90,28 @@ export function GarminHelp() {
             Exports the workout list as a spreadsheet. Quick to download and works with
             any date range filter. Best for most users.
           </p>
-          <ol className="space-y-3">
-            <Step n={1}>
+          <Steps
+            steps={[
+              <>
               Open{' '}
-              <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">
-                connect.garmin.com
-              </span>{' '}
+              <Mono>connect.garmin.com</Mono>{' '}
               and sign in.
-            </Step>
-            <Step n={2}>
+              </>,
+              <>
               Click <strong className="text-slate-200">Activities</strong> in the top navigation.
-            </Step>
-            <Step n={3}>
+              </>,
+              <>
               Optionally filter by date range using the calendar on the left sidebar.
-            </Step>
-            <Step n={4}>
+              </>,
+              <>
               Click the <strong className="text-slate-200">export icon</strong>{' '}
               (⬇ arrow or three-dot menu) near the top-right of the activity list
               and choose <strong className="text-slate-200">Export to CSV</strong>.
-            </Step>
-            <Step n={5}>
-              Save the downloaded <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">Activities.csv</span> file.
-            </Step>
-            <Step n={6}>
+              </>,
+              <>
+              Save the downloaded <Mono>Activities.csv</Mono> file.
+              </>,
+              <>
               Upload it in PulseEngine via{' '}
               <Link to="/settings" className="text-blue-400 hover:text-blue-300 underline">
                 Settings → Garmin → Import
@@ -106,8 +119,9 @@ export function GarminHelp() {
               {' '}or during onboarding.
               Select the distance unit that matches your Garmin Connect settings
               (miles or kilometres).
-            </Step>
-          </ol>
+              </>,
+            ]}
+          />
           <div className="rounded-xl bg-amber-950/40 border border-amber-800/60 px-4 py-3
                           text-xs text-amber-300 space-y-1">
             <p className="font-medium">Note on training load</p>
@@ -128,51 +142,45 @@ export function GarminHelp() {
             daily summaries, sleep, HRV, and more. The file can be large (several GB for
             multi-year histories) and Garmin may take up to 24 hours to prepare it.
           </p>
-          <ol className="space-y-3">
-            <Step n={1}>
+          <Steps
+            steps={[
+              <>
               Open{' '}
-              <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">
-                connect.garmin.com
-              </span>{' '}
+              <Mono>connect.garmin.com</Mono>{' '}
               and sign in.
-            </Step>
-            <Step n={2}>
+              </>,
+              <>
               Click your <strong className="text-slate-200">profile icon</strong> in the
               top-right corner, then choose{' '}
               <strong className="text-slate-200">Account Settings</strong>.
-            </Step>
-            <Step n={3}>
+              </>,
+              <>
               Scroll to <strong className="text-slate-200">Export Your Data</strong> and
               click <strong className="text-slate-200">Request Data Export</strong>.
-            </Step>
-            <Step n={4}>
+              </>,
+              <>
               Garmin will email you when the export is ready (usually within a few hours).
               Follow the link in the email to download the ZIP.
-            </Step>
-            <Step n={5}>
-              Upload the <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">.zip</span>{' '}
+              </>,
+              <>
+              Upload the <Mono>.zip</Mono>{' '}
               file directly in PulseEngine (up to 50 MB).
               If your archive is larger, extract the{' '}
-              <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">
-                DI_CONNECT/DI-Connect-Fitness/
-              </span>{' '}
+              <Mono>DI_CONNECT/DI-Connect-Fitness/</Mono>{' '}
               folder and upload individual JSON files instead.
-            </Step>
-          </ol>
+              </>,
+            ]}
+          />
         </Section>
 
         {/* Method 3 — JSON */}
         <Section title="Method 3 — JSON file (advanced)">
           <p className="text-sm text-slate-400">
             If you've extracted the ZIP or have a{' '}
-            <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">
-              summarizedActivities.json
-            </span>{' '}
+            <Mono>summarizedActivities.json</Mono>{' '}
             from a Garmin API dump, you can upload that file directly.
             PulseEngine detects the{' '}
-            <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">
-              .json
-            </span>{' '}
+            <Mono>.json</Mono>{' '}
             extension and imports activity records automatically.
           </p>
         </Section>
@@ -211,9 +219,7 @@ export function GarminHelp() {
                 exporting (e.g., 6 months at a time) and upload in batches.
                 For the ZIP path, extract the archive and upload the individual JSON files
                 from the{' '}
-                <span className="font-mono text-xs bg-slate-700 px-1.5 py-0.5 rounded">
-                  DI_CONNECT/DI-Connect-Fitness/
-                </span>{' '}
+                <Mono>DI_CONNECT/DI-Connect-Fitness/</Mono>{' '}
                 folder one by one.
               </dd>
             </div>

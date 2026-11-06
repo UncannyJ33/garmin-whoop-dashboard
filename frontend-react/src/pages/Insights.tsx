@@ -29,6 +29,7 @@ import {
 } from '../hooks/useApi'
 import { TrendChart } from '../components/TrendChart'
 import type { TrendDataPoint } from '../components/TrendChart'
+import { ErrorState } from '../components/ErrorState'
 import { NoDataState } from '../components/LoadingState'
 import type { WeeklySummary } from '../types/api'
 import { activityLabel } from '../utils/formatters'
@@ -422,8 +423,10 @@ export function Insights() {
     return { byType, allTypes }
   }, [workoutsQ.data])
 
-  const corrLoading = hrvQ.isLoading || recoveryQ.isLoading || strainQ.isLoading
-    || batteryQ.isLoading || sleepQ.isLoading
+  // isPending (not isLoading): disabled/paused queries have no data yet but are not "loading"
+  const corrQueries = [hrvQ, recoveryQ, strainQ, batteryQ, sleepQ]
+  const corrLoading = corrQueries.some(q => q.isPending)
+  const corrError = corrQueries.some(q => q.isError)
 
   // Section 1: digest items — prefer server takeaways, fall back to client-side buildDigest
   const digestItems = useMemo(() => {
@@ -577,7 +580,9 @@ export function Insights() {
           </p>
         </div>
 
-        {corrLoading ? (
+        {corrError ? (
+          <ErrorState message="Couldn't load correlation data." onRetry={() => corrQueries.forEach(q => { if (q.isError) void q.refetch() })} />
+        ) : corrLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="card">
@@ -595,8 +600,8 @@ export function Insights() {
               n={correlations.hrvRecovery?.n ?? 0}
               accentColor="var(--status-excellent)"
               interpretation={
-                correlations.hrvRecovery?.r !== null
-                  ? `When your HRV is high, recovery tends to follow — this is a ${corrStrength(correlations.hrvRecovery!.r!)} connection in your data.`
+                correlations.hrvRecovery?.r != null
+                  ? `When your HRV is high, recovery tends to follow — this is a ${corrStrength(correlations.hrvRecovery.r)} connection in your data.`
                   : undefined
               }
             />
@@ -709,8 +714,8 @@ export function Insights() {
               n={correlations.sleepBattery?.n ?? 0}
               accentColor="var(--brand)"
               interpretation={
-                correlations.sleepBattery?.r !== null
-                  ? `Longer sleep nights tend to ${correlations.sleepBattery!.r! >= 0.2 ? 'boost' : 'not clearly affect'} your next-day Garmin Body Battery — a ${corrStrength(correlations.sleepBattery!.r!)} connection.`
+                correlations.sleepBattery?.r != null
+                  ? `Longer sleep nights tend to ${correlations.sleepBattery.r >= 0.2 ? 'boost' : 'not clearly affect'} your next-day Garmin Body Battery — a ${corrStrength(correlations.sleepBattery.r)} connection.`
                   : undefined
               }
             />

@@ -713,6 +713,8 @@ export function Training() {
               <div className="space-y-2">
                 {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-10 rounded-lg" />)}
               </div>
+            ) : maxWeightQ.isError ? (
+              <EmptyChart message="Couldn't load strength PRs." />
             ) : strengthProgression.length === 0 ? (
               <EmptyChart message="No tracked exercise data — run a sync to fetch strength set details." />
             ) : (
@@ -760,6 +762,8 @@ export function Training() {
             <SectionHeader title="Total Volume Per Session" />
             {strengthVolQ.isLoading ? (
               <div className="skeleton rounded-xl" style={{ height: 200 }} />
+            ) : strengthVolQ.isError ? (
+              <EmptyChart message="Couldn't load volume data." />
             ) : volumeData.length === 0 ? (
               <EmptyChart message="No volume data — run a sync to fetch strength set details." />
             ) : (
@@ -825,7 +829,7 @@ export function Training() {
       )}
 
       {/* ── SECTION 2: Activity type breakdown ───────────────────────────── */}
-      {(summaryQ.isLoading || summary.length > 0) && (
+      {(summaryQ.isLoading || summaryQ.isError || summary.length > 0) && (
         <div className="card">
           <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
             Activity Breakdown
@@ -845,6 +849,8 @@ export function Training() {
                 <div key={i} className="skeleton h-8 w-full rounded-lg" />
               ))}
             </div>
+          ) : summaryQ.isError ? (
+            <p className="text-sm text-slate-400 py-4 text-center">Couldn't load activity breakdown.</p>
           ) : (
             <div className="space-y-1">
               <div className="grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 px-2 pb-1 border-b border-surface-border">
@@ -917,6 +923,7 @@ export function Training() {
         ) : (
           <Virtuoso
             data={filtered}
+            computeItemKey={(_, w) => w.id}
             useWindowScroll
             increaseViewportBy={400}
             itemContent={(_, w) => (
