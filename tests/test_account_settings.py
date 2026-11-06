@@ -487,6 +487,29 @@ class TestDeleteAccount:
         # User row
         assert _count(self.engine, "users", "id", USER_A) == 0
 
+    def test_delete_removes_exercise_summaries(self):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO garmin_activities (activity_id, fetched_at, user_id)"
+                    " VALUES ('act-1', '2026-01-01', :uid)"
+                ),
+                {"uid": USER_A},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO garmin_exercise_summaries (activity_id, fetched_at, user_id)"
+                    " VALUES ('act-1', '2026-01-01', :uid)"
+                ),
+                {"uid": USER_A},
+            )
+
+        res = self.client.delete("/api/account", headers=_auth(USER_A))
+
+        assert res.status_code == 204
+        assert _count(self.engine, "garmin_exercise_summaries", "user_id", USER_A) == 0
+        assert _count(self.engine, "garmin_activities", "user_id", USER_A) == 0
+
     def test_delete_invalidates_refresh_token(self):
         """After account deletion, the refresh endpoint must return 401."""
         # Obtain a real refresh token before deletion

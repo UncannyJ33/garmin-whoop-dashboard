@@ -76,10 +76,28 @@ def test_token_cached_while_more_than_1h_left():
     assert len(calls) == 1
 
 
-def test_token_reexchanged_when_under_1h_left():
+def test_token_reexchanged_when_under_1h_left(monkeypatch):
+    # A cached 24 h token that has aged to <1 h remaining is re-exchanged.
+    _, h = ok(timedelta(hours=24))
+    auth, calls = make_auth(h)
+    auth.get_token()
+    exp = auth.token_expires_at
+    monkeypatch.setattr(gpa, "_now", lambda: exp - timedelta(minutes=30))
+    auth.get_token()
+    assert len(calls) == 2
+
+
+def test_last_hour_token_cached_until_60s_before_exp(monkeypatch):
     _, h = ok(timedelta(minutes=30))
     auth, calls = make_auth(h)
     auth.get_token()
+    auth.get_token()
+    assert len(calls) == 1
+    exp = auth.token_expires_at
+    monkeypatch.setattr(gpa, "_now", lambda: exp - timedelta(seconds=120))
+    auth.get_token()
+    assert len(calls) == 1
+    monkeypatch.setattr(gpa, "_now", lambda: exp - timedelta(seconds=60))
     auth.get_token()
     assert len(calls) == 2
 
@@ -244,7 +262,9 @@ def test_force_refresh_race_exchanges_once():
     import time
 
     time.sleep(0.1)
-    auth._token = gpa.BearerToken(access_token=jwt, expires_at=stale.expires_at + timedelta(hours=1))
+    auth._token = gpa.BearerToken(access_token=jwt, expires_at=stale.expires_at + timedelta(hours=1),
+        refresh_at=stale.refresh_at + timedelta(hours=1),
+    )
     auth._lock.release()
     t.join()
     assert result == [jwt]

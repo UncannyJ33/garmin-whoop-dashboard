@@ -156,7 +156,8 @@ async def delete_account(
         conn.execute(text("DELETE FROM unified_sleep WHERE user_id = :uid"), {"uid": uid})
         conn.execute(text("DELETE FROM unified_daily WHERE user_id = :uid"), {"uid": uid})
 
-        # Garmin tables (exercise_sets references activities — delete first)
+        # Garmin tables (exercise_sets/summaries reference activities — delete first)
+        conn.execute(text("DELETE FROM garmin_exercise_summaries WHERE user_id = :uid"), {"uid": uid})
         conn.execute(
             text(
                 "DELETE FROM garmin_exercise_sets WHERE activity_id IN "

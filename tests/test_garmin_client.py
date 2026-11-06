@@ -207,6 +207,13 @@ def test_get_hrv_204_returns_none():
     assert reqs[0].url.path == "/hrv-service/hrv/2026-11-01"
 
 
+def test_get_hrv_null_summary_returns_none():
+    client, _ = make_client(
+        lambda r, n: httpx.Response(200, json={"hrvSummary": None, "hrvReadings": []})
+    )
+    assert client.get_hrv("2026-11-01") is None
+
+
 def test_get_user_settings():
     fx = _fixture("user_settings.json")
     client, reqs = make_client(lambda r, n: httpx.Response(200, json=fx))

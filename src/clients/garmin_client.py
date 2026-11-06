@@ -161,9 +161,14 @@ class GarminClient:
         return data
 
     def get_hrv(self, date_: date | datetime | str) -> dict | None:
-        """Fetch HRV for a night; None on 204/empty."""
+        """Fetch HRV for a night; None on 204/empty/all-null/no ``hrvSummary``."""
         data = self._get(f"/hrv-service/hrv/{_fmt_date(date_)}")
-        return data if isinstance(data, dict) and data else None
+        if not isinstance(data, dict) or _all_null(data):
+            return None
+        summary = data.get("hrvSummary")
+        if not isinstance(summary, dict) or _all_null(summary):
+            return None
+        return data
 
     def get_user_settings(self) -> dict:
         """Fetch user settings; used as the key-validity probe. Never log the body."""

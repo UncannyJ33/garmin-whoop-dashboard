@@ -20,6 +20,7 @@ TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
 KEY_PAGE_URL = "https://connect.garmin.com/app/settings/personalApiToken"
 
 _REFRESH_MARGIN = timedelta(seconds=3600)
+_LAST_HOUR_MARGIN = timedelta(seconds=60)
 
 
 class GarminPersonalApiError(Exception):
@@ -44,6 +45,7 @@ class BearerToken:
 
     access_token: str
     expires_at: datetime
+    refresh_at: datetime
 
 
 def _now() -> datetime:
@@ -104,7 +106,7 @@ class GarminPersonalAuth:
 
     def _fresh(self) -> bool:
         token = self._token
-        return token is not None and token.expires_at - _now() >= _REFRESH_MARGIN
+        return token is not None and _now() < token.refresh_at
 
     def get_token(self, force_refresh: bool = False) -> str:
         """Return a valid bearer JWT, re-exchanging when under 1 h remains."""
@@ -156,7 +158,12 @@ class GarminPersonalAuth:
             raise
         self.last_error = None
         logger.info("Garmin Personal API token obtained; expires_at=%s", expires_at.isoformat())
-        return BearerToken(access_token=access_token, expires_at=expires_at)
+        # Refresh 1 h before expiry; a token issued inside the key's last hour
+        # would otherwise be stale at birth, so fall back to a 60 s margin.
+        refresh_at = expires_at - _REFRESH_MARGIN
+        if refresh_at <= _now():
+            refresh_at = expires_at - _LAST_HOUR_MARGIN
+        return BearerToken(access_token=access_token, expires_at=expires_at, refresh_at=refresh_at)
 
 
 _default_auth: GarminPersonalAuth | None = None

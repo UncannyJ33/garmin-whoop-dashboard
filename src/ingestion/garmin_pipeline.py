@@ -542,15 +542,16 @@ class GarminPipeline:
             data["user_id"] = self.user_id
             self._upsert(GarminActivity, "activity_id", data)
             rows = transform_exercise_summaries(data["activity_id"], record, fetched_at)
-            if rows:
-                self._db.flush()
-                self._db.query(GarminExerciseSummary).filter_by(
-                    activity_id=data["activity_id"]
-                ).delete()
-                for row in rows:
-                    row["user_id"] = self.user_id
-                    self._db.add(GarminExerciseSummary(**row))
-                n_summaries += len(rows)
+            # Always clear old summaries so edits that empty the list don't leave
+            # stale rows; flush first so the activity row exists for the FK.
+            self._db.flush()
+            self._db.query(GarminExerciseSummary).filter_by(
+                activity_id=data["activity_id"]
+            ).delete()
+            for row in rows:
+                row["user_id"] = self.user_id
+                self._db.add(GarminExerciseSummary(**row))
+            n_summaries += len(rows)
         self._db.commit()
 
         logger.info("Stored %d activities (%d exercise summaries)", len(activities), n_summaries)

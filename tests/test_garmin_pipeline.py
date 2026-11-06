@@ -652,6 +652,16 @@ def test_resync_replaces_summaries(db):
     assert db.query(GarminExerciseSummary).count() == len(rec["summarizedExerciseSets"])
 
 
+def test_resync_with_emptied_summaries_removes_stale_rows(db):
+    rec = _strength_record()
+    d = date(2024, 3, 5)
+    GarminPipeline(db, client=FakeClient(activities=[rec])).run(start=d, end=d)
+    assert db.query(GarminExerciseSummary).count() > 0
+    edited = {**rec, "summarizedExerciseSets": []}
+    GarminPipeline(db, client=FakeClient(activities=[edited])).run(start=d, end=d)
+    assert db.query(GarminExerciseSummary).count() == 0
+
+
 def test_run_records_key_error(db):
     client = FakeClient()
     client.activities_exc = GarminKeyError("key rejected - see settings")
