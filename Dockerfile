@@ -1,20 +1,11 @@
-# ── Stage 1: Build React frontends ───────────────────────────────────────────
+# ── Stage 1: Build React frontend ───────────────────────────────────────────
 FROM node:20-slim AS frontend-builder
 
-# Build main React app
 WORKDIR /app/frontend-react
 COPY frontend-react/package.json frontend-react/package-lock.json ./
 RUN npm ci --silent
 COPY frontend-react/ ./
 RUN npm run build
-
-# Build pulse-demo (interactive demo)
-RUN npm install -g pnpm --silent
-WORKDIR /app/pulse-demo
-COPY pulse-demo/package.json pulse-demo/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --silent
-COPY pulse-demo/ ./
-RUN pnpm exec vite build
 
 # ── Stage 2: Python backend ───────────────────────────────────────────────────
 FROM python:3.11-slim
@@ -43,9 +34,6 @@ RUN uv sync --frozen --no-dev
 
 # Copy the built React app — FastAPI serves it as static files
 COPY --from=frontend-builder /app/frontend-react/dist ./frontend-react/dist
-
-# Merge pulse-demo into the React dist under /demo — SPA fallback serves it
-COPY --from=frontend-builder /app/pulse-demo/dist ./frontend-react/dist/demo
 
 # Ensure the data directory exists; in practice it's overridden by the volume mount
 RUN mkdir -p data

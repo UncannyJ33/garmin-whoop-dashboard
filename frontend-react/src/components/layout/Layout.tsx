@@ -10,7 +10,6 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
-import { InstallPrompt } from '../InstallPrompt'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 
 // ── Offline banner ─────────────────────────────────────────────────────────
@@ -147,7 +146,6 @@ export function Layout() {
         {/* Mobile-only header */}
         <Header onMenuClick={() => setSidebarOpen(true)} />
 
-        <InstallPrompt />
         {!isOnline && <OfflineBanner />}
 
         <main
