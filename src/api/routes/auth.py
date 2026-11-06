@@ -1,4 +1,4 @@
-"""Authentication routes: JWT register/login/refresh/me + Whoop OAuth."""
+"""Authentication routes: JWT login/refresh/me + Whoop OAuth."""
 
 import asyncio
 import logging
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from src.api.dependencies import get_db
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.auth.schemas import TokenResponse, UserCreate, UserLogin, UserResponse
+from src.auth.schemas import TokenResponse, UserLogin, UserResponse
 from src.auth.security import (
     create_access_token,
     create_refresh_token,
@@ -50,27 +50,6 @@ def _check_rate_limit(ip: str) -> None:
 
 
 # ── JWT endpoints ─────────────────────────────────────────────────────────────
-
-
-@router.post(
-    "/register",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new user account",
-)
-def register(body: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
-    """Register a new account."""
-    existing = db.execute(
-        text("SELECT id FROM users WHERE email = :email"), {"email": body.email}
-    ).one_or_none()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered.")
-    user = User(email=body.email, hashed_password=hash_password(body.password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    logger.info("New user registered: %s", user.email)
-    return UserResponse(id=user.id, email=user.email, created_at=user.created_at)
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login and receive JWT tokens")
@@ -144,13 +123,25 @@ def refresh_token(request: Request, db: Session = Depends(get_db)) -> TokenRespo
 
 
 @router.get("/me", response_model=UserResponse, summary="Current user info")
-def me(current_user: User = Depends(get_current_user)) -> UserResponse:
-    """Return the authenticated user's profile."""
-    return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        created_at=current_user.created_at,
+def me(
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> UserResponse:
+    """Return the authenticated user's profile.
+
+    ``get_current_user`` builds a detached User from the JWT (no email), so the
+    profile is read from the ``users`` row.
+    """
+    row = (
+        db.execute(
+            text("SELECT id, email, created_at FROM users WHERE id = :id"),
+            {"id": current_user.id},
+        )
+        .mappings()
+        .one_or_none()
     )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return UserResponse(id=row["id"], email=row["email"], created_at=str(row["created_at"]))
 
 
 # ── Whoop OAuth ───────────────────────────────────────────────────────────────

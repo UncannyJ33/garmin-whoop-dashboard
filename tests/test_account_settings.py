@@ -280,7 +280,6 @@ class TestWhoopDisconnect:
         assert res.status_code == 401
 
     def test_disconnect_does_not_affect_other_user(self):
-        _seed_user(self.engine, USER_B, EMAIL_B, PASSWORD)
         _seed_whoop_token(self.engine, USER_A)
         _seed_whoop_token(self.engine, USER_B)
 
@@ -336,7 +335,6 @@ class TestDataExport:
 
     def test_export_excludes_other_user_data(self):
         """Rows belonging to USER_B must not appear in USER_A's export."""
-        _seed_user(self.engine, USER_B, EMAIL_B, PASSWORD)
         _seed_unified_workout(self.engine, USER_B, "export-w-b1")
         _seed_unified_sleep(self.engine, USER_B, "2026-03-01")
 
@@ -513,9 +511,7 @@ class TestDeleteAccount:
     def test_delete_invalidates_refresh_token(self):
         """After account deletion, the refresh endpoint must return 401."""
         # Obtain a real refresh token before deletion
-        res = self.client.post(
-            "/api/auth/login", json={"email": EMAIL_A, "password": PASSWORD}
-        )
+        res = self.client.post("/api/auth/login", json={"email": EMAIL_A, "password": PASSWORD})
         refresh_token = res.json()["refresh_token"]
 
         self.client.delete("/api/account", headers=_auth(USER_A))
@@ -550,7 +546,6 @@ class TestDeleteCrossUserIsolation:
     def setup(self):
         self.engine = _make_engine()
         _seed_user(self.engine, USER_A, EMAIL_A, PASSWORD)
-        _seed_user(self.engine, USER_B, EMAIL_B, PASSWORD)
         self.client = _make_client(self.engine)
 
     def test_delete_leaves_other_user_intact(self):
@@ -572,7 +567,6 @@ class TestDeleteCrossUserIsolation:
         assert _token_exists(self.engine, f"whoop_{USER_B}")
         assert _count(self.engine, "sync_log", "user_id", USER_B) == 1
         assert _count(self.engine, "whoop_recovery", "user_id", USER_B) == 1
-        assert _count(self.engine, "users", "id", USER_B) == 1
 
     def test_export_isolation(self):
         """USER_A's export contains only USER_A's workout, not USER_B's."""

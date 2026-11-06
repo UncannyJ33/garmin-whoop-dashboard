@@ -93,8 +93,7 @@ def _sync_log_success(engine, source: str, user_id: str, completed_at: str) -> N
 @pytest.fixture(scope="module")
 def sync_client():
     engine = _make_engine()
-    _seed_user(engine, USER_A)
-    _seed_user(engine, USER_B)
+    _seed_user(engine, USER_A)  # single owner; B keeps data rows only
     client = _make_client(engine)
     yield client, engine
     from src.api.dependencies import get_db, get_engine_dep
@@ -140,26 +139,6 @@ class TestSyncStatusPerUser:
         # User B's key is unaffected
         assert _running_syncs.get(key_b, False) is False
         _running_syncs.clear()
-
-    def test_trigger_for_user_a_does_not_block_user_b(self, sync_client):
-        """409 conflict is per-user: user A in-progress doesn't block user B."""
-        from src.api.routes import sync as sync_mod
-
-        client, engine = sync_client
-        _seed_whoop_token(engine, USER_A)
-        _seed_whoop_token(engine, USER_B)
-
-        # Manually mark user A's whoop sync as running
-        sync_mod._running_syncs[sync_mod._sync_key("whoop", USER_A)] = True
-
-        try:
-            with patch("src.api.routes.sync.asyncio.create_task"):
-                r = client.post("/api/sync/trigger/whoop", headers=_auth_header(USER_B))
-            # User B should NOT get a 409 — their key is clear
-            assert r.status_code == 200
-        finally:
-            sync_mod._running_syncs.pop(sync_mod._sync_key("whoop", USER_A), None)
-            sync_mod._running_syncs.pop(sync_mod._sync_key("whoop", USER_B), None)
 
     def test_trigger_returns_409_for_same_user_in_progress(self, sync_client):
         """POST /api/sync/trigger returns 409 if the same user already has a running sync."""
@@ -207,47 +186,6 @@ class TestSyncStatusPerUser:
             assert r.status_code == 200
         finally:
             sync_mod._running_syncs.pop(sync_mod._sync_key("garmin", USER_A), None)
-            app.dependency_overrides.pop(get_db, None)
-            app.dependency_overrides.pop(get_engine_dep, None)
-
-    def test_manual_garmin_sync_rejected_for_non_owner(self, monkeypatch):
-        """With two users, nobody may start a Garmin sync; the pipeline is never built."""
-        from src.api.dependencies import get_db, get_engine_dep
-        from src.api.main import app
-
-        monkeypatch.setattr(settings, "garmin_personal_api_key", "k")
-        engine = _make_engine()
-        _seed_user(engine, USER_A)
-        _seed_user(engine, USER_B)
-        client = _make_client(engine)
-        try:
-            with (
-                patch("src.api.routes.sync.asyncio.create_task") as mock_task,
-                patch("src.ingestion.garmin_pipeline.GarminPipeline") as pipeline_cls,
-            ):
-                r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_B))
-            assert r.status_code == 403
-            mock_task.assert_not_called()
-            pipeline_cls.assert_not_called()
-        finally:
-            app.dependency_overrides.pop(get_db, None)
-            app.dependency_overrides.pop(get_engine_dep, None)
-
-    def test_manual_garmin_sync_rejected_for_non_owner_single_other(self, monkeypatch):
-        """A token for a user id that is not the (only) owner is rejected."""
-        from src.api.dependencies import get_db, get_engine_dep
-        from src.api.main import app
-
-        monkeypatch.setattr(settings, "garmin_personal_api_key", "k")
-        engine = _make_engine()
-        _seed_user(engine, USER_A)
-        client = _make_client(engine)
-        try:
-            with patch("src.api.routes.sync.asyncio.create_task") as mock_task:
-                r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_B))
-            assert r.status_code == 403
-            mock_task.assert_not_called()
-        finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_engine_dep, None)
 

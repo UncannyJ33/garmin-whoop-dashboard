@@ -4,7 +4,7 @@ STREAMLIT = .venv/bin/streamlit
 PYTEST    = .venv/bin/pytest
 RUFF      = .venv/bin/ruff
 
-.PHONY: run-api run-frontend run-sync test lint fmt
+.PHONY: run-api run-frontend run-sync test lint fmt owner
 
 run-api:
 	$(UVICORN) src.api.main:app --port 8000 --reload
@@ -23,3 +23,6 @@ lint:
 
 fmt:
 	$(RUFF) format .
+
+owner:
+	$(PYTHON) scripts/create_owner.py --email $(EMAIL)
