@@ -35,12 +35,6 @@ class Settings:
     # Logging
     log_level: str
 
-    # Feature flags
-    whoop_public_oauth_enabled: bool
-    # Per-user Whoop OAuth allowlist — comma-separated user IDs that can connect
-    # Whoop even when whoop_public_oauth_enabled is False
-    whoop_allowed_user_ids: list[str]
-
 
 settings = Settings(
     whoop_client_id=os.getenv("WHOOP_CLIENT_ID", ""),
@@ -59,8 +53,4 @@ settings = Settings(
     jwt_secret=os.getenv("JWT_SECRET", ""),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
-    whoop_public_oauth_enabled=os.getenv("WHOOP_PUBLIC_OAUTH_ENABLED", "false").lower() == "true",
-    whoop_allowed_user_ids=[
-        uid.strip() for uid in os.getenv("WHOOP_ALLOWED_USER_IDS", "").split(",") if uid.strip()
-    ],
 )

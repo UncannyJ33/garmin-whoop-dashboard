@@ -91,3 +91,17 @@ def test_owner_cache_sees_owner_created_after_first_request(client, engine):
     assert client.get("/api/auth/me", headers=_auth(OWNER)).status_code == 401
     _seed_user(engine, OWNER)
     assert client.get("/api/auth/me", headers=_auth(OWNER)).status_code == 200
+
+
+def test_whoop_url_available_to_owner(client, engine, monkeypatch):
+    from config.settings import settings
+
+    monkeypatch.setattr(settings, "whoop_client_id", "test-client-id")
+    _seed_user(engine, OWNER)
+    res = client.get("/api/auth/whoop/url", headers=_auth(OWNER))
+    assert res.status_code == 200
+    assert "state=" in res.json()["url"]
+
+
+def test_feature_flags_route_gone(client):
+    assert client.get("/api/auth/feature-flags").status_code in (404, 405)
