@@ -12,7 +12,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from config.settings import settings
 from src.api.routes.account import router as account_router
 from src.api.routes.auth import router as auth_router
-from src.api.routes.garmin_csv import router as garmin_csv_router
 from src.api.routes.garmin_upload import router as garmin_upload_router
 from src.api.routes.insights import router as insights_router
 from src.api.routes.readiness import router as readiness_router
@@ -108,7 +107,6 @@ app.include_router(trends_router)
 app.include_router(training_router)
 app.include_router(insights_router)
 app.include_router(sync_router)
-app.include_router(garmin_csv_router)
 app.include_router(garmin_upload_router)
 app.include_router(webhooks_router)
 app.include_router(waitlist_router)

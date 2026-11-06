@@ -1,7 +1,7 @@
 """POST /api/garmin/upload — unified Garmin data upload endpoint.
 
 Accepts three file formats in one endpoint:
-  - **CSV** — Garmin Connect Activities export (same format as /api/garmin/csv-import)
+  - **CSV** — Garmin Connect Activities export (Activities.csv)
   - **JSON** — Garmin summarized activities JSON from a bulk export
   - **ZIP** — Full Garmin Connect account export (downloaded from Account Settings →
     Export Your Data); the ZIP is unpacked and all recognised JSON/CSV files are imported
@@ -16,7 +16,7 @@ Format is detected from the uploaded filename extension:
   ``.zip`` → ZIP path (GarminImporter, extracts and recurses)
   Any other extension → 400 Unsupported file type
 
-The CSV path applies the same deduplication logic as /api/garmin/csv-import
+The CSV path applies deduplication
 (same activity_type + start_time ±5 min + duration ±10 %).  The JSON/ZIP paths
 use the Garmin activity_id as the natural primary key, so re-uploads are
 idempotent via upsert.
@@ -71,7 +71,7 @@ class UploadResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# CSV-path helpers (mirrors garmin_csv.py dedup logic)
+# CSV-path helpers (dedup helpers)
 # ---------------------------------------------------------------------------
 
 
@@ -154,7 +154,7 @@ def _training_load_note(rows: list[dict]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# CSV import path (mirrors garmin_csv.py, shared helper)
+# CSV import path (shared helper)
 # ---------------------------------------------------------------------------
 
 
