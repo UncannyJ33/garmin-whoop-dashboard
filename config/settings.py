@@ -26,6 +26,10 @@ class Settings:
     streamlit_port: int
     cors_origins: list
 
+    # Garmin Personal API (official, key -> 24h bearer JWT)
+    garmin_personal_api_key: str
+    garmin_personal_api_base_url: str
+
     # Scheduler
     garmin_poll_interval_minutes: int
 
@@ -62,7 +66,11 @@ settings = Settings(
     app_port=int(os.getenv("PORT") or os.getenv("APP_PORT", "8000")),
     streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
     cors_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()],
-    garmin_poll_interval_minutes=int(os.getenv("GARMIN_POLL_INTERVAL_MINUTES", "15")),
+    garmin_personal_api_key=os.getenv("GARMIN_PERSONAL_API_KEY", ""),
+    garmin_personal_api_base_url=os.getenv(
+        "GARMIN_PERSONAL_API_BASE_URL", "https://personal.connectapi.garmin.com"
+    ),
+    garmin_poll_interval_minutes=int(os.getenv("GARMIN_POLL_INTERVAL_MINUTES", "30")),
     jwt_secret=os.getenv("JWT_SECRET", ""),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
