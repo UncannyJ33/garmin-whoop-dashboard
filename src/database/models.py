@@ -353,10 +353,9 @@ class SyncLog(Base):
 
 
 class GarminCredentials(Base):
-    """Encrypted Garmin Connect credentials for per-user auto-sync.
+    """Legacy table, no longer written (password login and credential encryption were removed).
 
-    The raw email and password are NEVER stored.  Both fields contain
-    Fernet ciphertext produced by ``src.auth.encryption.encrypt_credential``.
+    Kept until the Phase 3.4 cleanup; the columns held Fernet ciphertext, never raw credentials.
     """
 
     __tablename__ = "garmin_credentials"

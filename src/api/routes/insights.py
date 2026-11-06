@@ -1,5 +1,6 @@
 """Insights API routes."""
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,8 @@ from src.api.dependencies import get_engine_dep
 from src.api.models import WeeklyDigestResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
 
@@ -45,4 +48,5 @@ async def weekly_digest(
             metrics_snapshot=result.metrics_snapshot,
         )
     except Exception as exc:
+        logger.exception("weekly_digest failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

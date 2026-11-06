@@ -164,7 +164,7 @@ _OAUTH_STATE_TTL_MINUTES = 30
 def _store_oauth_state(state: str, user_id: str, db: Session) -> None:
     """Persist a Whoop OAuth CSRF state → user_id mapping in token_store.
 
-    Uses the DB so the mapping survives server restarts (Railway deploys).
+    Uses the DB so the mapping survives restarts.
     Entries are keyed as ``whoop_state_{state}`` and cleaned up on use.
     """
     from src.database.models import TokenStore
@@ -201,7 +201,9 @@ def _pop_oauth_state(state: str, db: Session) -> str | None:
             db.commit()
             return None
     except Exception:  # noqa: BLE001
-        pass
+        logger.warning(
+            "OAuth state has an unparseable updated_at; skipping TTL check", exc_info=True
+        )
 
     user_id = record.token_data_json
     db.delete(record)

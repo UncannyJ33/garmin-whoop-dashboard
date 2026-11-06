@@ -4,6 +4,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from src.analytics.readiness_score import Recommendation
+from src.analytics.sleep_analysis import SleepDebtTrend
+from src.analytics.training_load import AcwrTrend, Zone
+from src.analytics.trends import AnomalyDirection, TrendDirection
+from src.analytics.workout_analysis import PrimarySource
+
 # ---------------------------------------------------------------------------
 # Readiness
 # ---------------------------------------------------------------------------
@@ -20,7 +26,7 @@ class ContributingFactor(BaseModel):
 class ReadinessResponse(BaseModel):
     date: str
     score: float | None = None
-    recommendation: str
+    recommendation: Recommendation
     contributing_factors: dict[str, ContributingFactor]
     confidence: float
 
@@ -28,7 +34,7 @@ class ReadinessResponse(BaseModel):
 class ReadinessHistoryItem(BaseModel):
     date: str
     score: float | None = None
-    recommendation: str
+    recommendation: Recommendation
     confidence: float
 
 
@@ -37,20 +43,28 @@ class ReadinessHistoryItem(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class HRZoneMinutes(BaseModel):
+    zone1: float | None = None
+    zone2: float | None = None
+    zone3: float | None = None
+    zone4: float | None = None
+    zone5: float | None = None
+
+
 class EnrichedWorkoutResponse(BaseModel):
     id: str
     date: str
     start_time: str | None = None
     activity_type: str | None = None
     duration_minutes: float | None = None
-    primary_source: str
+    primary_source: PrimarySource
     matched: bool
     # Physiological load
     strain: float | None = None
     avg_hr: int | None = None
     max_hr: int | None = None
     calories_kj: float | None = None
-    hr_zone_minutes: dict[str, float | None]
+    hr_zone_minutes: HRZoneMinutes
     # Performance metrics
     distance_m: float | None = None
     avg_pace_min_per_km: float | None = None
@@ -131,13 +145,20 @@ class SleepConsistencyResponse(BaseModel):
     avg_wake_hour: float | None = None
     wake_time_std_hours: float | None = None
     avg_total_sleep_minutes: float | None = None
-    sleep_debt_trend: str | None = None
+    sleep_debt_trend: SleepDebtTrend | None = None
     sleep_debt_trend_slope_min_per_day: float | None = None
 
 
 # ---------------------------------------------------------------------------
 # Trends
 # ---------------------------------------------------------------------------
+
+
+class AnomalyPoint(BaseModel):
+    date: str
+    value: float
+    direction: AnomalyDirection
+    severity: float
 
 
 class MetricTrendResponse(BaseModel):
@@ -147,8 +168,8 @@ class MetricTrendResponse(BaseModel):
     rolling_avg_7d: list[float | None]
     rolling_avg_30d: list[float | None]
     rolling_std_7d: list[float | None]
-    anomalies: list[dict[str, Any]]
-    trend_direction: str
+    anomalies: list[AnomalyPoint]
+    trend_direction: TrendDirection
 
 
 class WeeklySummaryResponse(BaseModel):
@@ -171,7 +192,7 @@ class AnomalyItem(BaseModel):
     date: str
     metric: str
     value: float
-    direction: str
+    direction: AnomalyDirection
     severity: float
 
 
@@ -180,7 +201,7 @@ class EnrichedAnomalyResponse(BaseModel):
     metric: str
     metric_label: str
     value: float
-    direction: str
+    direction: AnomalyDirection
     severity: float
     context: dict[str, Any]
     explanation: str
@@ -287,9 +308,9 @@ class TrainingLoadResponse(BaseModel):
     acwr: float | None = None
     acute_load: float
     chronic_load: float
-    zone: str | None = None
+    zone: Zone | None = None
     zone_description: str | None = None
-    trend: str
+    trend: AcwrTrend
     weekly_loads: list[WeeklyLoadItem]
     confidence_note: str | None = None
 
@@ -299,7 +320,7 @@ class TrainingLoadHistoryItem(BaseModel):
     acwr: float | None = None
     acute_load: float
     chronic_load: float
-    zone: str | None = None
+    zone: Zone | None = None
 
 
 # ---------------------------------------------------------------------------

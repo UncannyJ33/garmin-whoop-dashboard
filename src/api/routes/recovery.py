@@ -70,7 +70,7 @@ def _duration_minutes(start_str: str, end_str: str) -> float | None:
         fmt = lambda s: dt.fromisoformat(s.replace("Z", "+00:00"))  # noqa: E731
         delta = fmt(end_str) - fmt(start_str)
         return round(delta.total_seconds() / 60, 1)
-    except Exception:  # noqa: BLE001
+    except (ValueError, AttributeError):
         return None
 
 

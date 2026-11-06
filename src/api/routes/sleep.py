@@ -1,6 +1,7 @@
 """Sleep API routes."""
 
 import dataclasses
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,6 +21,8 @@ from src.api.models import (
 )
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sleep", tags=["sleep"])
 
@@ -42,6 +45,7 @@ async def sleep_insights(
         insights = get_sleep_insights(engine, start, end, user_id=current_user.id)
         return [SleepInsightResponse(**dataclasses.asdict(s)) for s in insights]
     except Exception as exc:
+        logger.exception("sleep_insights failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -65,6 +69,7 @@ async def sleep_correlations(
             days_analyzed=result["days_analyzed"],
         )
     except Exception as exc:
+        logger.exception("sleep_correlations failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -83,4 +88,5 @@ async def sleep_consistency(
         result = get_sleep_consistency(engine, days=days, user_id=current_user.id)
         return SleepConsistencyResponse(**result)
     except Exception as exc:
+        logger.exception("sleep_consistency failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

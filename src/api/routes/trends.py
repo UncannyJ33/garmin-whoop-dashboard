@@ -1,5 +1,6 @@
 """Trends API routes."""
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,6 +23,8 @@ from src.api.models import (
 )
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/trends", tags=["trends"])
 
@@ -84,6 +87,7 @@ async def weekly_summary(
         analytics_cache.set(current_user.id, "weekly_summary", cache_key_date, value=resp)
         return resp
     except Exception as exc:
+        logger.exception("weekly_summary failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -114,6 +118,7 @@ async def anomaly_log(
             engine, list(_ANOMALY_METRICS), start, end, user_id=current_user.id
         )
     except Exception:  # noqa: BLE001
+        logger.exception("anomaly_log: live batch trend fetch failed")
         trends = {}
     for metric in _ANOMALY_METRICS:
         trend = trends.get(metric)
@@ -162,6 +167,7 @@ async def enriched_anomaly_log(
         results = get_enriched_anomalies(engine, current_user.id, start, end, limit=limit)
         return [EnrichedAnomalyResponse(**vars(r)) for r in results]
     except Exception as exc:
+        logger.exception("enriched_anomaly_log failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -189,5 +195,6 @@ async def metric_trend(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception("metric_trend failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return _trend_to_response(trend)

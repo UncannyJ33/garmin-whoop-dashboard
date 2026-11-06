@@ -1,5 +1,6 @@
 """Readiness API routes."""
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,6 +23,8 @@ from src.api.models import (
 )
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/readiness", tags=["readiness"])
 
@@ -69,6 +72,7 @@ async def readiness_today(
         analytics_cache.set(current_user.id, "readiness", cache_key_date, value=resp)
         return resp
     except Exception as exc:
+        logger.exception("readiness_today failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -98,6 +102,7 @@ async def readiness_limiting_factors(
         factors = get_limiting_factors(engine, current_user.id, target, top_n=top_n)
         return [LimitingFactorResponse(**vars(f)) for f in factors]
     except Exception as exc:
+        logger.exception("readiness_limiting_factors failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -119,4 +124,5 @@ async def readiness_history(
         history = get_readiness_history(start, end, engine, user_id=current_user.id)
         return [ReadinessHistoryItem(**h) for h in history]
     except Exception as exc:
+        logger.exception("readiness_history failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

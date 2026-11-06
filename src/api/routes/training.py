@@ -1,5 +1,6 @@
 """Training load API routes."""
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,8 @@ from src.api.dependencies import get_engine_dep
 from src.api.models import TrainingLoadHistoryItem, TrainingLoadResponse, WeeklyLoadItem
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/training", tags=["training"])
 
@@ -55,6 +58,7 @@ async def training_load_ratio(
             confidence_note=result.confidence_note,
         )
     except Exception as exc:
+        logger.exception("training_load_ratio failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -79,4 +83,5 @@ async def training_load_history(
         history = get_training_load_history(engine, current_user.id, start, end)
         return [TrainingLoadHistoryItem(**h) for h in history]
     except Exception as exc:
+        logger.exception("training_load_history failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

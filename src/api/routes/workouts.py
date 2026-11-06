@@ -1,6 +1,7 @@
 """Workouts API routes."""
 
 import dataclasses
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,7 +24,21 @@ from src.api.models import (
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/workouts", tags=["workouts"])
+
+
+def _garmin_activity_id(engine: Engine, workout_id: str, user_id: str) -> str | None:
+    """Return the Garmin activity id for one of the user's unified workouts, or None."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
+            ),
+            {"id": workout_id, "uid": user_id},
+        ).one_or_none()
+    return None if row is None else row[0]
 
 
 @router.get(
@@ -47,6 +62,7 @@ async def workout_summary(
             for atype, stats in sorted(summary.items(), key=lambda x: -x[1]["count"])
         ]
     except Exception as exc:
+        logger.exception("workout_summary failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -203,6 +219,7 @@ async def list_workouts(
         )
         return [EnrichedWorkoutResponse(**dataclasses.asdict(w)) for w in workouts]
     except Exception as exc:
+        logger.exception("list_workouts failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -217,16 +234,9 @@ async def get_exercise_sets(
     current_user: User = Depends(get_current_user),
 ) -> list[ExerciseSetItem]:
     """Return active exercise sets for a unified workout (strength only)."""
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
-            ),
-            {"id": workout_id, "uid": current_user.id},
-        ).one_or_none()
-    if row is None or row[0] is None:
+    garmin_id = _garmin_activity_id(engine, workout_id, current_user.id)
+    if garmin_id is None:
         return []
-    garmin_id = row[0]
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -259,6 +269,7 @@ async def get_workout(
     try:
         workout = get_enriched_workout(engine, workout_id, user_id=current_user.id)
     except Exception as exc:
+        logger.exception("get_workout failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if workout is None:
         raise HTTPException(status_code=404, detail=f"Workout '{workout_id}' not found")
@@ -276,15 +287,10 @@ async def get_exercise_summary(
     current_user: User = Depends(get_current_user),
 ) -> list[ExerciseSummaryItem]:
     """Return per-exercise summaries (Personal API) for a unified workout."""
+    garmin_id = _garmin_activity_id(engine, workout_id, current_user.id)
+    if garmin_id is None:
+        return []
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
-            ),
-            {"id": workout_id, "uid": current_user.id},
-        ).one_or_none()
-        if row is None or row[0] is None:
-            return []
         rows = (
             conn.execute(
                 text("""
@@ -294,7 +300,7 @@ async def get_exercise_summary(
                 WHERE activity_id = :aid
                 ORDER BY id
             """),
-                {"aid": row[0]},
+                {"aid": garmin_id},
             )
             .mappings()
             .all()
