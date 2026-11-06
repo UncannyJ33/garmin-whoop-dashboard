@@ -1,5 +1,6 @@
 """Trends API routes."""
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,7 +14,7 @@ from src.analytics.trends import (
     get_metric_trend,
     get_weekly_summary,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     AnomalyItem,
     EnrichedAnomalyResponse,
@@ -22,6 +23,8 @@ from src.api.models import (
 )
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/trends", tags=["trends"])
 
@@ -84,6 +87,7 @@ async def weekly_summary(
         analytics_cache.set(current_user.id, "weekly_summary", cache_key_date, value=resp)
         return resp
     except Exception as exc:
+        logger.exception("weekly_summary failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -93,14 +97,12 @@ async def weekly_summary(
     summary="Anomaly log across all tracked metrics",
 )
 async def anomaly_log(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[AnomalyItem]:
     """Return all anomalous days (≥ 2σ from 7-day prior mean) across key metrics."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
 
     # Try pre-computed cache first (populated after each sync)
     cached = get_cached_anomalies(engine, current_user.id, start, end)
@@ -114,6 +116,7 @@ async def anomaly_log(
             engine, list(_ANOMALY_METRICS), start, end, user_id=current_user.id
         )
     except Exception:  # noqa: BLE001
+        logger.exception("anomaly_log: live batch trend fetch failed")
         trends = {}
     for metric in _ANOMALY_METRICS:
         trend = trends.get(metric)
@@ -138,8 +141,7 @@ async def anomaly_log(
     summary="Anomaly log with 48-hour contextual explanations",
 )
 async def enriched_anomaly_log(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of anomalies to return"),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
@@ -149,8 +151,7 @@ async def enriched_anomaly_log(
     Each entry includes a natural-language explanation of what was happening
     in the 48 hours surrounding the anomaly.
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
 
     # Try pre-computed cache first
     cached = get_cached_enriched_anomalies(engine, current_user.id, start, end, limit=limit)
@@ -162,6 +163,7 @@ async def enriched_anomaly_log(
         results = get_enriched_anomalies(engine, current_user.id, start, end, limit=limit)
         return [EnrichedAnomalyResponse(**vars(r)) for r in results]
     except Exception as exc:
+        logger.exception("enriched_anomaly_log failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -172,8 +174,7 @@ async def enriched_anomaly_log(
 )
 async def metric_trend(
     metric: str,
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> MetricTrendResponse:
@@ -182,12 +183,12 @@ async def metric_trend(
     Supported metrics: recovery, hrv, resting_hr, body_battery, strain,
     sleep_duration, deep_sleep, readiness, training_load (and aliases).
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         trend = get_metric_trend(engine, metric, start, end, user_id=current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception("metric_trend failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return _trend_to_response(trend)

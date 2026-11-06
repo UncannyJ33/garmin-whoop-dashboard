@@ -23,7 +23,8 @@ from src.database.models import (
     GarminSleep,
     SyncLog,
 )
-from src.normalization.normalizer import Normalizer
+from src.ingestion.sync_log import mark_sync_error, start_sync_log
+from src.normalization.normalizer import Normalizer, upsert_row
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def _date_range(start: date, end: date) -> list[date]:
 # ---------------------------------------------------------------------------
 
 
-def transform_activity(record: dict, fetched_at: str) -> dict:
+def transform_activity(record: dict[str, Any], fetched_at: str) -> dict[str, Any]:
     """Map a Garmin activity list entry to garmin_activities column values.
 
     Running dynamics (ground contact time, stride length, etc.) are available
@@ -158,7 +159,9 @@ def transform_activity(record: dict, fetched_at: str) -> dict:
     }
 
 
-def transform_daily_summary(date_str: str, record: dict, fetched_at: str) -> dict:
+def transform_daily_summary(
+    date_str: str, record: dict[str, Any], fetched_at: str
+) -> dict[str, Any]:
     """Map the merged Garmin daily summary dict to garmin_daily_summary columns.
 
     The record is the merged output of get_stats + get_heart_rates +
@@ -192,7 +195,7 @@ def transform_daily_summary(date_str: str, record: dict, fetched_at: str) -> dic
     }
 
 
-def transform_sleep(date_str: str, record: dict, fetched_at: str) -> dict:
+def transform_sleep(date_str: str, record: dict[str, Any], fetched_at: str) -> dict[str, Any]:
     """Map a Garmin sleep response to garmin_sleep column values.
 
     The watch is rarely worn during sleep (Whoop is used instead), so most
@@ -235,7 +238,9 @@ def transform_sleep(date_str: str, record: dict, fetched_at: str) -> dict:
     }
 
 
-def transform_exercise_sets(activity_id: str, raw: dict, fetched_at: str) -> list[dict]:
+def transform_exercise_sets(
+    activity_id: str, raw: dict[str, Any], fetched_at: str
+) -> list[dict[str, Any]]:
     """Map a Garmin exerciseSets response to a list of garmin_exercise_sets rows.
 
     Only ACTIVE sets are stored; REST sets are skipped.  When an exercise set
@@ -276,7 +281,9 @@ def transform_exercise_sets(activity_id: str, raw: dict, fetched_at: str) -> lis
     return rows
 
 
-def transform_exercise_summaries(activity_id: str, record: dict, fetched_at: str) -> list[dict]:
+def transform_exercise_summaries(
+    activity_id: str, record: dict[str, Any], fetched_at: str
+) -> list[dict[str, Any]]:
     """Map an activity's ``summarizedExerciseSets`` to garmin_exercise_summaries rows.
 
     Units per the Personal API spec: ``maxWeight``/``volume`` in grams,
@@ -315,7 +322,7 @@ def transform_exercise_summaries(activity_id: str, record: dict, fetched_at: str
     return rows
 
 
-def transform_hrv(date_str: str, record: dict, fetched_at: str) -> dict:
+def transform_hrv(date_str: str, record: dict[str, Any], fetched_at: str) -> dict[str, Any]:
     """Map a Garmin HRV response to garmin_hrv column values.
 
     Args:
@@ -416,24 +423,15 @@ class GarminPipeline:
         auto_start, auto_end = self._get_sync_window()
         sync_start = start or auto_start
         sync_end = end or auto_end
-        now = datetime.now(tz=UTC)
 
-        sync_type = "manual" if (start or end) else "incremental"
-        log = SyncLog(
-            source="garmin",
-            sync_type=sync_type,
-            started_at=now.isoformat(),
-            status="running",
+        log = start_sync_log(
+            self._db,
+            "garmin",
+            manual=bool(start or end),
             user_id=self.user_id,
-            metadata_json=json.dumps(
-                {
-                    "sync_start": sync_start.isoformat(),
-                    "sync_end": sync_end.isoformat(),
-                }
-            ),
+            sync_start=sync_start,
+            sync_end=sync_end,
         )
-        self._db.add(log)
-        self._db.commit()
         logger.info("Garmin sync started: %s → %s", sync_start, sync_end)
 
         try:
@@ -470,18 +468,14 @@ class GarminPipeline:
         except GarminPersonalApiError as exc:
             # Key / rate-limit / transient: abort without advancing the window.
             self._db.rollback()
-            log.status = "error"
-            log.error_message = str(exc)
-            log.completed_at = datetime.now(tz=UTC).isoformat()
+            mark_sync_error(log, exc)
             self._db.commit()
             logger.error("Garmin sync aborted: %s", exc)
         except Exception as exc:
             self._db.rollback()
-            log.status = "error"
-            log.error_message = str(exc)
-            log.completed_at = datetime.now(tz=UTC).isoformat()
+            mark_sync_error(log, exc)
             self._db.commit()
-            logger.error("Garmin sync failed: %s", exc)
+            logger.error("Garmin sync failed: %s", exc)  # caller logs the traceback
             raise
 
         return log
@@ -513,7 +507,10 @@ class GarminPipeline:
                 )
                 return start, today
             except (KeyError, ValueError):
-                pass
+                logger.warning(
+                    "Garmin sync: unreadable sync_log metadata (id=%s); using default lookback",
+                    last.id,
+                )
         return today - timedelta(days=DEFAULT_LOOKBACK_DAYS), today
 
     def _sync_activities(self, start: date, end: date, fetched_at: str) -> tuple[int, int]:
@@ -617,22 +614,5 @@ class GarminPipeline:
     # ------------------------------------------------------------------
 
     def _upsert(self, model_cls: type[_M], pk_field: str, data: dict[str, Any]) -> _M:
-        """Insert or update a single row identified by its primary key.
-
-        Args:
-            model_cls: The SQLAlchemy ORM class to insert/update.
-            pk_field: The name of the primary key column in *data*.
-            data: Column-value mapping produced by a transform function.
-
-        Returns:
-            The inserted or updated ORM instance (not yet committed).
-        """
-        pk = data[pk_field]
-        row = self._db.get(model_cls, pk)
-        if row is None:
-            row = model_cls(**data)
-            self._db.add(row)
-        else:
-            for key, value in data.items():
-                setattr(row, key, value)
-        return row
+        """Insert or update a single row identified by its primary key (not committed)."""
+        return upsert_row(self._db, model_cls, pk_field, data)

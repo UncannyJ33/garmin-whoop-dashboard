@@ -13,7 +13,9 @@
 import { useMemo, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import { ACWRGauge } from '../components/ACWRGauge'
+import { ErrorState } from '../components/ErrorState'
 import { LimitingFactorCard } from '../components/LimitingFactorCard'
+import type { LimitingFactorSeverity } from '../types/api'
 import { ReadinessArcGauge } from '../components/ReadinessArcGauge'
 import { SleepStageBar } from '../components/SleepStageBar'
 import type { ReadinessLevel } from '../components/StatusBadge'
@@ -58,8 +60,8 @@ function yesterdayISO(): string {
   return d.toLocaleDateString('en-CA')
 }
 
-function toCardSeverity(severity: string): 'alert' | 'caution' {
-  return severity === 'poor' ? 'alert' : 'caution'
+function toCardSeverity(severity: LimitingFactorSeverity): 'alert' | 'caution' {
+  return severity === 'significant' ? 'alert' : 'caution'
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +181,19 @@ export function Today() {
   ]
 
   // ---------------------------------------------------------------------------
+  // Error state — any core query failed
+  const failedQueries = [readiness, sleepData, recentWorkouts].filter(q => q.isError)
+  if (failedQueries.length > 0) {
+    return (
+      <div style={{ maxWidth: 480, margin: '48px auto', padding: '0 16px' }}>
+        <ErrorState
+          message="Couldn't load your data."
+          onRetry={() => failedQueries.forEach(q => { void q.refetch() })}
+        />
+      </div>
+    )
+  }
+
   // Empty state — all main queries settled with no data
   const allSettled = readiness.isSuccess && sleepData.isSuccess && recentWorkouts.isSuccess
   const hasNoData  = allSettled && (readinessData?.confidence ?? 0) === 0 && sleepArr.length === 0
@@ -483,6 +498,11 @@ export function Today() {
                 <div className="skeleton" style={{ height: 34, borderRadius: 6 }} />
                 <div className="skeleton" style={{ height: 34, borderRadius: 6 }} />
               </>
+            ) : limiters.isError ? (
+              <ErrorState
+                message="Couldn't load limiting factors."
+                onRetry={() => void limiters.refetch()}
+              />
             ) : limitersList.length === 0 ? (
               readiness.isSuccess ? (
                 <p style={{ fontSize: 13, color: 'var(--status-excellent)', textAlign: 'center' }}>

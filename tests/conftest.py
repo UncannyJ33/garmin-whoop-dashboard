@@ -1,9 +1,13 @@
 """Shared fixtures."""
 
+import os
+
 import pytest
 
-from config.settings import settings
-from src.clients.garmin_personal_auth import reset_default_auth
+os.environ.setdefault("JWT_SECRET", "test-secret-not-real")  # before settings import
+
+from config.settings import settings  # noqa: E402
+from src.clients.garmin_personal_auth import reset_default_auth  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

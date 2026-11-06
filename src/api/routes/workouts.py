@@ -1,7 +1,7 @@
 """Workouts API routes."""
 
 import dataclasses
-from datetime import date
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine, text
@@ -11,7 +11,7 @@ from src.analytics.workout_analysis import (
     get_enriched_workouts,
     get_workout_type_summary,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     EnrichedWorkoutResponse,
     ExerciseSetItem,
@@ -23,7 +23,21 @@ from src.api.models import (
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/workouts", tags=["workouts"])
+
+
+def _garmin_activity_id(engine: Engine, workout_id: str, user_id: str) -> str | None:
+    """Return the Garmin activity id for one of the user's unified workouts, or None."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
+            ),
+            {"id": workout_id, "uid": user_id},
+        ).one_or_none()
+    return None if row is None else row[0]
 
 
 @router.get(
@@ -32,14 +46,12 @@ router = APIRouter(prefix="/api/workouts", tags=["workouts"])
     summary="Activity type summary",
 )
 async def workout_summary(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[WorkoutTypeSummaryItem]:
     """Aggregate stats grouped by activity type for the given date range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         summary = get_workout_type_summary(engine, start, end, user_id=current_user.id)
         return [
@@ -47,6 +59,7 @@ async def workout_summary(
             for atype, stats in sorted(summary.items(), key=lambda x: -x[1]["count"])
         ]
     except Exception as exc:
+        logger.exception("workout_summary failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -56,14 +69,12 @@ async def workout_summary(
     summary="Total volume per strength session",
 )
 async def strength_volume(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[StrengthVolumeItem]:
     """Return total volume (kg × reps) per strength session date in range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -110,14 +121,12 @@ async def strength_volume(
     summary="Max weight per tracked exercise per session",
 )
 async def strength_max_weight(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[StrengthMaxWeightItem]:
     """Return max weight (kg) per tracked exercise per session date in range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -175,8 +184,7 @@ async def strength_max_weight(
     summary="List enriched workouts",
 )
 async def list_workouts(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     limit: int | None = Query(
         None, ge=1, le=500, description="Max workouts to return (omit for all)"
     ),
@@ -190,8 +198,7 @@ async def list_workouts(
     omitted, all workouts in the range are returned (backward compatible).
     The total count is always returned in the X-Total-Count response header.
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         workouts = get_enriched_workouts(
             engine,
@@ -203,6 +210,7 @@ async def list_workouts(
         )
         return [EnrichedWorkoutResponse(**dataclasses.asdict(w)) for w in workouts]
     except Exception as exc:
+        logger.exception("list_workouts failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -217,16 +225,9 @@ async def get_exercise_sets(
     current_user: User = Depends(get_current_user),
 ) -> list[ExerciseSetItem]:
     """Return active exercise sets for a unified workout (strength only)."""
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
-            ),
-            {"id": workout_id, "uid": current_user.id},
-        ).one_or_none()
-    if row is None or row[0] is None:
+    garmin_id = _garmin_activity_id(engine, workout_id, current_user.id)
+    if garmin_id is None:
         return []
-    garmin_id = row[0]
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -259,6 +260,7 @@ async def get_workout(
     try:
         workout = get_enriched_workout(engine, workout_id, user_id=current_user.id)
     except Exception as exc:
+        logger.exception("get_workout failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if workout is None:
         raise HTTPException(status_code=404, detail=f"Workout '{workout_id}' not found")
@@ -276,15 +278,10 @@ async def get_exercise_summary(
     current_user: User = Depends(get_current_user),
 ) -> list[ExerciseSummaryItem]:
     """Return per-exercise summaries (Personal API) for a unified workout."""
+    garmin_id = _garmin_activity_id(engine, workout_id, current_user.id)
+    if garmin_id is None:
+        return []
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
-            ),
-            {"id": workout_id, "uid": current_user.id},
-        ).one_or_none()
-        if row is None or row[0] is None:
-            return []
         rows = (
             conn.execute(
                 text("""
@@ -294,7 +291,7 @@ async def get_exercise_summary(
                 WHERE activity_id = :aid
                 ORDER BY id
             """),
-                {"aid": row[0]},
+                {"aid": garmin_id},
             )
             .mappings()
             .all()

@@ -16,7 +16,9 @@ from sqlalchemy import create_engine, text
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL or "sqlite" in DATABASE_URL:
     print("ERROR: Set DATABASE_URL to a PostgreSQL connection string.")
-    print("  Example: DATABASE_URL=postgresql://user:pass@host:5432/db python scripts/explain_indexes.py")
+    print(
+        "  Example: DATABASE_URL=postgresql://user:pass@host:5432/db python scripts/explain_indexes.py"
+    )
     sys.exit(1)
 
 engine = create_engine(DATABASE_URL, connect_args={"sslmode": "require"})
@@ -67,7 +69,9 @@ with engine.connect() as conn:
             rows = conn.execute(text(f"EXPLAIN ANALYZE {sql}"), params).fetchall()
             plan = "\n".join(r[0] for r in rows)
 
-            uses_index = "Index Scan" in plan or "Index Only Scan" in plan or "Bitmap Index Scan" in plan
+            uses_index = (
+                "Index Scan" in plan or "Index Only Scan" in plan or "Bitmap Index Scan" in plan
+            )
             uses_seq = "Seq Scan" in plan
 
             if uses_index and not uses_seq:

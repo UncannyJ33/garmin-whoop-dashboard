@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import { todayISO } from './useDateRange'
+import { useLocalToday } from './useDateRange'
 
 const STALE = {
   SHORT:  5 * 60 * 1000,   // 5 min — user data that changes frequently (today's readiness, sync status)
@@ -11,10 +11,14 @@ const STALE = {
 } as const
 
 import type {
+  Anomaly,
+  CSVImportResult,
   DataStats,
-  EnrichedAnomalyPoint,
+  EnrichedAnomaly,
   EnrichedWorkout,
   ExerciseSet,
+  FeatureFlags,
+  GarminStatus,
   LimitingFactor,
   MetricTrend,
   ReadinessHistoryPoint,
@@ -28,11 +32,21 @@ import type {
   SyncStatus,
   SyncTriggerResponse,
   TrainingLoadResponse,
+  UploadResult,
   WeeklyDigestResponse,
   WeeklySummary,
+  WhoopStatus,
   WithWithoutResponse,
   WorkoutTypeSummary,
 } from '../types/api'
+
+/** Invalidate every query that depends on synced/imported workout and health data. */
+export function invalidateWorkoutQueries(queryClient: QueryClient, userId: string | null | undefined) {
+  for (const key of ['workouts', 'training', 'readiness', 'sleep', 'trends', 'insights', 'recovery']) {
+    void queryClient.invalidateQueries({ queryKey: [key], refetchType: 'active' })
+  }
+  void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId], refetchType: 'active' })
+}
 
 // ---------------------------------------------------------------------------
 // Readiness
@@ -40,9 +54,12 @@ import type {
 
 export function useReadinessToday() {
   const { userId } = useAuth()
+  const today = useLocalToday() // in the key so the query refetches after midnight
   return useQuery({
-    queryKey: ['readiness', 'today', userId],
-    queryFn: ({ signal }) => api.get<ReadinessResult>(`/api/readiness/today?date=${todayISO()}`, signal),
+    queryKey: ['readiness', 'today', today, userId],
+    queryFn: ({ signal }) =>
+      // 204 No Content when there is no readiness data for the date
+      api.get<ReadinessResult | null>(`/api/readiness/today?date=${today}`, signal),
     staleTime: STALE.SHORT,
     retry: 1,
     refetchOnWindowFocus: true,
@@ -208,10 +225,7 @@ export function useAnomalies(start: string, end: string) {
   return useQuery({
     queryKey: ['trends', 'anomalies', start, end, userId],
     queryFn: ({ signal }) =>
-      api.get<Array<{ date: string; metric: string; value: number; direction: string; severity: number }>>(
-        `/api/trends/anomalies?start=${start}&end=${end}`,
-        signal,
-      ),
+      api.get<Anomaly[]>(`/api/trends/anomalies?start=${start}&end=${end}`, signal),
     staleTime: STALE.MEDIUM,
     retry: 1,
     enabled: !!userId,
@@ -224,7 +238,7 @@ export function useEnrichedAnomalies(start: string, end: string) {
   return useQuery({
     queryKey: ['trends', 'anomalies', 'enriched', start, end, userId],
     queryFn: ({ signal }) =>
-      api.get<EnrichedAnomalyPoint[]>(
+      api.get<EnrichedAnomaly[]>(
         `/api/trends/anomalies/enriched?start=${start}&end=${end}`,
         signal,
       ),
@@ -257,8 +271,9 @@ export function useWeeklyDigest(date?: string) {
 
 export function useLimitingFactors(topN = 2) {
   const { userId } = useAuth()
+  const today = useLocalToday() // in the key so the query refetches after midnight
   return useQuery({
-    queryKey: ['readiness', 'limiting-factors', topN, userId],
+    queryKey: ['readiness', 'limiting-factors', topN, today, userId],
     queryFn: ({ signal }) =>
       api.get<LimitingFactor[]>(`/api/readiness/limiting-factors?top_n=${topN}`, signal),
     staleTime: STALE.SHORT,
@@ -269,8 +284,9 @@ export function useLimitingFactors(topN = 2) {
 
 export function useTrainingLoadRatio(date?: string) {
   const { userId } = useAuth()
+  const today = useLocalToday() // in the key so the query refetches after midnight
   return useQuery({
-    queryKey: ['training', 'load-ratio', date ?? 'today', userId],
+    queryKey: ['training', 'load-ratio', date ?? today, userId],
     queryFn: ({ signal }) =>
       api.get<TrainingLoadResponse>(
         date ? `/api/training/load-ratio?date=${date}` : '/api/training/load-ratio',
@@ -316,7 +332,7 @@ export function useFeatureFlags() {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['feature-flags', userId ?? 'anon'],
-    queryFn: ({ signal }) => api.get<{ whoop_oauth_enabled: boolean }>('/api/auth/feature-flags', signal),
+    queryFn: ({ signal }) => api.get<FeatureFlags>('/api/auth/feature-flags', signal),
     staleTime: STALE.STATIC,
     retry: 1,
   })
@@ -330,20 +346,11 @@ export function useWhoopStatus() {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['auth', 'whoop-status', userId],
-    queryFn: ({ signal }) => api.get<{ connected: boolean }>('/api/auth/whoop/status', signal),
+    queryFn: ({ signal }) => api.get<WhoopStatus>('/api/auth/whoop/status', signal),
     staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
   })
-}
-
-export interface CSVImportResult {
-  imported: number
-  skipped_duplicates: number
-  skipped_errors: number
-  date_range: string | null
-  training_load_note: string
-  row_errors: string[]
 }
 
 export function useGarminCSVImport() {
@@ -356,23 +363,8 @@ export function useGarminCSVImport() {
       form.append('units', units)
       return api.postForm<CSVImportResult>('/api/garmin/csv-import', form)
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['workouts'], refetchType: 'active' })
-      void queryClient.invalidateQueries({ queryKey: ['training'], refetchType: 'active' })
-      void queryClient.invalidateQueries({ queryKey: ['readiness'], refetchType: 'active' })
-      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId], refetchType: 'active' })
-    },
+    onSuccess: () => invalidateWorkoutQueries(queryClient, userId),
   })
-}
-
-export interface UploadResult {
-  imported: number
-  skipped_duplicates: number
-  skipped_errors: number
-  format_detected: string
-  date_range: string | null
-  warnings: string[]
-  training_load_note: string | null
 }
 
 export function useGarminUpload() {
@@ -385,12 +377,7 @@ export function useGarminUpload() {
       form.append('units', units)
       return api.postForm<UploadResult>('/api/garmin/upload', form)
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['workouts'], refetchType: 'active' })
-      void queryClient.invalidateQueries({ queryKey: ['training'], refetchType: 'active' })
-      void queryClient.invalidateQueries({ queryKey: ['readiness'], refetchType: 'active' })
-      void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId], refetchType: 'active' })
-    },
+    onSuccess: () => invalidateWorkoutQueries(queryClient, userId),
   })
 }
 
@@ -398,7 +385,7 @@ export function useGarminStatus() {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['auth', 'garmin-status', userId],
-    queryFn: ({ signal }) => api.get<{ connected: boolean; configured: boolean; error: string | null }>('/api/auth/garmin/status', signal),
+    queryFn: ({ signal }) => api.get<GarminStatus>('/api/auth/garmin/status', signal),
     staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
@@ -454,7 +441,7 @@ export function useDisconnectWhoop() {
 export function useChangePassword() {
   return useMutation({
     mutationFn: (body: { current_password: string; new_password: string }) =>
-      api.post('/api/auth/change-password', body),
+      api.post<null>('/api/auth/change-password', body),
   })
 }
 

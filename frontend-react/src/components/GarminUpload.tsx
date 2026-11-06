@@ -8,7 +8,8 @@
  */
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useGarminUpload, type UploadResult } from '../hooks/useApi'
+import { useGarminUpload } from '../hooks/useApi'
+import type { UploadResult } from '../types/api'
 
 interface Props {
   /** Called after a successful import with the result payload. */

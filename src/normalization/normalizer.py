@@ -6,6 +6,7 @@ calls to the Whoop and Garmin mapper functions and the deduplication engine.
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypeVar
@@ -52,6 +53,41 @@ def _date_range(start: date, end: date) -> list[date]:
     return [start + timedelta(days=i) for i in range(days)]
 
 
+def upsert_row(db: Session, model_cls: type[_M], pk_field: str, data: dict[str, Any]) -> _M:
+    """Insert or update a single row identified by ``data[pk_field]`` (not committed).
+
+    Args:
+        db: Active session.
+        model_cls: SQLAlchemy ORM class.
+        pk_field: Name of the primary key in data.
+        data: Column-value mapping to persist.
+
+    Returns:
+        The inserted or updated ORM instance.
+    """
+    row = db.get(model_cls, data[pk_field])
+    if row is None:
+        row = model_cls(**data)
+        db.add(row)
+    else:
+        for k, v in data.items():
+            setattr(row, k, v)
+    return row
+
+
+@dataclass
+class PrefetchCache:
+    """Batch-prefetched source rows for a date range, keyed for O(1) lookup."""
+
+    cycles_by_date: dict[str, WhoopCycle]
+    recoveries_by_cycle: dict[str, WhoopRecovery]
+    sleep_by_id: dict[str, WhoopSleep]
+    sleep_by_end_date: dict[str, WhoopSleep]
+    garmin_daily_by_date: dict[str, GarminDailySummary]
+    garmin_sleep_by_date: dict[str, GarminSleep]
+    vo2_by_date: dict[str, float]
+
+
 class Normalizer:
     """Reads source tables and writes to unified_daily, unified_sleep, unified_workouts.
 
@@ -80,7 +116,7 @@ class Normalizer:
         self._db = db
         self.user_id = user_id
         path = mappings_path or _DEFAULT_MAPPINGS_PATH
-        self._mappings: dict = yaml.safe_load(path.read_text())
+        self._mappings: dict[str, Any] = yaml.safe_load(path.read_text())
 
     # ------------------------------------------------------------------
     # Public API
@@ -133,30 +169,14 @@ class Normalizer:
         if cycle is None and garmin_summary is None:
             return 0
 
-        # --- Build unified row ---
-        data: dict[str, Any] = {"date": date_str}
-
-        sources: list[str] = []
-
-        if cycle is not None:
-            data.update(map_whoop_daily(cycle, recovery, sleep))
-            sources.append("whoop")
-
-        if garmin_summary is not None:
-            garmin_fields = map_garmin_daily(garmin_summary)
-            # Garmin-only columns; never overwrite Whoop-populated fields
-            for k, v in garmin_fields.items():
-                if k not in data or data[k] is None:
-                    data[k] = v
-            # garmin_vo2_max: take max VO2 from activities on this date
-            data["garmin_vo2_max"] = self._daily_vo2_max(date_str)
-            sources.append("garmin")
-
-        data["data_sources"] = json.dumps(sources)
-        data["readiness_score"] = None  # reserved
-        data["last_updated"] = datetime.now(tz=UTC).isoformat()
-        data["user_id"] = self.user_id
-
+        data = self._build_daily_row(
+            date_str,
+            cycle,
+            recovery,
+            sleep,
+            garmin_summary,
+            self._daily_vo2_max(date_str) if garmin_summary is not None else None,
+        )
         self._upsert(UnifiedDaily, "date", data)
         self._db.commit()
         return 1
@@ -195,28 +215,7 @@ class Normalizer:
         if whoop_sleep is None and garmin_sleep is None:
             return 0
 
-        data: dict[str, Any] = {"date": date_str}
-
-        if whoop_sleep is not None and garmin_sleep is not None:
-            primary_source = "both"
-        elif whoop_sleep is not None:
-            primary_source = "whoop"
-        else:
-            primary_source = "garmin"
-
-        if whoop_sleep is not None:
-            data.update(map_whoop_sleep(whoop_sleep))
-
-        if garmin_sleep is not None:
-            garmin_fields = map_garmin_sleep(garmin_sleep)
-            for k, v in garmin_fields.items():
-                if k not in data or data[k] is None:
-                    data[k] = v
-
-        data["primary_source"] = primary_source
-        data["last_updated"] = datetime.now(tz=UTC).isoformat()
-        data["user_id"] = self.user_id
-
+        data = self._build_sleep_row(date_str, whoop_sleep, garmin_sleep)
         self._upsert(UnifiedSleep, "date", data)
         self._db.commit()
         return 1
@@ -352,14 +351,13 @@ class Normalizer:
 
                 analytics_cache.invalidate_user(self.user_id)
             except Exception:  # noqa: BLE001
-                pass  # cache invalidation is best-effort
+                logger.warning("normalize_all: analytics cache invalidation failed", exc_info=True)
             try:
                 from src.analytics.anomaly_store import refresh_anomalies
 
                 refresh_anomalies(self._db.get_bind(), self.user_id, start, end)
             except Exception:  # noqa: BLE001
-                logger.debug("normalize_all: anomaly refresh failed (non-critical)")
-                pass
+                logger.warning("normalize_all: anomaly refresh failed", exc_info=True)
 
         return counts
 
@@ -367,7 +365,7 @@ class Normalizer:
     # Batch prefetch — reduces ~210 queries to ~7 for a 30-day range
     # ------------------------------------------------------------------
 
-    def _prefetch_range(self, start: date, end: date) -> dict[str, Any]:
+    def _prefetch_range(self, start: date, end: date) -> PrefetchCache:
         """Fetch all source data for the date range in bulk queries.
 
         Returns a dict of lookup tables keyed by date string.
@@ -463,33 +461,73 @@ class Normalizer:
             q = q.filter(GarminActivity.user_id == uid)
         vo2_by_date = {row.d: row.v for row in q.group_by(date_expr).all()}
 
-        return {
-            "cycles_by_date": cycles_by_date,
-            "recoveries_by_cycle": recoveries_by_cycle,
-            "sleep_by_id": sleep_by_id,
-            "sleep_by_end_date": sleep_by_end_date,
-            "garmin_daily_by_date": garmin_daily_by_date,
-            "garmin_sleep_by_date": garmin_sleep_by_date,
-            "vo2_by_date": vo2_by_date,
-        }
+        return PrefetchCache(
+            cycles_by_date=cycles_by_date,
+            recoveries_by_cycle=recoveries_by_cycle,
+            sleep_by_id=sleep_by_id,
+            sleep_by_end_date=sleep_by_end_date,
+            garmin_daily_by_date=garmin_daily_by_date,
+            garmin_sleep_by_date=garmin_sleep_by_date,
+            vo2_by_date=vo2_by_date,
+        )
 
-    def _normalize_daily_from_cache(self, target_date: date, cache: dict[str, Any]) -> int:
+    def _normalize_daily_from_cache(self, target_date: date, cache: PrefetchCache) -> int:
         """Upsert one unified_daily row using prefetched data."""
         date_str = target_date.isoformat()
 
-        cycle = cache["cycles_by_date"].get(date_str)
+        cycle = cache.cycles_by_date.get(date_str)
         recovery: WhoopRecovery | None = None
         sleep: WhoopSleep | None = None
         if cycle:
-            recovery = cache["recoveries_by_cycle"].get(cycle.id)
+            recovery = cache.recoveries_by_cycle.get(cycle.id)
             if recovery and recovery.sleep_id:
-                sleep = cache["sleep_by_id"].get(recovery.sleep_id)
+                sleep = cache.sleep_by_id.get(recovery.sleep_id)
 
-        garmin_summary = cache["garmin_daily_by_date"].get(date_str)
+        garmin_summary = cache.garmin_daily_by_date.get(date_str)
 
         if cycle is None and garmin_summary is None:
             return 0
 
+        data = self._build_daily_row(
+            date_str, cycle, recovery, sleep, garmin_summary, cache.vo2_by_date.get(date_str)
+        )
+        self._upsert(UnifiedDaily, "date", data)
+        self._db.commit()
+        return 1
+
+    def _normalize_sleep_from_cache(self, target_date: date, cache: PrefetchCache) -> int:
+        """Upsert one unified_sleep row using prefetched data."""
+        date_str = target_date.isoformat()
+
+        whoop_sleep = cache.sleep_by_end_date.get(date_str)
+        garmin_sleep = cache.garmin_sleep_by_date.get(date_str)
+
+        if whoop_sleep is None and garmin_sleep is None:
+            return 0
+
+        data = self._build_sleep_row(date_str, whoop_sleep, garmin_sleep)
+        self._upsert(UnifiedSleep, "date", data)
+        self._db.commit()
+        return 1
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _build_daily_row(
+        self,
+        date_str: str,
+        cycle: WhoopCycle | None,
+        recovery: WhoopRecovery | None,
+        sleep: WhoopSleep | None,
+        garmin_summary: GarminDailySummary | None,
+        garmin_vo2_max: float | None,
+    ) -> dict[str, Any]:
+        """Merge Whoop and Garmin daily sources into one unified_daily row dict.
+
+        Whoop wins; Garmin only fills columns Whoop left unset.  The caller
+        guarantees at least one of ``cycle`` / ``garmin_summary`` is present.
+        """
         data: dict[str, Any] = {"date": date_str}
         sources: list[str] = []
 
@@ -499,31 +537,29 @@ class Normalizer:
 
         if garmin_summary is not None:
             garmin_fields = map_garmin_daily(garmin_summary)
+            # Garmin-only columns; never overwrite Whoop-populated fields
             for k, v in garmin_fields.items():
                 if k not in data or data[k] is None:
                     data[k] = v
-            data["garmin_vo2_max"] = cache["vo2_by_date"].get(date_str)
+            data["garmin_vo2_max"] = garmin_vo2_max
             sources.append("garmin")
 
         data["data_sources"] = json.dumps(sources)
-        data["readiness_score"] = None
+        data["readiness_score"] = None  # reserved
         data["last_updated"] = datetime.now(tz=UTC).isoformat()
         data["user_id"] = self.user_id
+        return data
 
-        self._upsert(UnifiedDaily, "date", data)
-        self._db.commit()
-        return 1
+    def _build_sleep_row(
+        self,
+        date_str: str,
+        whoop_sleep: WhoopSleep | None,
+        garmin_sleep: GarminSleep | None,
+    ) -> dict[str, Any]:
+        """Merge Whoop and Garmin sleep into one unified_sleep row dict.
 
-    def _normalize_sleep_from_cache(self, target_date: date, cache: dict[str, Any]) -> int:
-        """Upsert one unified_sleep row using prefetched data."""
-        date_str = target_date.isoformat()
-
-        whoop_sleep = cache["sleep_by_end_date"].get(date_str)
-        garmin_sleep = cache["garmin_sleep_by_date"].get(date_str)
-
-        if whoop_sleep is None and garmin_sleep is None:
-            return 0
-
+        The caller guarantees at least one source is present.
+        """
         data: dict[str, Any] = {"date": date_str}
 
         if whoop_sleep is not None and garmin_sleep is not None:
@@ -544,14 +580,7 @@ class Normalizer:
         data["primary_source"] = primary_source
         data["last_updated"] = datetime.now(tz=UTC).isoformat()
         data["user_id"] = self.user_id
-
-        self._upsert(UnifiedSleep, "date", data)
-        self._db.commit()
-        return 1
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+        return data
 
     def _daily_vo2_max(self, date_str: str) -> float | None:
         """Return the max VO2 max from Garmin activities on the given date."""
@@ -570,22 +599,5 @@ class Normalizer:
         return max(values) if values else None
 
     def _upsert(self, model_cls: type[_M], pk_field: str, data: dict[str, Any]) -> _M:
-        """Insert or update a single row identified by its primary key.
-
-        Args:
-            model_cls: SQLAlchemy ORM class.
-            pk_field: Name of the primary key in data.
-            data: Column-value mapping to persist.
-
-        Returns:
-            The inserted or updated ORM instance.
-        """
-        pk = data[pk_field]
-        row = self._db.get(model_cls, pk)
-        if row is None:
-            row = model_cls(**data)
-            self._db.add(row)
-        else:
-            for k, v in data.items():
-                setattr(row, k, v)
-        return row
+        """Insert or update a single row identified by its primary key."""
+        return upsert_row(self._db, model_cls, pk_field, data)

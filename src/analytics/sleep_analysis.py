@@ -22,11 +22,15 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import Engine, text
 
+from src.analytics.training_load import user_clause
+
 logger = logging.getLogger(__name__)
+
+SleepDebtTrend = Literal["unknown", "stable", "worsening", "improving"]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -180,12 +184,8 @@ def _fetch_unified_sleep(
     engine: Engine, start: str, end: str, user_id: str | None = None
 ) -> dict[str, dict]:
     """Fetch unified_sleep rows keyed by date."""
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"start": start, "end": end, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"start": start, "end": end}
+    params: dict = {"start": start, "end": end}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -210,12 +210,8 @@ def _fetch_unified_daily(
     engine: Engine, start: str, end: str, user_id: str | None = None
 ) -> dict[str, dict]:
     """Fetch unified_daily rows keyed by date."""
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"start": start, "end": end, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"start": start, "end": end}
+    params: dict = {"start": start, "end": end}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -239,12 +235,8 @@ def _fetch_training_load_by_date(
     engine: Engine, start: str, end: str, user_id: str | None = None
 ) -> dict[str, float]:
     """Sum garmin_activities.training_load per day via unified_workouts join."""
-    if user_id is not None:
-        uid_clause = "AND uw.user_id = :uid"
-        params: dict = {"start": start, "end": end, "uid": user_id}
-    else:
-        uid_clause = "AND uw.user_id IS NULL"
-        params = {"start": start, "end": end}
+    params: dict = {"start": start, "end": end}
+    uid_clause = user_clause(user_id, params, "uw.")
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -281,12 +273,8 @@ def _fetch_whoop_sleep_times(
     # that capture all ISO-formatted timestamps on the start and end dates.
     start_ts = start + "T00:00:00"
     end_ts = end + "T23:59:59"
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"start_ts": start_ts, "end_ts": end_ts, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"start_ts": start_ts, "end_ts": end_ts}
+    params: dict = {"start_ts": start_ts, "end_ts": end_ts}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -555,6 +543,7 @@ def get_sleep_consistency(
 
     slope = _linear_slope(debt_series)
     # debt = avg_sleep − target; slope < 0 means debt getting more negative (worsening).
+    trend: SleepDebtTrend
     if slope is None:
         trend = "unknown"
     elif abs(slope) < _STABLE_SLOPE_THRESHOLD:

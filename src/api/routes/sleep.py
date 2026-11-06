@@ -1,7 +1,7 @@
 """Sleep API routes."""
 
 import dataclasses
-from datetime import date
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
@@ -11,7 +11,7 @@ from src.analytics.sleep_analysis import (
     get_sleep_insights,
     get_strain_sleep_correlation,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     CorrelationResult,
     SleepConsistencyResponse,
@@ -20,6 +20,8 @@ from src.api.models import (
 )
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sleep", tags=["sleep"])
 
@@ -30,18 +32,17 @@ router = APIRouter(prefix="/api/sleep", tags=["sleep"])
     summary="Sleep insights for a date range",
 )
 async def sleep_insights(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[SleepInsightResponse]:
     """Return per-night sleep insights linking sleep quality, prior training, and recovery."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         insights = get_sleep_insights(engine, start, end, user_id=current_user.id)
         return [SleepInsightResponse(**dataclasses.asdict(s)) for s in insights]
     except Exception as exc:
+        logger.exception("sleep_insights failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -65,6 +66,7 @@ async def sleep_correlations(
             days_analyzed=result["days_analyzed"],
         )
     except Exception as exc:
+        logger.exception("sleep_correlations failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -83,4 +85,5 @@ async def sleep_consistency(
         result = get_sleep_consistency(engine, days=days, user_id=current_user.id)
         return SleepConsistencyResponse(**result)
     except Exception as exc:
+        logger.exception("sleep_consistency failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

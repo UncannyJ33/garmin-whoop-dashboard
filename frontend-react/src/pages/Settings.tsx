@@ -1,16 +1,19 @@
 /**
  * Settings page — sync status, data overview, preferences
  */
+import { Spinner } from '../components/Spinner'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { GARMIN_KEY_LABEL, GarminKeyHint, garminKeyState } from '../components/GarminKeyStatus'
-import { useChangePassword, useDataStats, useDeleteAccount, useDisconnectWhoop, useFeatureFlags, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus, type UploadResult } from '../hooks/useApi'
+import { invalidateWorkoutQueries, useChangePassword, useDataStats, useDeleteAccount, useDisconnectWhoop, useFeatureFlags, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
+import type { UploadResult } from '../types/api'
 import { GarminUpload } from '../components/GarminUpload'
 import { Modal } from '../components/Modal'
 import { api } from '../api/client'
 // Theme is dark-only — no toggle exposed
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
+import { fmtDateFull } from '../utils/formatters'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -20,12 +23,6 @@ function fmtDatetime(iso: string | null): string {
   return d.toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   }) + ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function isStale(iso: string | null): boolean {
@@ -64,15 +61,6 @@ function SourceIcon({ source }: { source: string }) {
     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 flex-shrink-0">
       <span className="text-sm font-bold text-blue-400">G</span>
     </div>
-  )
-}
-
-function Spinner() {
-  return (
-    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-    </svg>
   )
 }
 
@@ -196,11 +184,7 @@ export function Settings() {
         } else {
           setLastSyncedSource(source)
           // Refresh all data now that the sync has finished
-          void queryClient.invalidateQueries({ queryKey: ['sync', 'stats', userId] })
-          void queryClient.invalidateQueries({ queryKey: ['readiness'] })
-          void queryClient.invalidateQueries({ queryKey: ['workouts'] })
-          void queryClient.invalidateQueries({ queryKey: ['sleep'] })
-          void queryClient.invalidateQueries({ queryKey: ['trends'] })
+          invalidateWorkoutQueries(queryClient, userId)
         }
       }
     }
@@ -533,8 +517,8 @@ export function Settings() {
                     : '0'
                 }
               />
-              <StatRow label="Date range start" value={fmtDate(statsQ.data.date_start)} />
-              <StatRow label="Date range end"   value={fmtDate(statsQ.data.date_end)} />
+              <StatRow label="Date range start" value={fmtDateFull(statsQ.data.date_start)} />
+              <StatRow label="Date range end"   value={fmtDateFull(statsQ.data.date_end)} />
             </>
           ) : null}
         </div>

@@ -615,3 +615,82 @@ async def test_lifespan_starts_and_stops_scheduler():
             assert stopped == []
 
     assert stopped == [True]
+
+
+# ---------------------------------------------------------------------------
+# Real-session regression: SyncLog fields must be read inside the session
+# ---------------------------------------------------------------------------
+
+
+def _real_pipeline_cls(engine, source: str, *, is_async: bool):
+    """Pipeline stand-in whose run() commits a real SyncLog on the real session."""
+    from src.database.models import SyncLog
+
+    class _Pipeline:
+        def __init__(self, db, user_id=None):
+            self._db = db
+            self._user_id = user_id
+
+        def _make_log(self):
+            log = SyncLog(
+                source=source,
+                sync_type="incremental",
+                started_at="2026-01-01T00:00:00",
+                status="success",
+                records_fetched=7,
+                records_stored=5,
+                user_id=self._user_id,
+            )
+            self._db.add(log)
+            self._db.commit()  # expires the instance, as the real pipelines do
+            return log
+
+        if is_async:
+
+            async def run(self):
+                return self._make_log()
+        else:
+
+            def run(self):
+                return self._make_log()
+
+    return _Pipeline
+
+
+def test_garmin_job_real_session_does_not_hit_detached_instance(garmin_key, caplog):
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    caplog.set_level(logging.INFO, logger="src.ingestion.scheduler")
+    import src.api.dependencies as deps_mod
+    import src.ingestion.garmin_pipeline as gp_mod
+    import src.ingestion.scheduler as sched_mod
+
+    with (
+        patch.object(deps_mod, "_engine", engine),
+        patch.object(
+            gp_mod, "GarminPipeline", _real_pipeline_cls(engine, "garmin", is_async=False)
+        ),
+    ):
+        sched_mod._run_garmin_sync()
+    assert "unexpected error" not in caplog.text
+    assert "Garmin sync: success (fetched 7, stored 5)" in caplog.text
+
+
+def test_whoop_job_real_session_does_not_hit_detached_instance(caplog):
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    _seed_whoop_token(engine, OWNER)
+    caplog.set_level(logging.INFO, logger="src.ingestion.scheduler")
+    import src.api.dependencies as deps_mod
+    import src.ingestion.scheduler as sched_mod
+    import src.ingestion.whoop_pipeline as wp_mod
+
+    with (
+        patch.object(deps_mod, "_engine", engine),
+        patch.object(wp_mod, "WhoopPipeline", _real_pipeline_cls(engine, "whoop", is_async=True)),
+    ):
+        sched_mod._run_whoop_sync()
+    assert "unexpected error" not in caplog.text
+    assert "Whoop sync: 5 stored (status: success)" in caplog.text
+    with engine.connect() as conn:  # token must survive
+        assert conn.execute(text("SELECT COUNT(*) FROM token_store")).scalar() == 1

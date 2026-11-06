@@ -1,4 +1,5 @@
 import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -32,8 +33,13 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start the Garmin sync scheduler on startup, stop it on shutdown."""
+    if not settings.jwt_secret:
+        raise RuntimeError(
+            "JWT_SECRET is not set. Refusing to start: an empty secret lets anyone forge "
+            "tokens. Set JWT_SECRET to a long random string."
+        )
     logger.info("Fitness Dashboard API starting up (log_level=%s)", settings.log_level)
     logger.info("Whoop redirect URI: %s", settings.whoop_redirect_uri)
     start_scheduler()
@@ -62,7 +68,9 @@ _NO_CACHE_PREFIXES = ("/api/sync/", "/api/auth/", "/api/webhooks/", "/api/waitli
 
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         response: Response = await call_next(request)
         path = request.url.path
         if not path.startswith("/api/"):

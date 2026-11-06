@@ -1,5 +1,6 @@
 """Readiness API routes."""
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,7 +14,7 @@ from src.analytics.readiness_score import (
     compute_readiness,
     get_readiness_history,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     ContributingFactor,
     LimitingFactorResponse,
@@ -22,6 +23,8 @@ from src.api.models import (
 )
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/readiness", tags=["readiness"])
 
@@ -69,6 +72,7 @@ async def readiness_today(
         analytics_cache.set(current_user.id, "readiness", cache_key_date, value=resp)
         return resp
     except Exception as exc:
+        logger.exception("readiness_today failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -98,6 +102,7 @@ async def readiness_limiting_factors(
         factors = get_limiting_factors(engine, current_user.id, target, top_n=top_n)
         return [LimitingFactorResponse(**vars(f)) for f in factors]
     except Exception as exc:
+        logger.exception("readiness_limiting_factors failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -107,16 +112,15 @@ async def readiness_limiting_factors(
     summary="Readiness score history",
 )
 async def readiness_history(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[ReadinessHistoryItem]:
     """Return daily readiness scores for a date range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         history = get_readiness_history(start, end, engine, user_id=current_user.id)
         return [ReadinessHistoryItem(**h) for h in history]
     except Exception as exc:
+        logger.exception("readiness_history failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

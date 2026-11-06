@@ -53,7 +53,7 @@ def _is_null(v: Any) -> bool:
     return v is None or (isinstance(v, (dict, list, tuple, str)) and len(v) == 0)
 
 
-def _all_null(d: dict) -> bool:
+def _all_null(d: dict[str, Any]) -> bool:
     """True when every top-level value is null (the API's "no data" shape)."""
     return all(_is_null(v) for v in d.values())
 
@@ -107,14 +107,14 @@ class GarminClient:
         self,
         start_date: date | datetime | str,
         end_date: date | datetime | str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch all activities in the date range (local start date), paging 100 at a time.
 
         Raises:
             GarminKeyError, GarminRateLimitError, GarminTransientError: on API failure.
         """
         s, e = _fmt_date(start_date), _fmt_date(end_date)
-        out: list[dict] = []
+        out: list[dict[str, Any]] = []
         start = 0
         prev_first: Any = None
         for _ in range(_MAX_PAGES):
@@ -138,7 +138,7 @@ class GarminClient:
             start += _PAGE_LIMIT
         raise GarminTransientError(f"activities exceeded {_MAX_PAGES} pages")
 
-    def get_daily_summary(self, date_: date | datetime | str) -> dict:
+    def get_daily_summary(self, date_: date | datetime | str) -> dict[str, Any]:
         """Fetch the daily user summary. Returns {} when there is no data."""
         data = self._get(
             "/usersummary-service/usersummary/daily", {"calendarDate": _fmt_date(date_)}
@@ -170,7 +170,7 @@ class GarminClient:
             return None
         return data
 
-    def get_user_settings(self) -> dict:
+    def get_user_settings(self) -> dict[str, Any]:
         """Fetch user settings; used as the key-validity probe. Never log the body."""
         data = self._get("/userprofile-service/userprofile/settings")
         if not isinstance(data, dict) or not data:
@@ -189,7 +189,14 @@ class GarminClient:
             time.sleep(wait)
         self._last_call_time = time.monotonic()
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    def _key_error(self, message: str) -> GarminKeyError:
+        """Record a bearer-level rejection on the auth object so /status stops reporting connected."""
+        self._auth.last_error = message
+        return GarminKeyError(message)
+
+    def _get(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | list[Any] | None:
         """GET a Personal API path and return parsed JSON, or None for no data."""
         url = f"{self._auth.base_url}{path}"
         force_refresh = False
@@ -208,11 +215,11 @@ class GarminClient:
                 if not force_refresh:
                     force_refresh = True
                     continue
-                raise GarminKeyError(
+                raise self._key_error(
                     f"Garmin rejected the bearer token twice; check your key at {KEY_PAGE_URL}"
                 )
             if status == 403:
-                raise GarminKeyError(
+                raise self._key_error(
                     f"Garmin denied access (HTTP 403); check key scopes at {KEY_PAGE_URL}"
                 )
             if status == 429:
@@ -224,6 +231,9 @@ class GarminClient:
                 return None
             if not 200 <= status < 300:
                 raise GarminTransientError(f"Unexpected Garmin response for {path} (HTTP {status})")
+            # A successful data response proves the cached bearer token is accepted,
+            # so drop any stale bearer-level rejection recorded by an earlier call.
+            self._auth.last_error = None
             if status == 204 or not resp.content.strip():
                 return None
             try:

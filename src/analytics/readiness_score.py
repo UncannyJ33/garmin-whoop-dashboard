@@ -13,9 +13,11 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import Engine, text
+
+from src.analytics.training_load import user_clause
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,14 @@ READINESS_WEIGHTS: dict[str, float] = {
 }
 
 # Recommendation bands — checked from highest threshold downward
-_RECOMMENDATION_BANDS: list[tuple[float, str]] = [
+Recommendation = Literal[
+    "Push hard — your body is primed for high intensity",
+    "Train normally — good to go for planned workout",
+    "Go easy — consider reducing intensity or volume",
+    "Rest day — recovery is the priority",
+]
+
+_RECOMMENDATION_BANDS: list[tuple[float, Recommendation]] = [
     (80.0, "Push hard — your body is primed for high intensity"),
     (60.0, "Train normally — good to go for planned workout"),
     (40.0, "Go easy — consider reducing intensity or volume"),
@@ -65,7 +74,7 @@ class ReadinessResult:
 
     date: date
     score: float | None
-    recommendation: str
+    recommendation: Recommendation
     contributing_factors: dict[str, dict[str, Any]]
     confidence: float
 
@@ -75,7 +84,7 @@ class ReadinessResult:
 # ---------------------------------------------------------------------------
 
 
-def _get_recommendation(score: float) -> str:
+def _get_recommendation(score: float) -> Recommendation:
     """Map a 0–100 readiness score to a training recommendation string."""
     for threshold, label in _RECOMMENDATION_BANDS:
         if score >= threshold:
@@ -326,16 +335,8 @@ def _fetch_data_window(
     Returns:
         (daily_by_date, sleep_by_date): dicts keyed by ISO date string.
     """
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {
-            "start": start_date.isoformat(),
-            "end": end_date.isoformat(),
-            "uid": user_id,
-        }
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"start": start_date.isoformat(), "end": end_date.isoformat()}
+    params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat()}
+    uid_clause = user_clause(user_id, params)
 
     with engine.connect() as conn:
         daily_rows = (

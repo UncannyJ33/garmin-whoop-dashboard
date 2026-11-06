@@ -29,10 +29,14 @@ import {
 } from '../hooks/useApi'
 import { TrendChart } from '../components/TrendChart'
 import type { TrendDataPoint } from '../components/TrendChart'
+import { ErrorState } from '../components/ErrorState'
 import { NoDataState } from '../components/LoadingState'
 import type { WeeklySummary } from '../types/api'
 import { activityLabel } from '../utils/formatters'
 import { colorForType } from '../utils/chartColors'
+import { useLocalToday } from '../hooks/useDateRange'
+import { DayButton } from '../components/DayButton'
+import { fmtDate } from '../utils/formatters'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -44,11 +48,6 @@ function subDays(days: number): string {
   const d = new Date()
   d.setDate(d.getDate() - days)
   return toISO(d)
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
-    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function dateShift(iso: string, days: number): string {
@@ -269,22 +268,7 @@ function buildDigest(s: WeeklySummary): DigestItem[] {
 
 // ── sub-components ─────────────────────────────────────────────────────────────
 
-function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
-        active
-          ? 'bg-brand text-white'
-          : 'bg-surface-overlay text-slate-500 hover:text-slate-400'
-      }`}
-    >
-      {n}d
-    </button>
-  )
-}
-
-function DigestCard({ item }: { item: DigestItem }) {
+function DigestItemCard({ item }: { item: DigestItem }) {
   return (
     <div
       className="flex items-start gap-3 rounded-xl px-4 py-3"
@@ -362,7 +346,7 @@ export function Insights() {
   const [selectedMetric, setSelectedMetric] = useState('recovery')
   const [explorerDays,   setExplorerDays]   = useState(60)
 
-  const today   = toISO(new Date())
+  const today   = useLocalToday()
   const exStart = subDays(explorerDays)
   const exEnd   = today
 
@@ -440,8 +424,10 @@ export function Insights() {
     return { byType, allTypes }
   }, [workoutsQ.data])
 
-  const corrLoading = hrvQ.isLoading || recoveryQ.isLoading || strainQ.isLoading
-    || batteryQ.isLoading || sleepQ.isLoading
+  // isPending (not isLoading): disabled/paused queries have no data yet but are not "loading"
+  const corrQueries = [hrvQ, recoveryQ, strainQ, batteryQ, sleepQ]
+  const corrLoading = corrQueries.some(q => q.isPending)
+  const corrError = corrQueries.some(q => q.isError)
 
   // Section 1: digest items — prefer server takeaways, fall back to client-side buildDigest
   const digestItems = useMemo(() => {
@@ -462,7 +448,7 @@ export function Insights() {
   // Trend badge context sentence
   const trendContext = useMemo(() => {
     const dir = trendQ.data?.trend_direction
-    if (!dir || dir === 'insufficient_data') return null
+    if (!dir) return null
     return TREND_CONTEXT[selectedMetric]?.[dir as keyof typeof TREND_CONTEXT[string]] ?? null
   }, [trendQ.data, selectedMetric])
 
@@ -490,7 +476,7 @@ export function Insights() {
           <p className="text-sm text-slate-400">No weekly summary available yet.</p>
         ) : (
           <div className="space-y-2">
-            {digestItems.map((item, i) => <DigestCard key={i} item={item} />)}
+            {digestItems.map((item, i) => <DigestItemCard key={i} item={item} />)}
           </div>
         )}
       </div>
@@ -551,7 +537,7 @@ export function Insights() {
                 </span>
               ))}
             </div>
-            {trendQ.data && trendQ.data.trend_direction !== 'insufficient_data' && (
+            {trendQ.data && (
               <div className="space-y-1.5">
                 {/* Trend direction badge */}
                 {(() => {
@@ -595,7 +581,9 @@ export function Insights() {
           </p>
         </div>
 
-        {corrLoading ? (
+        {corrError ? (
+          <ErrorState message="Couldn't load correlation data." onRetry={() => corrQueries.forEach(q => { if (q.isError) void q.refetch() })} />
+        ) : corrLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="card">
@@ -613,8 +601,8 @@ export function Insights() {
               n={correlations.hrvRecovery?.n ?? 0}
               accentColor="var(--status-excellent)"
               interpretation={
-                correlations.hrvRecovery?.r !== null
-                  ? `When your HRV is high, recovery tends to follow — this is a ${corrStrength(correlations.hrvRecovery!.r!)} connection in your data.`
+                correlations.hrvRecovery?.r != null
+                  ? `When your HRV is high, recovery tends to follow — this is a ${corrStrength(correlations.hrvRecovery.r)} connection in your data.`
                   : undefined
               }
             />
@@ -727,8 +715,8 @@ export function Insights() {
               n={correlations.sleepBattery?.n ?? 0}
               accentColor="var(--brand)"
               interpretation={
-                correlations.sleepBattery?.r !== null
-                  ? `Longer sleep nights tend to ${correlations.sleepBattery!.r! >= 0.2 ? 'boost' : 'not clearly affect'} your next-day Garmin Body Battery — a ${corrStrength(correlations.sleepBattery!.r!)} connection.`
+                correlations.sleepBattery?.r != null
+                  ? `Longer sleep nights tend to ${correlations.sleepBattery.r >= 0.2 ? 'boost' : 'not clearly affect'} your next-day Garmin Body Battery — a ${corrStrength(correlations.sleepBattery.r)} connection.`
                   : undefined
               }
             />

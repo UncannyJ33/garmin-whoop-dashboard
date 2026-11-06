@@ -64,7 +64,7 @@ function makeTrend(name: string, values: number[], anomalyIdx: number | null = n
     anomalies:       anomalyIdx != null
       ? [{ date: DATES[anomalyIdx], value: values[anomalyIdx], direction: 'low', severity: 2 }]
       : [],
-    trend_direction: 'increasing',
+    trend_direction: 'improving',
   }
 }
 
@@ -353,7 +353,7 @@ export function Demo() {
                   key={i}
                   factorName={lf.factor_name}
                   context={stripPrefix(lf.explanation, lf.factor_name)}
-                  severity={lf.severity === 'poor' ? 'alert' : 'caution'}
+                  severity="caution"
                 />
               ))}
             </div>

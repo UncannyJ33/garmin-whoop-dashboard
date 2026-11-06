@@ -7,10 +7,10 @@ done in Python to avoid dialect-specific functions (strftime, interval).
 
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy import Engine, text
 
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import RecoveryActivityItem, WithWithoutResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
@@ -70,7 +70,7 @@ def _duration_minutes(start_str: str, end_str: str) -> float | None:
         fmt = lambda s: dt.fromisoformat(s.replace("Z", "+00:00"))  # noqa: E731
         delta = fmt(end_str) - fmt(start_str)
         return round(delta.total_seconds() / 60, 1)
-    except Exception:  # noqa: BLE001
+    except (ValueError, AttributeError, TypeError):
         return None
 
 
@@ -80,14 +80,12 @@ def _duration_minutes(start_str: str, end_str: str) -> float | None:
     summary="List recovery activities",
 )
 async def list_recovery(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[RecoveryActivityItem]:
     """Return Whoop recovery activities (strain IS NULL) for the date range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
 
     end_exclusive = (end + timedelta(days=1)).isoformat()
     # Fetch window: start – (end + 1 day) for activities; need next-day data too
@@ -154,14 +152,12 @@ async def list_recovery(
     summary="Next-day recovery: with vs without prior recovery activity",
 )
 async def with_without(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> WithWithoutResponse:
     """Compare avg next-day recovery on days where previous day had a recovery activity vs not."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     with engine.connect() as conn:
         rec_dates = {
             r[0]

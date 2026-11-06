@@ -42,9 +42,30 @@ _running_syncs: dict[str, bool] = {}
 _status_cache: dict[str, dict[str, dict]] = {}
 
 
+# Strong references to in-flight sync tasks: the event loop only keeps weak ones,
+# so an unreferenced task can be garbage-collected mid-run.
+_background_tasks: set[asyncio.Task] = set()
+
+
 def _sync_key(source: str, user_id: str) -> str:
     """Return the per-user key used in ``_running_syncs``."""
     return f"{source}:{user_id}"
+
+
+def _serialise_sync_rows(
+    rows_by_source: dict[str, dict], uid: str, scheduler_status: dict
+) -> list[SyncStatusItem]:
+    """Build one ``SyncStatusItem`` per known source, enriched with scheduler metadata."""
+    result = []
+    for src in _KNOWN_SOURCES:
+        row = rows_by_source.get(src)
+        item = SyncStatusItem(**row) if row else SyncStatusItem(source=src, status="never_synced")
+        job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
+        item.next_sync_at = job_info.get("next_run_at")
+        item.scheduler_running = scheduler_status["running"]
+        item.is_running = _running_syncs.get(_sync_key(src, uid), False)
+        result.append(item)
+    return result
 
 
 @router.get(
@@ -64,20 +85,7 @@ async def sync_status(
     # snapshot so we never wait on a busy DB connection pool.
     user_has_running = any(_running_syncs.get(_sync_key(src, uid), False) for src in _KNOWN_SOURCES)
     if user_has_running and uid in _status_cache:
-        result = []
-        for src in _KNOWN_SOURCES:
-            cached = _status_cache[uid].get(src)
-            item = (
-                SyncStatusItem(**cached)
-                if cached
-                else SyncStatusItem(source=src, status="never_synced")
-            )
-            job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
-            item.next_sync_at = job_info.get("next_run_at")
-            item.scheduler_running = scheduler_status["running"]
-            item.is_running = _running_syncs.get(_sync_key(src, uid), False)
-            result.append(item)
-        return result
+        return _serialise_sync_rows(_status_cache[uid], uid, scheduler_status)
 
     # Normal path: query DB, populate cache for next in-flight poll.
     with engine.connect() as conn:
@@ -106,18 +114,7 @@ async def sync_status(
         )
 
     _status_cache[uid] = {r["source"]: dict(r) for r in rows}
-    by_source = {r["source"]: SyncStatusItem(**dict(r)) for r in rows}
-
-    # Enrich with scheduler metadata (next run time + running state)
-    result = []
-    for src in _KNOWN_SOURCES:
-        item = by_source.get(src, SyncStatusItem(source=src, status="never_synced"))
-        job_info = scheduler_status["jobs"].get(_SCHEDULER_JOB_IDS[src], {})
-        item.next_sync_at = job_info.get("next_run_at")
-        item.scheduler_running = scheduler_status["running"]
-        item.is_running = _running_syncs.get(_sync_key(src, uid), False)
-        result.append(item)
-    return result
+    return _serialise_sync_rows(_status_cache[uid], uid, scheduler_status)
 
 
 @router.get(
@@ -263,7 +260,9 @@ async def trigger_sync(
 
     now = datetime.now(tz=UTC)
     _running_syncs[key] = True
-    asyncio.create_task(_run_sync_task(source, engine, current_user.id))
+    task = asyncio.create_task(_run_sync_task(source, engine, current_user.id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return SyncTriggerResponse(
         source=source,

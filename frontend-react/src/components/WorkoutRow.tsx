@@ -12,12 +12,8 @@ import { memo, useState } from 'react'
 import type { EnrichedWorkout } from '../types/api'
 import { DataSourceBadge } from './DataSourceBadge'
 import { useExerciseSets } from '../hooks/useApi'
-
-const STRENGTH_TYPES = new Set([
-  'strength_training', 'weight_training', 'indoor_cardio', 'hiit', 'pilates', 'yoga',
-])
-
-const KG_TO_LB = 2.20462
+import { activityLabel } from '../utils/formatters'
+import { KG_TO_LB, STRENGTH_TYPES } from '../utils/workoutTypes'
 
 function fmtDur(min: number | null): string {
   if (min === null) return '—'
@@ -240,8 +236,7 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
   const [expanded, setExpanded] = useState(false)
 
   const source = w.matched ? 'both' : w.primary_source as 'whoop' | 'garmin' | 'both'
-  const activityLabel = (w.activity_type ?? 'Unknown')
-    .split('_').map(s => s[0].toUpperCase() + s.slice(1)).join(' ')
+  const label = activityLabel(w.activity_type ?? 'Unknown')
   const isRun      = (w.activity_type ?? '').toLowerCase().includes('run')
   const isStrength = STRENGTH_TYPES.has((w.activity_type ?? '').toLowerCase())
 
@@ -279,7 +274,7 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
           className="flex-1 truncate"
           style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}
         >
-          {activityLabel}
+          {label}
         </span>
 
         {/* Duration */}
@@ -387,7 +382,7 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
                   ['Ground Contact',    fmtVal(w.avg_ground_contact_time_ms, 0, ' ms')],
                   ['Vert Oscillation',  fmtVal(w.avg_vertical_oscillation_cm, 1, ' cm')],
                   ['Vert Ratio',        fmtVal(w.avg_vertical_ratio_pct, 1, '%')],
-                  ['Stride Length',     fmtVal(w.avg_stride_length, 2, ' m')],
+                  ['Stride Length',     fmtVal(w.avg_stride_length !== null ? w.avg_stride_length / 100 : null, 2, ' m')],
                 ].map(([label, val]) => (
                   <DetailCell key={label} label={label} value={val} />
                 ))}

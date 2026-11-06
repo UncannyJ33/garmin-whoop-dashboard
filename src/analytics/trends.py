@@ -9,7 +9,7 @@ Public API
 get_metric_series(engine, metric, start_date, end_date) -> list[DailyPoint]
 get_metric_trend(engine, metric_name, start_date, end_date) -> MetricTrend
 detect_anomalies(values, dates, window=7, threshold=2.0) -> list[dict]
-calculate_trend_direction(rolling_avg, window=7) -> str
+calculate_trend_direction(rolling_avg, window=7) -> TrendDirection
 get_weekly_summary(engine, date) -> dict
 get_weekly_rollup(engine, metric, start_date, end_date) -> list[PeriodRollup]
 get_monthly_rollup(engine, metric, start_date, end_date) -> list[PeriodRollup]
@@ -40,10 +40,16 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import Literal
 
 from sqlalchemy import Engine, text
 
+from src.analytics.training_load import fetch_daily_strain, user_clause
+
 logger = logging.getLogger(__name__)
+
+TrendDirection = Literal["improving", "declining", "stable"]
+AnomalyDirection = Literal["high", "low"]
 
 # ---------------------------------------------------------------------------
 # Metric registry
@@ -107,22 +113,6 @@ class DailyPoint:
 
 
 @dataclass
-class AnomalyPoint:
-    """A day whose value deviated significantly from its 28-day rolling mean.
-
-    ``z_score`` is positive when the value was above the baseline ("high")
-    and negative when below ("low").
-    """
-
-    date: str
-    value: float
-    z_score: float
-    direction: str  # "high" | "low"
-    rolling_mean: float
-    rolling_std: float
-
-
-@dataclass
 class PeriodRollup:
     """Aggregate stats for one calendar week or month.
 
@@ -167,7 +157,7 @@ class MetricTrend:
     rolling_avg_30d: list[float | None]
     rolling_std_7d: list[float | None]
     anomalies: list[dict] = field(default_factory=list)
-    trend_direction: str = "stable"
+    trend_direction: TrendDirection = "stable"
 
 
 # ---------------------------------------------------------------------------
@@ -264,12 +254,8 @@ def _fetch_raw(
     user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Fetch (date, value) pairs from ``table`` ordered by date."""
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"s": start_iso, "e": end_iso, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"s": start_iso, "e": end_iso}
+    params: dict = {"s": start_iso, "e": end_iso}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         rows = conn.execute(
             text(  # noqa: S608
@@ -323,22 +309,7 @@ def _fetch_training_load_values(
     user_id: str | None = None,
 ) -> list[tuple[str, float | None]]:
     """Return per-day total whoop_strain summed from unified_workouts."""
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"s": start_date.isoformat(), "e": end_date.isoformat(), "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"s": start_date.isoformat(), "e": end_date.isoformat()}
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text(  # noqa: S608
-                "SELECT date, SUM(whoop_strain) FROM unified_workouts"
-                f" WHERE date >= :s AND date <= :e AND whoop_strain IS NOT NULL {uid_clause}"
-                " GROUP BY date ORDER BY date"
-            ),
-            params,
-        ).fetchall()
-    by_date = {r[0]: float(r[1]) for r in rows}
+    by_date = fetch_daily_strain(engine, start_date, end_date, user_id)
     return [(d.isoformat(), by_date.get(d.isoformat())) for d in _date_range(start_date, end_date)]
 
 
@@ -380,6 +351,7 @@ def _get_notable_anomalies(
                 if a["date"] >= current_week_start_iso:
                     notable.append({"metric": metric, **a})
         except Exception:  # noqa: BLE001
+            logger.warning("notable-anomaly detection failed for metric %r", metric, exc_info=True)
             continue
     return notable
 
@@ -442,38 +414,6 @@ def get_metric_series(
         )
 
     return results
-
-
-def _detect_anomalies_engine(
-    engine: Engine,
-    metric: str,
-    days: int = 30,
-    end_date: date | None = None,
-    z_threshold: float = _DEFAULT_Z_THRESHOLD,
-) -> list[AnomalyPoint]:
-    """Engine-based anomaly detection using the 28-day z-score window from
-    get_metric_series.  Returns AnomalyPoint instances.
-
-    This is an internal helper; callers outside this module should use
-    get_metric_trend (which uses the pure detect_anomalies).
-    """
-    if end_date is None:
-        end_date = date.today()
-    start_date = end_date - timedelta(days=days - 1)
-    series = get_metric_series(engine, metric, start_date, end_date)
-
-    return [
-        AnomalyPoint(
-            date=pt.date,
-            value=pt.value,  # type: ignore[arg-type]
-            z_score=pt.z_score,  # type: ignore[arg-type]
-            direction="high" if pt.z_score > 0 else "low",  # type: ignore[operator]
-            rolling_mean=pt.rolling_28d,  # type: ignore[arg-type]
-            rolling_std=pt.rolling_28d_std,  # type: ignore[arg-type]
-        )
-        for pt in series
-        if pt.value is not None and pt.z_score is not None and abs(pt.z_score) >= z_threshold
-    ]
 
 
 def get_weekly_rollup(
@@ -621,7 +561,7 @@ def detect_anomalies(
 def calculate_trend_direction(
     rolling_avg: list[float | None],
     window: int = 7,
-) -> str:
+) -> TrendDirection:
     """Determine trend direction from the OLS slope of the last ``window``
     rolling-average values.
 
@@ -698,34 +638,7 @@ def get_metric_trend(
     lookback_start = start_date - timedelta(days=29)
     full_calendar = _fetch_metric_calendar(engine, metric_name, lookback_start, end_date, user_id)
 
-    all_dates = [d for d, _ in full_calendar]
-    all_values = [v for _, v in full_calendar]
-    start_iso = start_date.isoformat()
-    start_idx = next(i for i, d in enumerate(all_dates) if d >= start_iso)
-
-    rolling_7d_full = _rolling_avg(all_values, _ROLLING_SHORT)
-    rolling_30d_full = _rolling_avg(all_values, 30)
-    rolling_std_7d_full = _rolling_std(all_values, _ROLLING_SHORT)
-
-    dates = all_dates[start_idx:]
-    values = all_values[start_idx:]
-    rolling_7d = rolling_7d_full[start_idx:]
-    rolling_30d = rolling_30d_full[start_idx:]
-    rolling_std_7d = rolling_std_7d_full[start_idx:]
-
-    anomalies = detect_anomalies(values, dates)
-    trend_direction = calculate_trend_direction(rolling_7d)
-
-    return MetricTrend(
-        metric_name=metric_name,
-        dates=dates,
-        values=values,
-        rolling_avg_7d=rolling_7d,
-        rolling_avg_30d=rolling_30d,
-        rolling_std_7d=rolling_std_7d,
-        anomalies=anomalies,
-        trend_direction=trend_direction,
-    )
+    return _build_trend_from_calendar(metric_name, full_calendar, start_date)
 
 
 def get_batch_metric_trends(
@@ -769,16 +682,8 @@ def get_batch_metric_trends(
     raw_by_metric: dict[str, list[tuple[str, float | None]]] = {}
 
     if standard:
-        if user_id is not None:
-            uid_clause = "AND user_id = :uid"
-            base_params: dict = {
-                "s": lookback_start.isoformat(),
-                "e": end_date.isoformat(),
-                "uid": user_id,
-            }
-        else:
-            uid_clause = "AND user_id IS NULL"
-            base_params = {"s": lookback_start.isoformat(), "e": end_date.isoformat()}
+        base_params: dict = {"s": lookback_start.isoformat(), "e": end_date.isoformat()}
+        uid_clause = user_clause(user_id, base_params)
 
         parts = []
         for i, (metric_name, table, column) in enumerate(standard):
@@ -941,12 +846,8 @@ def _fetch_training_ctx(engine: Engine, user_id: str | None, anomaly_date: date)
     """Return total strain and workout count in the 2 days prior to anomaly_date."""
     start_iso = (anomaly_date - timedelta(days=2)).isoformat()
     end_iso = (anomaly_date - timedelta(days=1)).isoformat()
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"s": start_iso, "e": end_iso, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"s": start_iso, "e": end_iso}
+    params: dict = {"s": start_iso, "e": end_iso}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         row = conn.execute(
             text(  # noqa: S608
@@ -961,28 +862,11 @@ def _fetch_training_ctx(engine: Engine, user_id: str | None, anomaly_date: date)
     return {"total_strain": total_strain, "workout_count": workout_count}
 
 
-def _fetch_sleep_ctx(engine: Engine, user_id: str | None, anomaly_date: date) -> dict:
-    """Return sleep duration, quality, and deep-sleep % for the night before anomaly_date."""
-    prev_iso = (anomaly_date - timedelta(days=1)).isoformat()
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"d": prev_iso, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"d": prev_iso}
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(  # noqa: S608
-                "SELECT total_sleep_minutes, whoop_performance, deep_sleep_minutes"
-                f" FROM unified_sleep WHERE date = :d {uid_clause} LIMIT 1"
-            ),
-            params,
-        ).fetchone()
+def _sleep_ctx_from_row(row: tuple | None) -> dict:
+    """Build the ``sleep_prior_night`` context from (total_min, quality, deep_min)."""
     if row is None:
         return {"duration_hours": None, "quality_pct": None, "deep_pct": None}
-    total_min = row[0]
-    quality = row[1]
-    deep_min = row[2]
+    total_min, quality, deep_min = row
     duration_hours = round(total_min / 60.0, 1) if total_min else None
     deep_pct = (
         round(deep_min / total_min * 100.0, 1)
@@ -996,7 +880,26 @@ def _fetch_sleep_ctx(engine: Engine, user_id: str | None, anomaly_date: date) ->
     }
 
 
-def _fetch_recovery_ctx(engine: Engine, user_id: str | None, anomaly_date: date) -> str:
+def _fetch_sleep_ctx(engine: Engine, user_id: str | None, anomaly_date: date) -> dict:
+    """Return sleep duration, quality, and deep-sleep % for the night before anomaly_date.
+
+    ``unified_sleep`` is keyed by wake date, so the night before an anomaly on day D
+    is the row dated D.
+    """
+    params: dict = {"d": anomaly_date.isoformat()}
+    uid_clause = user_clause(user_id, params)
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(  # noqa: S608
+                "SELECT total_sleep_minutes, whoop_performance, deep_sleep_minutes"
+                f" FROM unified_sleep WHERE date = :d {uid_clause} LIMIT 1"
+            ),
+            params,
+        ).fetchone()
+    return _sleep_ctx_from_row(None if row is None else tuple(row))
+
+
+def _fetch_recovery_ctx(engine: Engine, user_id: str | None, anomaly_date: date) -> TrendDirection:
     """Return recovery trend direction over the 7 days ending on anomaly_date."""
     start = anomaly_date - timedelta(days=6)
     raw = _fetch_raw(
@@ -1088,12 +991,8 @@ def _batch_fetch_training_ctx(
     # We need workouts from 2 days before each anomaly up to 1 day before
     min_date = (min(anomaly_dates) - timedelta(days=2)).isoformat()
     max_date = (max(anomaly_dates) - timedelta(days=1)).isoformat()
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"s": min_date, "e": max_date, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"s": min_date, "e": max_date}
+    params: dict = {"s": min_date, "e": max_date}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         rows = conn.execute(
             text(  # noqa: S608
@@ -1131,16 +1030,9 @@ def _batch_fetch_sleep_ctx(
     """Batch-fetch sleep context for all anomaly dates in a single query."""
     if not anomaly_dates:
         return {}
-    # Need sleep for the night before each anomaly
-    prev_dates = sorted({(ad - timedelta(days=1)).isoformat() for ad in anomaly_dates})
-    min_d = prev_dates[0]
-    max_d = prev_dates[-1]
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"s": min_d, "e": max_d, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"s": min_d, "e": max_d}
+    # unified_sleep is keyed by wake date: the night before an anomaly on D is row D
+    params: dict = {"s": min(anomaly_dates).isoformat(), "e": max(anomaly_dates).isoformat()}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         rows = conn.execute(
             text(  # noqa: S608
@@ -1151,28 +1043,10 @@ def _batch_fetch_sleep_ctx(
         ).fetchall()
     sleep_by_date: dict[str, tuple] = {r[0]: (r[1], r[2], r[3]) for r in rows}
 
-    empty = {"duration_hours": None, "quality_pct": None, "deep_pct": None}
-    result: dict[str, dict] = {}
-    for ad in anomaly_dates:
-        d_iso = ad.isoformat()
-        prev = (ad - timedelta(days=1)).isoformat()
-        row = sleep_by_date.get(prev)
-        if row is None:
-            result[d_iso] = empty
-        else:
-            total_min, quality, deep_min = row
-            duration_hours = round(total_min / 60.0, 1) if total_min else None
-            deep_pct = (
-                round(deep_min / total_min * 100.0, 1)
-                if (deep_min and total_min and total_min > 0)
-                else None
-            )
-            result[d_iso] = {
-                "duration_hours": duration_hours,
-                "quality_pct": float(quality) if quality is not None else None,
-                "deep_pct": deep_pct,
-            }
-    return result
+    return {
+        ad.isoformat(): _sleep_ctx_from_row(sleep_by_date.get(ad.isoformat()))
+        for ad in anomaly_dates
+    }
 
 
 def _batch_fetch_recovery_ctx(
@@ -1199,28 +1073,26 @@ def _batch_fetch_recovery_ctx(
     return result
 
 
-def _enrich_from_cache(
+def _enrich_one(
     metric: str,
     anomaly: dict,
     co_anomalies_by_date: dict[str, list[str]],
-    training_cache: dict[str, dict],
-    sleep_cache: dict[str, dict],
-    recovery_cache: dict[str, str],
+    training_ctx: dict,
+    sleep_ctx: dict,
+    recovery_trend: str,
 ) -> EnrichedAnomaly:
-    """Build an EnrichedAnomaly from pre-fetched caches (no DB calls)."""
+    """Build one EnrichedAnomaly from already-fetched context (no DB calls)."""
     d_iso = anomaly["date"]
     metric_label = _ENRICHED_METRIC_LABELS.get(metric, metric)
     severity = abs(anomaly["severity"])
 
-    same_day = co_anomalies_by_date.get(d_iso, [])
-    co_anomalies = [lbl for lbl in same_day if lbl != metric_label]
+    # Co-anomalies: other metric labels flagged on the same date (excluding self)
+    co_anomalies = [lbl for lbl in co_anomalies_by_date.get(d_iso, []) if lbl != metric_label]
 
     context = {
-        "training_48h": training_cache.get(d_iso, {"total_strain": None, "workout_count": 0}),
-        "sleep_prior_night": sleep_cache.get(
-            d_iso, {"duration_hours": None, "quality_pct": None, "deep_pct": None}
-        ),
-        "recovery_trend": recovery_cache.get(d_iso, "stable"),
+        "training_48h": training_ctx,
+        "sleep_prior_night": sleep_ctx,
+        "recovery_trend": recovery_trend,
         "co_anomalies": co_anomalies,
     }
     explanation = _build_enriched_explanation(
@@ -1235,6 +1107,26 @@ def _enrich_from_cache(
         severity=round(severity, 2),
         context=context,
         explanation=explanation,
+    )
+
+
+def _enrich_from_cache(
+    metric: str,
+    anomaly: dict,
+    co_anomalies_by_date: dict[str, list[str]],
+    training_cache: dict[str, dict],
+    sleep_cache: dict[str, dict],
+    recovery_cache: dict[str, str],
+) -> EnrichedAnomaly:
+    """Build an EnrichedAnomaly from pre-fetched caches (no DB calls)."""
+    d_iso = anomaly["date"]
+    return _enrich_one(
+        metric,
+        anomaly,
+        co_anomalies_by_date,
+        training_cache.get(d_iso, {"total_strain": None, "workout_count": 0}),
+        sleep_cache.get(d_iso, {"duration_hours": None, "quality_pct": None, "deep_pct": None}),
+        recovery_cache.get(d_iso, "stable"),
     )
 
 
@@ -1266,35 +1158,13 @@ def enrich_anomaly(
         EnrichedAnomaly with context and explanation populated.
     """
     anomaly_date = date.fromisoformat(anomaly["date"])
-    metric_label = _ENRICHED_METRIC_LABELS.get(metric, metric)
-    severity = abs(anomaly["severity"])
-
-    training_ctx = _fetch_training_ctx(engine, user_id, anomaly_date)
-    sleep_ctx = _fetch_sleep_ctx(engine, user_id, anomaly_date)
-    recovery_trend = _fetch_recovery_ctx(engine, user_id, anomaly_date)
-
-    # Co-anomalies: other metric labels flagged on the same date (excluding self)
-    same_day = (co_anomalies_by_date or {}).get(anomaly["date"], [])
-    co_anomalies = [lbl for lbl in same_day if lbl != metric_label]
-
-    context = {
-        "training_48h": training_ctx,
-        "sleep_prior_night": sleep_ctx,
-        "recovery_trend": recovery_trend,
-        "co_anomalies": co_anomalies,
-    }
-    explanation = _build_enriched_explanation(
-        metric, metric_label, anomaly["value"], anomaly["direction"], severity, context
-    )
-    return EnrichedAnomaly(
-        date=anomaly["date"],
-        metric=metric,
-        metric_label=metric_label,
-        value=anomaly["value"],
-        direction=anomaly["direction"],
-        severity=round(severity, 2),
-        context=context,
-        explanation=explanation,
+    return _enrich_one(
+        metric,
+        anomaly,
+        co_anomalies_by_date or {},
+        _fetch_training_ctx(engine, user_id, anomaly_date),
+        _fetch_sleep_ctx(engine, user_id, anomaly_date),
+        _fetch_recovery_ctx(engine, user_id, anomaly_date),
     )
 
 
@@ -1334,7 +1204,7 @@ def get_enriched_anomalies(
             engine, list(_ENRICHED_ANOMALY_METRICS), start_date, end_date, user_id
         )
     except Exception:  # noqa: BLE001
-        logger.debug("get_enriched_anomalies: batch fetch failed")
+        logger.warning("get_enriched_anomalies: batch fetch failed", exc_info=True)
         trends = {}
     for metric in _ENRICHED_ANOMALY_METRICS:
         trend = trends.get(metric)
@@ -1393,24 +1263,25 @@ def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = Non
     prev_end = start_date - timedelta(days=1)
     prev_start = prev_end - timedelta(days=6)
 
-    if user_id is not None:
-        _uid_clause = "AND user_id = :uid"
-    else:
-        _uid_clause = "AND user_id IS NULL"
+    _uid_params: dict = {}
+    _uid_clause = user_clause(user_id, _uid_params)
 
-    def _daily_stats(s: date, e: date) -> dict:
-        p: dict = {"s": s.isoformat(), "e": e.isoformat()}
-        if user_id is not None:
-            p["uid"] = user_id
+    def _query_row(select: str, table: str, s: date, e: date):
+        """Run one aggregate ``SELECT`` over ``table`` for the date window."""
+        p: dict = {"s": s.isoformat(), "e": e.isoformat(), **_uid_params}
         with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT AVG(whoop_recovery_score), AVG(whoop_hrv_rmssd),"
-                    "       AVG(whoop_rhr), SUM(whoop_strain)"
-                    f" FROM unified_daily WHERE date >= :s AND date <= :e {_uid_clause}"
-                ),
+            return conn.execute(
+                text(f"SELECT {select} FROM {table} WHERE date >= :s AND date <= :e {_uid_clause}"),  # noqa: S608
                 p,
             ).fetchone()
+
+    def _daily_stats(s: date, e: date) -> dict:
+        row = _query_row(
+            "AVG(whoop_recovery_score), AVG(whoop_hrv_rmssd), AVG(whoop_rhr), SUM(whoop_strain)",
+            "unified_daily",
+            s,
+            e,
+        )
         return {
             "avg_recovery": row[0],
             "avg_hrv": row[1],
@@ -1419,35 +1290,19 @@ def get_weekly_summary(engine: Engine, end_date: date, user_id: str | None = Non
         }
 
     def _sleep_stats(s: date, e: date) -> dict:
-        p: dict = {"s": s.isoformat(), "e": e.isoformat()}
-        if user_id is not None:
-            p["uid"] = user_id
-        with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT AVG(total_sleep_minutes - COALESCE(awake_minutes, 0)),"
-                    "       AVG(deep_sleep_minutes)"
-                    f" FROM unified_sleep WHERE date >= :s AND date <= :e {_uid_clause}"
-                ),
-                p,
-            ).fetchone()
+        row = _query_row(
+            "AVG(total_sleep_minutes - COALESCE(awake_minutes, 0)), AVG(deep_sleep_minutes)",
+            "unified_sleep",
+            s,
+            e,
+        )
         return {
             "avg_sleep_duration": row[0],
             "avg_deep_sleep": row[1],
         }
 
     def _workout_stats(s: date, e: date) -> dict:
-        p: dict = {"s": s.isoformat(), "e": e.isoformat()}
-        if user_id is not None:
-            p["uid"] = user_id
-        with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT COUNT(*), SUM(duration_minutes)"
-                    f" FROM unified_workouts WHERE date >= :s AND date <= :e {_uid_clause}"
-                ),
-                p,
-            ).fetchone()
+        row = _query_row("COUNT(*), SUM(duration_minutes)", "unified_workouts", s, e)
         return {
             "workout_count": row[0] or 0,
             "total_training_minutes": row[1],

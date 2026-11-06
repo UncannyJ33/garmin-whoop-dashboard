@@ -86,23 +86,25 @@ def _run_garmin_sync() -> None:
         SessionFactory = get_session_factory(app_engine)
         with SessionFactory() as db:
             log = GarminPipeline(db, user_id=owner).run()
+            # Read inside the session: the instance is expired/detached once it closes.
+            summary = (
+                None
+                if log is None
+                else (log.status, log.error_message, log.records_fetched, log.records_stored)
+            )
     except Exception:
         logger.exception("Garmin sync: unexpected error")
         return
 
-    if log is None:
+    if summary is None:
         logger.info("Garmin sync: skipped — another Garmin sync is already running")
-    elif log.status == "success":
-        logger.info(
-            "Garmin sync: success (fetched %s, stored %s)", log.records_fetched, log.records_stored
-        )
+        return
+    status, error_message, fetched, stored = summary
+    if status == "success":
+        logger.info("Garmin sync: success (fetched %s, stored %s)", fetched, stored)
     else:
         logger.warning(
-            "Garmin sync: %s — %s (fetched %s, stored %s)",
-            log.status,
-            log.error_message,
-            log.records_fetched,
-            log.records_stored,
+            "Garmin sync: %s — %s (fetched %s, stored %s)", status, error_message, fetched, stored
         )
 
 
@@ -141,7 +143,9 @@ def _run_whoop_sync() -> None:
     try:
         with SessionFactory() as db:
             log = asyncio.run(WhoopPipeline(db, user_id=owner).run())
-        logger.info("Whoop sync: %d stored (status: %s)", log.records_stored, log.status)
+            # Read inside the session: the instance is expired/detached once it closes.
+            stored, status = log.records_stored, log.status
+        logger.info("Whoop sync: %d stored (status: %s)", stored, status)
     except Exception as exc:
         err_msg = str(exc).lower()
         # Only delete the token on actual auth failures (401 = token rejected

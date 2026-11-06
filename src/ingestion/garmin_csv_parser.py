@@ -38,6 +38,7 @@ import hashlib
 import io
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,12 @@ _TYPE_MAP: dict[str, str] = {
 def _null(val: str) -> bool:
     """Return True when the CSV value represents a missing/null entry."""
     return not val or val.strip() in {"--", "-", ""}
+
+
+def _stride_cm(val: str) -> float | None:
+    """Parse Garmin's CSV stride length (metres) into centimetres, matching the API path."""
+    metres = _parse_float(val)
+    return None if metres is None else round(metres * 100, 1)
 
 
 def _parse_float(val: str) -> float | None:
@@ -177,7 +184,7 @@ def parse_activities_csv(
     content: bytes,
     units: str = "miles",
     user_id: str | None = None,
-) -> tuple[list[dict], list[CSVRowError]]:
+) -> tuple[list[dict[str, Any]], list[CSVRowError]]:
     """Parse a Garmin Connect activities CSV export.
 
     Args:
@@ -197,7 +204,7 @@ def parse_activities_csv(
     text = content.decode("utf-8-sig")  # strip BOM if present
     reader = csv.DictReader(io.StringIO(text))
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     errors: list[CSVRowError] = []
     now_iso = datetime.now(UTC).isoformat()
 
@@ -262,7 +269,7 @@ def parse_activities_csv(
                     "max_speed": None,  # not in CSV
                     "elevation_gain": elevation_gain,
                     "elevation_loss": elevation_loss,
-                    "avg_stride_length": _parse_float(raw.get("Avg Stride Length", "")),
+                    "avg_stride_length": _stride_cm(raw.get("Avg Stride Length", "")),
                     "vo2_max": None,  # not in CSV
                     "training_effect_aerobic": aerobic_te,
                     "training_effect_anaerobic": None,  # not in CSV
@@ -281,6 +288,6 @@ def parse_activities_csv(
 
         except Exception as exc:  # noqa: BLE001
             errors.append(CSVRowError(row_num, str(exc)))
-            logger.debug("CSV row %d parse error: %s", row_num, exc)
+            logger.warning("CSV row %d parse error: %s", row_num, exc)
 
     return rows, errors

@@ -1,5 +1,7 @@
 from collections.abc import Generator
+from datetime import date
 
+from fastapi import HTTPException, Query
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
@@ -32,3 +34,25 @@ def get_engine_dep() -> Engine:
     engine per request.
     """
     return _engine
+
+
+class DateRangeParams:
+    """Required ``start``/``end`` query params (YYYY-MM-DD) shared by range routes.
+
+    Ordering is checked by :meth:`validated` inside the route body (not at
+    dependency resolution) so 401/422 responses keep their original precedence.
+    """
+
+    def __init__(
+        self,
+        start: date = Query(..., description="Start date (YYYY-MM-DD)"),
+        end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    ) -> None:
+        self.start = start
+        self.end = end
+
+    def validated(self) -> tuple[date, date]:
+        """Return ``(start, end)``, raising 400 when ``start`` is after ``end``."""
+        if self.start > self.end:
+            raise HTTPException(status_code=400, detail="start must be ≤ end")
+        return self.start, self.end

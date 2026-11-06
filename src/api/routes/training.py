@@ -1,15 +1,18 @@
 """Training load API routes."""
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
 from src.analytics.training_load import get_training_load_history, get_training_load_ratio
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import TrainingLoadHistoryItem, TrainingLoadResponse, WeeklyLoadItem
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/training", tags=["training"])
 
@@ -31,8 +34,7 @@ async def training_load_ratio(
     """Compute the Acute:Chronic Workload Ratio for today (or the supplied date).
 
     Returns the ACWR value, zone classification, trend direction, and a per-week
-    load breakdown for the last 4 weeks.  Returns 204 No Content when no training
-    data exists for this user.
+    load breakdown for the last 4 weeks.
     """
     try:
         target = local_date or date.today()
@@ -55,6 +57,7 @@ async def training_load_ratio(
             confidence_note=result.confidence_note,
         )
     except Exception as exc:
+        logger.exception("training_load_ratio failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -64,8 +67,7 @@ async def training_load_ratio(
     summary="Daily ACWR history for a date range",
 )
 async def training_load_history(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[TrainingLoadHistoryItem]:
@@ -73,10 +75,10 @@ async def training_load_history(
 
     Useful for rendering an ACWR trend chart over a custom date range.
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         history = get_training_load_history(engine, current_user.id, start, end)
         return [TrainingLoadHistoryItem(**h) for h in history]
     except Exception as exc:
+        logger.exception("training_load_history failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -41,14 +41,11 @@ import {
 import type { EnrichedWorkout, WorkoutTypeSummary } from '../types/api'
 import { activityLabel } from '../utils/formatters'
 import { colorForType } from '../utils/chartColors'
+import { DayButton } from '../components/DayButton'
+import { fmtDate } from '../utils/formatters'
+import { KG_TO_LB, STRENGTH_TYPES } from '../utils/workoutTypes'
 
 // ── constants ─────────────────────────────────────────────────────────────────
-
-const KG_TO_LB  = 2.20462
-
-const STRENGTH_TYPES = new Set([
-  'strength_training', 'weight_training', 'indoor_cardio', 'hiit', 'pilates', 'yoga',
-])
 
 // Activity types that have meaningful distance metrics
 const DISTANCE_TYPES = new Set([
@@ -84,10 +81,6 @@ const ADVANCED_METRICS = [
 
 function fmtNull(v: number | null, digits = 1, suffix = ''): string {
   return v !== null && v !== undefined ? `${v.toFixed(digits)}${suffix}` : '—'
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function isoWeek(iso: string): string {
@@ -134,21 +127,6 @@ function RecoveryIndicator({ impact }: { impact: number | null }) {
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
-
-const DayButton = memo(function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
-        active
-          ? 'bg-brand text-white'
-          : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-      }`}
-    >
-      {n}d
-    </button>
-  )
-})
 
 function SectionHeader({ title, size = 'sm' }: { title: string; size?: 'sm' | 'base' }) {
   if (size === 'base') {
@@ -401,6 +379,11 @@ export function Training() {
             <div className="skeleton h-3 w-full rounded-full" />
             <div className="skeleton h-4 w-full rounded" />
           </div>
+        ) : trainingLoadQ.isError ? (
+          <ErrorState
+            message="Couldn't load training load."
+            onRetry={() => void trainingLoadQ.refetch()}
+          />
         ) : trainingLoadQ.data ? (
           <ACWRGauge
             acwr={trainingLoadQ.data.acwr}
@@ -735,6 +718,8 @@ export function Training() {
               <div className="space-y-2">
                 {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-10 rounded-lg" />)}
               </div>
+            ) : maxWeightQ.isError ? (
+              <EmptyChart message="Couldn't load strength PRs." />
             ) : strengthProgression.length === 0 ? (
               <EmptyChart message="No tracked exercise data — run a sync to fetch strength set details." />
             ) : (
@@ -782,6 +767,8 @@ export function Training() {
             <SectionHeader title="Total Volume Per Session" />
             {strengthVolQ.isLoading ? (
               <div className="skeleton rounded-xl" style={{ height: 200 }} />
+            ) : strengthVolQ.isError ? (
+              <EmptyChart message="Couldn't load volume data." />
             ) : volumeData.length === 0 ? (
               <EmptyChart message="No volume data — run a sync to fetch strength set details." />
             ) : (
@@ -847,7 +834,7 @@ export function Training() {
       )}
 
       {/* ── SECTION 2: Activity type breakdown ───────────────────────────── */}
-      {(summaryQ.isLoading || summary.length > 0) && (
+      {(summaryQ.isLoading || summaryQ.isError || summary.length > 0) && (
         <div className="card">
           <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
             Activity Breakdown
@@ -867,6 +854,8 @@ export function Training() {
                 <div key={i} className="skeleton h-8 w-full rounded-lg" />
               ))}
             </div>
+          ) : summaryQ.isError ? (
+            <p className="text-sm text-slate-400 py-4 text-center">Couldn't load activity breakdown.</p>
           ) : (
             <div className="space-y-1">
               <div className="grid grid-cols-[1fr_36px_48px_48px] sm:grid-cols-[1fr_40px_56px_56px_64px] gap-2 px-2 pb-1 border-b border-surface-border">
@@ -939,6 +928,7 @@ export function Training() {
         ) : (
           <Virtuoso
             data={filtered}
+            computeItemKey={(_, w) => w.id}
             useWindowScroll
             increaseViewportBy={400}
             itemContent={(_, w) => (

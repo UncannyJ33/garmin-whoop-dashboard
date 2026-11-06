@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react'
+import { useLocalToday } from '../hooks/useDateRange'
 
 function toISO(d: Date): string {
   return d.toLocaleDateString('en-CA')
@@ -27,7 +28,8 @@ const DateRangeContext = createContext<DateRangeContextValue>({
 export function DateRangeProvider({ children }: { children: React.ReactNode }) {
   const [days, setDays] = useState(30)
 
-  const { start, end } = useMemo(() => rangeFromDays(days), [days])
+  const today = useLocalToday()
+  const { start, end } = useMemo(() => rangeFromDays(days), [days, today])
 
   return (
     <DateRangeContext.Provider value={{ days, setDays, start, end }}>

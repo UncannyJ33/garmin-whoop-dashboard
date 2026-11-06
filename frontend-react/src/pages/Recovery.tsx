@@ -27,7 +27,6 @@ import {
 } from 'recharts'
 import {
   useSleepConsistency,
-  useSleepCorrelations,
   useSleepInsights,
   useRecovery,
   useRecoveryWithWithout,
@@ -38,6 +37,8 @@ import { ErrorState } from '../components/ErrorState'
 import { MetricCard } from '../components/MetricCard'
 import { SleepStageBar } from '../components/SleepStageBar'
 import type { SleepInsight } from '../types/api'
+import { DayButton } from '../components/DayButton'
+import { fmtDate } from '../utils/formatters'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -74,11 +75,6 @@ function fmtDebt(absMinutes: number): string {
   return `${Math.round(absMinutes)} min`
 }
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 function rolling7d(mins: (number | null)[]): (number | null)[] {
   return mins.map((_, i) => {
     const w = mins.slice(Math.max(0, i - 6), i + 1).filter((v): v is number => v !== null)
@@ -107,20 +103,35 @@ function colorForActivity(name: string): string {
 
 // ── sub-components ─────────────────────────────────────────────────────────────
 
-const DayButton = memo(function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
+function ByTypeBarChart({ data, seriesName, tooltipLabel, unit, fill }: {
+  data: { activity: string; avg: number; n: number }[]
+  seriesName: string
+  tooltipLabel: string
+  unit: string
+  fill: string
+}) {
   return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
-        active
-          ? 'bg-brand text-white'
-          : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-      }`}
-    >
-      {n}d
-    </button>
+    <ResponsiveContainer width="100%" height={Math.max(140, data.length * 36)}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 32, bottom: 0, left: 8 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} domain={[0, 100]} />
+        <YAxis type="category" dataKey="activity" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={110} />
+        <Tooltip
+          content={({ active, payload }) => (
+            active && payload?.length ? (
+              <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
+                <p className="font-medium text-slate-500">{(payload[0].payload as { activity: string }).activity}</p>
+                <p className="text-slate-400">{tooltipLabel}: <span className="font-mono font-semibold">{(payload[0].value as number).toFixed(1)}{unit}</span></p>
+                <p className="text-slate-400">Sessions: <span className="font-mono font-semibold">{(payload[0].payload as { n: number }).n}</span></p>
+              </div>
+            ) : null
+          )}
+        />
+        <Bar dataKey="avg" name={seriesName} radius={[0, 3, 3, 0]} fill={fill} />
+      </BarChart>
+    </ResponsiveContainer>
   )
-})
+}
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -196,7 +207,6 @@ export function Recovery() {
 
   const insightsQ     = useSleepInsights(start, end)
   const consistencyQ  = useSleepConsistency(days)
-  const correlationsQ = useSleepCorrelations(days)
   const activitiesQ   = useRecovery(start, end)
   const withWithoutQ  = useRecoveryWithWithout(start, end)
 
@@ -411,7 +421,7 @@ export function Recovery() {
                     Trend:{' '}
                     <span className={`font-medium ${
                       cons.sleep_debt_trend === 'improving' ? 'text-good'
-                      : cons.sleep_debt_trend === 'declining' ? 'text-poor'
+                      : cons.sleep_debt_trend === 'worsening' ? 'text-poor'
                       : 'text-moderate'
                     }`}>
                       {cons.sleep_debt_trend.charAt(0).toUpperCase() + cons.sleep_debt_trend.slice(1)}
@@ -611,6 +621,8 @@ export function Recovery() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {Array.from({ length: 4 }).map((_, i) => <MetricCardSkeleton key={i} />)}
           </div>
+        ) : consistencyQ.isError ? (
+          <p className="text-sm text-slate-400 py-4 text-center">Couldn't load this data.</p>
         ) : cons?.insufficient_data ? (
           <p className="text-sm text-slate-400">{cons.message ?? 'Not enough data yet.'}</p>
         ) : cons ? (
@@ -658,7 +670,7 @@ export function Recovery() {
                   Sleep trend:{' '}
                   <span className={`font-semibold ${
                     cons.sleep_debt_trend === 'improving' ? 'text-good'
-                    : cons.sleep_debt_trend === 'declining' ? 'text-poor'
+                    : cons.sleep_debt_trend === 'worsening' ? 'text-poor'
                     : 'text-moderate'
                   }`}>
                     {cons.sleep_debt_trend.charAt(0).toUpperCase() + cons.sleep_debt_trend.slice(1)}
@@ -685,7 +697,7 @@ export function Recovery() {
           <p className="text-2xs text-slate-500 mt-0.5">How your training load shapes your sleep</p>
         </div>
 
-        {(insightsQ.isLoading || correlationsQ.isLoading) ? (
+        {insightsQ.isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {Array.from({ length: 3 }).map((_, i) => <MetricCardSkeleton key={i} />)}
           </div>
@@ -763,6 +775,8 @@ export function Recovery() {
               <MetricCardSkeleton />
               <MetricCardSkeleton />
             </div>
+          ) : withWithoutQ.isError ? (
+            <p className="text-sm text-slate-400 py-4 text-center">Couldn't load this data.</p>
           ) : !withWithoutQ.data || (withWithoutQ.data.with_count === 0 && withWithoutQ.data.without_count === 0) ? (
             <p className="text-sm text-slate-400 py-4 text-center">
               Not enough data to compare recovery vs non-recovery days.
@@ -808,7 +822,7 @@ export function Recovery() {
         </div>
 
         {/* Next-day recovery by activity type */}
-        {(activitiesQ.isLoading || byTypeRecovery.length > 0) && (
+        {(activitiesQ.isLoading || activitiesQ.isError || byTypeRecovery.length > 0) && (
           <div className="card">
             <SectionHeader
               title="Next-Day Recovery by Activity Type"
@@ -816,45 +830,18 @@ export function Recovery() {
             />
             {activitiesQ.isLoading ? (
               <div className="skeleton rounded-xl" style={{ height: 160 }} />
+            ) : activitiesQ.isError ? (
+              <p className="text-sm text-slate-400 py-4 text-center">Couldn't load this data.</p>
             ) : byTypeRecovery.length === 0 ? (
               <p className="text-sm text-slate-400 py-4 text-center">No recovery data yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={Math.max(140, byTypeRecovery.length * 36)}>
-                <BarChart
-                  data={byTypeRecovery}
-                  layout="vertical"
-                  margin={{ top: 4, right: 32, bottom: 0, left: 8 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} domain={[0, 100]} />
-                  <YAxis
-                    type="category"
-                    dataKey="activity"
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={110}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => (
-                      active && payload?.length ? (
-                        <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
-                          <p className="font-medium text-slate-500">{(payload[0].payload as { activity: string }).activity}</p>
-                          <p className="text-slate-400">Avg recovery: <span className="font-mono font-semibold">{(payload[0].value as number).toFixed(1)}</span></p>
-                          <p className="text-slate-400">Sessions: <span className="font-mono font-semibold">{(payload[0].payload as { n: number }).n}</span></p>
-                        </div>
-                      ) : null
-                    )}
-                  />
-                  <Bar dataKey="avg" name="Avg Next-Day Recovery" radius={[0, 3, 3, 0]} fill="#4472CA" />
-                </BarChart>
-              </ResponsiveContainer>
+              <ByTypeBarChart data={byTypeRecovery} seriesName="Avg Next-Day Recovery" tooltipLabel="Avg recovery" unit="" fill="#4472CA" />
             )}
           </div>
         )}
 
         {/* Next-day sleep performance by activity type */}
-        {(activitiesQ.isLoading || byTypeSleep.length > 0) && (
+        {(activitiesQ.isLoading || activitiesQ.isError || byTypeSleep.length > 0) && (
           <div className="card">
             <SectionHeader
               title="Next-Day Sleep Performance by Activity Type"
@@ -862,39 +849,12 @@ export function Recovery() {
             />
             {activitiesQ.isLoading ? (
               <div className="skeleton rounded-xl" style={{ height: 160 }} />
+            ) : activitiesQ.isError ? (
+              <p className="text-sm text-slate-400 py-4 text-center">Couldn't load this data.</p>
             ) : byTypeSleep.length === 0 ? (
               <p className="text-sm text-slate-400 py-4 text-center">No sleep performance data yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={Math.max(140, byTypeSleep.length * 36)}>
-                <BarChart
-                  data={byTypeSleep}
-                  layout="vertical"
-                  margin={{ top: 4, right: 32, bottom: 0, left: 8 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} domain={[0, 100]} />
-                  <YAxis
-                    type="category"
-                    dataKey="activity"
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={110}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => (
-                      active && payload?.length ? (
-                        <div className="rounded-xl border border-surface-border bg-surface-overlay px-3 py-2 shadow-xl text-xs space-y-1">
-                          <p className="font-medium text-slate-500">{(payload[0].payload as { activity: string }).activity}</p>
-                          <p className="text-slate-400">Avg sleep perf: <span className="font-mono font-semibold">{(payload[0].value as number).toFixed(1)}%</span></p>
-                          <p className="text-slate-400">Sessions: <span className="font-mono font-semibold">{(payload[0].payload as { n: number }).n}</span></p>
-                        </div>
-                      ) : null
-                    )}
-                  />
-                  <Bar dataKey="avg" name="Avg Sleep Performance" radius={[0, 3, 3, 0]} fill="#70AD47" />
-                </BarChart>
-              </ResponsiveContainer>
+              <ByTypeBarChart data={byTypeSleep} seriesName="Avg Sleep Performance" tooltipLabel="Avg sleep perf" unit="%" fill="#70AD47" />
             )}
           </div>
         )}

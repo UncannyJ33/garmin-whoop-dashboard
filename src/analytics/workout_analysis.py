@@ -16,11 +16,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import Engine, text
 
+from src.analytics.training_load import user_clause
+
 logger = logging.getLogger(__name__)
+
+PrimarySource = Literal["whoop", "garmin", "both"]
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -46,7 +50,7 @@ class EnrichedWorkout:
     start_time: str | None  # ISO 8601 UTC
     activity_type: str | None
     duration_minutes: float | None
-    primary_source: str  # "whoop" | "garmin" | "both"
+    primary_source: PrimarySource
     matched: bool  # True if both devices tracked this session
     garmin_activity_id: str | None  # FK into garmin_activities; used for exercise sets
 
@@ -257,12 +261,8 @@ def _fetch_recovery_context(
     user_id: str | None = None,
 ) -> dict[str, float | None]:
     """Fetch whoop_recovery_score keyed by date for the given range."""
-    if user_id is not None:
-        uid_clause = "AND user_id = :uid"
-        params: dict = {"start": min_date, "end": max_date, "uid": user_id}
-    else:
-        uid_clause = "AND user_id IS NULL"
-        params = {"start": min_date, "end": max_date}
+    params: dict = {"start": min_date, "end": max_date}
+    uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -301,12 +301,8 @@ def get_enriched_workout(
     Returns:
         EnrichedWorkout, or None if the ID does not exist.
     """
-    if user_id is not None:
-        uid_clause = "AND uw.user_id = :uid"
-        params: dict = {"id": workout_id, "uid": user_id}
-    else:
-        uid_clause = "AND uw.user_id IS NULL"
-        params = {"id": workout_id}
+    params: dict = {"id": workout_id}
+    uid_clause = user_clause(user_id, params, "uw.")
     with engine.connect() as conn:
         row = (
             conn.execute(
@@ -357,16 +353,8 @@ def get_enriched_workouts(
     Returns:
         List of EnrichedWorkout sorted by start_time ascending.
     """
-    if user_id is not None:
-        uid_clause = "AND uw.user_id = :uid"
-        params: dict = {
-            "start": start_date.isoformat(),
-            "end": end_date.isoformat(),
-            "uid": user_id,
-        }
-    else:
-        uid_clause = "AND uw.user_id IS NULL"
-        params = {"start": start_date.isoformat(), "end": end_date.isoformat()}
+    params: dict = {"start": start_date.isoformat(), "end": end_date.isoformat()}
+    uid_clause = user_clause(user_id, params, "uw.")
 
     pagination = ""
     if limit is not None:

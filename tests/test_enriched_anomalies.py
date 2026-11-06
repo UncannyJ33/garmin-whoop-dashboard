@@ -329,10 +329,9 @@ class TestRecoverySpikeWithSleep:
             _seed_varying_recovery(s, self.ANCHOR, days=14)
             # Override anchor: recovery spikes to 98
             s.merge(_daily(self.ANCHOR.isoformat(), recovery=98.0))
-            # Excellent sleep the night before
-            prev = (self.ANCHOR - timedelta(days=1)).isoformat()
+            # Excellent sleep the night before (unified_sleep is keyed by wake date)
             s.merge(
-                _sleep(prev, performance=95.0, total_min=510.0, deep_min=153.0)
+                _sleep(self.ANCHOR.isoformat(), performance=95.0, total_min=510.0, deep_min=153.0)
             )  # 8.5h, 30% deep
             s.commit()
 
