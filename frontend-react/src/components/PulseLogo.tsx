@@ -54,30 +54,3 @@ export function PulseLogo({ width = 140, className = '' }: PulseLogoProps) {
     </svg>
   )
 }
-
-/** "PE" monogram — for favicon/compact usage */
-export function PulseMonogram({ size = 32 }: { size?: number }) {
-  return (
-    <svg
-      viewBox="0 0 32 32"
-      width={size}
-      height={size}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="PE"
-    >
-      <rect width="32" height="32" rx="6" fill="var(--bg-card)" />
-      <text
-        x="4"
-        y="23"
-        fontFamily="DM Sans, system-ui, sans-serif"
-        fontSize="17"
-        fontWeight="600"
-        fill="var(--brand)"
-        letterSpacing="-0.03em"
-      >
-        PE
-      </text>
-    </svg>
-  )
-}

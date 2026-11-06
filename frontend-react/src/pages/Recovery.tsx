@@ -38,6 +38,8 @@ import { ErrorState } from '../components/ErrorState'
 import { MetricCard } from '../components/MetricCard'
 import { SleepStageBar } from '../components/SleepStageBar'
 import type { SleepInsight } from '../types/api'
+import { DayButton } from '../components/DayButton'
+import { fmtDate } from '../utils/formatters'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -74,11 +76,6 @@ function fmtDebt(absMinutes: number): string {
   return `${Math.round(absMinutes)} min`
 }
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 function rolling7d(mins: (number | null)[]): (number | null)[] {
   return mins.map((_, i) => {
     const w = mins.slice(Math.max(0, i - 6), i + 1).filter((v): v is number => v !== null)
@@ -106,21 +103,6 @@ function colorForActivity(name: string): string {
 }
 
 // ── sub-components ─────────────────────────────────────────────────────────────
-
-const DayButton = memo(function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
-        active
-          ? 'bg-brand text-white'
-          : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-      }`}
-    >
-      {n}d
-    </button>
-  )
-})
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (

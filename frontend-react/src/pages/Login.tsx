@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { formatDetail } from '../api/client'
 
 interface LoginResponse {
   access_token: string
@@ -36,8 +37,8 @@ export function Login() {
           body: JSON.stringify({ email, password }),
         })
         if (!regRes.ok) {
-          const body = (await regRes.json()) as { detail?: string }
-          setError(body.detail ?? `Registration failed (${regRes.status})`)
+          const body = (await regRes.json()) as { detail?: unknown }
+          setError(formatDetail(body.detail) ?? `Registration failed (${regRes.status})`)
           return
         }
       }
@@ -52,8 +53,8 @@ export function Login() {
         body: JSON.stringify({ email, password }),
       })
       if (!loginRes.ok) {
-        const body = (await loginRes.json()) as { detail?: string }
-        setError(body.detail ?? `Login failed (${loginRes.status})`)
+        const body = (await loginRes.json()) as { detail?: unknown }
+        setError(formatDetail(body.detail) ?? `Login failed (${loginRes.status})`)
         return
       }
       const tokens = (await loginRes.json()) as LoginResponse

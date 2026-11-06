@@ -41,14 +41,11 @@ import {
 import type { EnrichedWorkout, WorkoutTypeSummary } from '../types/api'
 import { activityLabel } from '../utils/formatters'
 import { colorForType } from '../utils/chartColors'
+import { DayButton } from '../components/DayButton'
+import { fmtDate } from '../utils/formatters'
+import { KG_TO_LB, STRENGTH_TYPES } from '../utils/workoutTypes'
 
 // ── constants ─────────────────────────────────────────────────────────────────
-
-const KG_TO_LB  = 2.20462
-
-const STRENGTH_TYPES = new Set([
-  'strength_training', 'weight_training', 'indoor_cardio', 'hiit', 'pilates', 'yoga',
-])
 
 // Activity types that have meaningful distance metrics
 const DISTANCE_TYPES = new Set([
@@ -84,10 +81,6 @@ const ADVANCED_METRICS = [
 
 function fmtNull(v: number | null, digits = 1, suffix = ''): string {
   return v !== null && v !== undefined ? `${v.toFixed(digits)}${suffix}` : '—'
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function isoWeek(iso: string): string {
@@ -134,21 +127,6 @@ function RecoveryIndicator({ impact }: { impact: number | null }) {
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
-
-const DayButton = memo(function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
-        active
-          ? 'bg-brand text-white'
-          : 'bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-      }`}
-    >
-      {n}d
-    </button>
-  )
-})
 
 function SectionHeader({ title, size = 'sm' }: { title: string; size?: 'sm' | 'base' }) {
   if (size === 'base') {

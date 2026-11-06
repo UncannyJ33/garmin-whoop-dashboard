@@ -10,3 +10,16 @@ export function fmtDuration(minutes: number | null): string {
   const m = Math.round(minutes % 60)
   return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
+
+/** "Mar 5" — accepts YYYY-MM-DD or a full ISO timestamp (date-only gets noon appended to avoid UTC day shift). */
+export function fmtDate(iso: string): string {
+  const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+/** "Mar 5, 2026", or "—" when null. */
+export function fmtDateFull(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}

@@ -33,6 +33,8 @@ import { NoDataState } from '../components/LoadingState'
 import type { WeeklySummary } from '../types/api'
 import { activityLabel } from '../utils/formatters'
 import { colorForType } from '../utils/chartColors'
+import { DayButton } from '../components/DayButton'
+import { fmtDate } from '../utils/formatters'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -44,11 +46,6 @@ function subDays(days: number): string {
   const d = new Date()
   d.setDate(d.getDate() - days)
   return toISO(d)
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
-    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function dateShift(iso: string, days: number): string {
@@ -269,22 +266,7 @@ function buildDigest(s: WeeklySummary): DigestItem[] {
 
 // ── sub-components ─────────────────────────────────────────────────────────────
 
-function DayButton({ n, active, onClick }: { n: number; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
-        active
-          ? 'bg-brand text-white'
-          : 'bg-surface-overlay text-slate-500 hover:text-slate-400'
-      }`}
-    >
-      {n}d
-    </button>
-  )
-}
-
-function DigestCard({ item }: { item: DigestItem }) {
+function DigestItemCard({ item }: { item: DigestItem }) {
   return (
     <div
       className="flex items-start gap-3 rounded-xl px-4 py-3"
@@ -490,7 +472,7 @@ export function Insights() {
           <p className="text-sm text-slate-400">No weekly summary available yet.</p>
         ) : (
           <div className="space-y-2">
-            {digestItems.map((item, i) => <DigestCard key={i} item={item} />)}
+            {digestItems.map((item, i) => <DigestItemCard key={i} item={item} />)}
           </div>
         )}
       </div>

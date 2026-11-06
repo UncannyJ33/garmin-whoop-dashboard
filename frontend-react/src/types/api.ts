@@ -1,13 +1,4 @@
 // ---------------------------------------------------------------------------
-// Shared
-// ---------------------------------------------------------------------------
-
-export interface DateRange {
-  start: string // ISO date string YYYY-MM-DD
-  end: string
-}
-
-// ---------------------------------------------------------------------------
 // Readiness
 // ---------------------------------------------------------------------------
 
@@ -157,6 +148,11 @@ export interface AnomalyPoint {
   severity: number
 }
 
+/** Cross-metric anomaly (GET /api/trends/anomalies) — AnomalyPoint plus the metric key. */
+export interface Anomaly extends AnomalyPoint {
+  metric: string
+}
+
 export interface MetricTrend {
   metric_name: string
   dates: string[]
@@ -197,6 +193,8 @@ export interface SyncStatusItem {
   status: string | null
   records_stored: number | null
   error_message: string | null
+  next_sync_at: string | null
+  scheduler_running: boolean | null
   is_running: boolean
 }
 
@@ -250,8 +248,9 @@ export interface StrengthMaxWeight {
 // ---------------------------------------------------------------------------
 
 export interface WeeklyLoadItem {
-  week_start: string
-  total_strain: number | null
+  week_start_date: string
+  total_strain: number
+  workout_count: number
 }
 
 export interface TrainingLoadResponse {
@@ -301,9 +300,22 @@ export interface WeeklyDigestResponse {
   metrics_snapshot: WeeklyDigestMetrics
 }
 
-export interface EnrichedAnomalyPoint extends AnomalyPoint {
-  context: string
-  recommendation: string
+export interface EnrichedAnomalyContext {
+  training_48h: { total_strain: number | null; workout_count: number }
+  sleep_prior_night: {
+    duration_hours: number | null
+    quality_pct: number | null
+    deep_pct: number | null
+  }
+  recovery_trend: string
+  co_anomalies: string[]
+}
+
+// Backend: EnrichedAnomalyResponse
+export interface EnrichedAnomaly extends Anomaly {
+  metric_label: string
+  context: EnrichedAnomalyContext
+  explanation: string
 }
 
 // ---------------------------------------------------------------------------
@@ -326,4 +338,29 @@ export interface WithWithoutResponse {
   without_avg: number | null
   with_count: number
   without_count: number
+}
+
+// ---------------------------------------------------------------------------
+// Garmin import / upload
+// ---------------------------------------------------------------------------
+
+// Backend: CSVImportResponse (POST /api/garmin/csv-import)
+export interface CSVImportResult {
+  imported: number
+  skipped_duplicates: number
+  skipped_errors: number
+  date_range: string | null
+  training_load_note: string
+  row_errors: string[]
+}
+
+// Backend: UploadResponse (POST /api/garmin/upload)
+export interface UploadResult {
+  imported: number
+  skipped_duplicates: number
+  skipped_errors: number
+  format_detected: string
+  date_range: string | null
+  warnings: string[]
+  training_load_note: string | null
 }

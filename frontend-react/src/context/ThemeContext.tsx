@@ -2,7 +2,7 @@
  * ThemeContext — dark-only in v1.
  * The toggle is a no-op; the interface is preserved so existing imports compile.
  */
-import { createContext, useContext, useEffect } from 'react'
+import { createContext, useEffect } from 'react'
 
 interface ThemeContextValue {
   theme: 'dark'
@@ -27,8 +27,4 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       {children}
     </ThemeContext.Provider>
   )
-}
-
-export function useTheme() {
-  return useContext(ThemeContext)
 }

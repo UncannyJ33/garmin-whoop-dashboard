@@ -10,6 +10,23 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Normalise a FastAPI `detail` to a string. HTTPException sends a string;
+ * 422 validation errors send a list of `{loc, msg, type}` objects.
+ */
+export function formatDetail(detail: unknown): string | null {
+  if (typeof detail === 'string') return detail || null
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) =>
+        d && typeof d === 'object' && 'msg' in d ? String((d as { msg: unknown }).msg) : null,
+      )
+      .filter((m): m is string => !!m)
+    return msgs.length ? msgs.join('; ') : null
+  }
+  return null
+}
+
 // Module-level token store — set by AuthContext after login.
 let _authToken: string | null = null
 
@@ -24,13 +41,11 @@ let consecutiveFailures = 0
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   // Do NOT set Content-Type for FormData — the browser must set it with the multipart boundary.
   const isFormData = options?.body instanceof FormData
-  const headers: Record<string, string> = {
-    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-    'ngrok-skip-browser-warning': 'true',
-    ...(options?.headers as Record<string, string>),
-  }
+  const headers = new Headers(options?.headers)
+  if (!isFormData && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  headers.set('ngrok-skip-browser-warning', 'true')
   if (_authToken) {
-    headers['Authorization'] = `Bearer ${_authToken}`
+    headers.set('Authorization', `Bearer ${_authToken}`)
   }
 
   let res: Response
@@ -62,14 +77,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (res.status === 204) {
+    // 204 has no body. Endpoints that can return it must declare `T | null`.
     return null as T
   }
 
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {
-      const body = (await res.json()) as { detail?: string }
-      if (body.detail) message = body.detail
+      const body = (await res.json()) as { detail?: unknown }
+      const detail = formatDetail(body.detail)
+      if (detail) message = detail
     } catch {
       // ignore parse error
     }
@@ -82,7 +99,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal }),
   post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
   /** Upload multipart/form-data (e.g. CSV file upload). */
   postForm: <T>(path: string, form: FormData) =>
     request<T>(path, { method: 'POST', body: form }),
