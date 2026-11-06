@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Literal
 
 from sqlalchemy import Engine
 
@@ -48,6 +49,9 @@ _FACTOR_NAMES: dict[str, str] = {
 # -----------------------------------------------------------------------
 
 
+Severity = Literal["mild", "moderate", "significant"]
+
+
 @dataclass
 class LimitingFactor:
     """One readiness component that is suppressing today's score.
@@ -74,7 +78,7 @@ class LimitingFactor:
     seven_day_avg_display: str
     deviation_pct: float
     explanation: str
-    severity: str
+    severity: Severity
 
 
 # -----------------------------------------------------------------------
@@ -88,7 +92,7 @@ def _avg(values: list[float | None]) -> float | None:
     return sum(valid) / len(valid) if len(valid) >= _MIN_HISTORY else None
 
 
-def _classify_severity(deviation: float) -> str:
+def _classify_severity(deviation: float) -> Severity:
     """deviation is negative (below baseline). Returns severity string."""
     abs_dev = abs(deviation)
     if abs_dev >= _SIGNIFICANT_THRESHOLD:
@@ -98,7 +102,7 @@ def _classify_severity(deviation: float) -> str:
     return "mild"
 
 
-def _severity_word(severity: str) -> str:
+def _severity_word(severity: Severity) -> str:
     return {
         "significant": "dragging",
         "moderate": "pulling",

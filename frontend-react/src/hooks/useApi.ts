@@ -17,6 +17,8 @@ import type {
   EnrichedAnomaly,
   EnrichedWorkout,
   ExerciseSet,
+  FeatureFlags,
+  GarminStatus,
   LimitingFactor,
   MetricTrend,
   ReadinessHistoryPoint,
@@ -33,6 +35,7 @@ import type {
   UploadResult,
   WeeklyDigestResponse,
   WeeklySummary,
+  WhoopStatus,
   WithWithoutResponse,
   WorkoutTypeSummary,
 } from '../types/api'
@@ -325,7 +328,7 @@ export function useFeatureFlags() {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['feature-flags', userId ?? 'anon'],
-    queryFn: ({ signal }) => api.get<{ whoop_oauth_enabled: boolean }>('/api/auth/feature-flags', signal),
+    queryFn: ({ signal }) => api.get<FeatureFlags>('/api/auth/feature-flags', signal),
     staleTime: STALE.STATIC,
     retry: 1,
   })
@@ -339,7 +342,7 @@ export function useWhoopStatus() {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['auth', 'whoop-status', userId],
-    queryFn: ({ signal }) => api.get<{ connected: boolean }>('/api/auth/whoop/status', signal),
+    queryFn: ({ signal }) => api.get<WhoopStatus>('/api/auth/whoop/status', signal),
     staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,
@@ -378,7 +381,7 @@ export function useGarminStatus() {
   const { userId } = useAuth()
   return useQuery({
     queryKey: ['auth', 'garmin-status', userId],
-    queryFn: ({ signal }) => api.get<{ connected: boolean; configured: boolean; error: string | null }>('/api/auth/garmin/status', signal),
+    queryFn: ({ signal }) => api.get<GarminStatus>('/api/auth/garmin/status', signal),
     staleTime: STALE.SHORT,
     retry: 1,
     enabled: !!userId,

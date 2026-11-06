@@ -14,7 +14,7 @@ from src.analytics.readiness_score import (
     compute_readiness,
     get_readiness_history,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     ContributingFactor,
     LimitingFactorResponse,
@@ -112,14 +112,12 @@ async def readiness_limiting_factors(
     summary="Readiness score history",
 )
 async def readiness_history(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[ReadinessHistoryItem]:
     """Return daily readiness scores for a date range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         history = get_readiness_history(start, end, engine, user_id=current_user.id)
         return [ReadinessHistoryItem(**h) for h in history]

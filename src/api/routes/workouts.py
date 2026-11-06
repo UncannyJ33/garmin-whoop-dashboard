@@ -2,7 +2,6 @@
 
 import dataclasses
 import logging
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine, text
@@ -12,7 +11,7 @@ from src.analytics.workout_analysis import (
     get_enriched_workouts,
     get_workout_type_summary,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     EnrichedWorkoutResponse,
     ExerciseSetItem,
@@ -47,14 +46,12 @@ def _garmin_activity_id(engine: Engine, workout_id: str, user_id: str) -> str | 
     summary="Activity type summary",
 )
 async def workout_summary(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[WorkoutTypeSummaryItem]:
     """Aggregate stats grouped by activity type for the given date range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         summary = get_workout_type_summary(engine, start, end, user_id=current_user.id)
         return [
@@ -72,14 +69,12 @@ async def workout_summary(
     summary="Total volume per strength session",
 )
 async def strength_volume(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[StrengthVolumeItem]:
     """Return total volume (kg × reps) per strength session date in range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -126,14 +121,12 @@ async def strength_volume(
     summary="Max weight per tracked exercise per session",
 )
 async def strength_max_weight(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[StrengthMaxWeightItem]:
     """Return max weight (kg) per tracked exercise per session date in range."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     with engine.connect() as conn:
         rows = (
             conn.execute(
@@ -191,8 +184,7 @@ async def strength_max_weight(
     summary="List enriched workouts",
 )
 async def list_workouts(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     limit: int | None = Query(
         None, ge=1, le=500, description="Max workouts to return (omit for all)"
     ),
@@ -206,8 +198,7 @@ async def list_workouts(
     omitted, all workouts in the range are returned (backward compatible).
     The total count is always returned in the X-Total-Count response header.
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         workouts = get_enriched_workouts(
             engine,

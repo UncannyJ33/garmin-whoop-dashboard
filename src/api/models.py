@@ -1,9 +1,10 @@
 """Pydantic response models for all API endpoints."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from src.analytics.limiting_factors import Severity
 from src.analytics.readiness_score import Recommendation
 from src.analytics.sleep_analysis import SleepDebtTrend
 from src.analytics.training_load import AcwrTrend, Zone
@@ -212,10 +213,14 @@ class EnrichedAnomalyResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+# Values written to SyncLog.status; "never_synced" is API-only (no row yet).
+SyncState = Literal["running", "success", "error"]
+
+
 class SyncStatusItem(BaseModel):
     source: str
     last_sync_at: str | None = None
-    status: str | None = None
+    status: SyncState | Literal["never_synced"] | None = None
     records_stored: int | None = None
     error_message: str | None = None
     next_sync_at: str | None = None
@@ -225,7 +230,7 @@ class SyncStatusItem(BaseModel):
 
 class SyncTriggerResponse(BaseModel):
     source: str
-    status: str
+    status: SyncState
     records_fetched: int
     records_stored: int
     started_at: str
@@ -290,7 +295,7 @@ class LimitingFactorResponse(BaseModel):
     seven_day_avg_display: str
     deviation_pct: float
     explanation: str
-    severity: str
+    severity: Severity
 
 
 # ---------------------------------------------------------------------------
@@ -351,8 +356,21 @@ class WithWithoutResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class WeeklyDigestMetricsResponse(BaseModel):
+    avg_readiness: float | None = None
+    avg_recovery: float | None = None
+    avg_hrv: float | None = None
+    total_strain: float | None = None
+    workout_count: int
+    total_training_hours: float | None = None
+    avg_sleep_hours: float | None = None
+    avg_deep_sleep_minutes: float | None = None
+    acwr: float | None = None
+    acwr_zone: Zone | None = None
+
+
 class WeeklyDigestResponse(BaseModel):
     week_start: str
     week_end: str
     takeaways: list[str]
-    metrics_snapshot: dict[str, Any]
+    metrics_snapshot: WeeklyDigestMetricsResponse

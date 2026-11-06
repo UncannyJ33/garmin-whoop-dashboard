@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
 from src.analytics.training_load import get_training_load_history, get_training_load_ratio
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import TrainingLoadHistoryItem, TrainingLoadResponse, WeeklyLoadItem
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
@@ -68,8 +68,7 @@ async def training_load_ratio(
     summary="Daily ACWR history for a date range",
 )
 async def training_load_history(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[TrainingLoadHistoryItem]:
@@ -77,8 +76,7 @@ async def training_load_history(
 
     Useful for rendering an ACWR trend chart over a custom date range.
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         history = get_training_load_history(engine, current_user.id, start, end)
         return [TrainingLoadHistoryItem(**h) for h in history]

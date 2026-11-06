@@ -14,7 +14,7 @@ from src.analytics.trends import (
     get_metric_trend,
     get_weekly_summary,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     AnomalyItem,
     EnrichedAnomalyResponse,
@@ -97,14 +97,12 @@ async def weekly_summary(
     summary="Anomaly log across all tracked metrics",
 )
 async def anomaly_log(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[AnomalyItem]:
     """Return all anomalous days (≥ 2σ from 7-day prior mean) across key metrics."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
 
     # Try pre-computed cache first (populated after each sync)
     cached = get_cached_anomalies(engine, current_user.id, start, end)
@@ -143,8 +141,7 @@ async def anomaly_log(
     summary="Anomaly log with 48-hour contextual explanations",
 )
 async def enriched_anomaly_log(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of anomalies to return"),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
@@ -154,8 +151,7 @@ async def enriched_anomaly_log(
     Each entry includes a natural-language explanation of what was happening
     in the 48 hours surrounding the anomaly.
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
 
     # Try pre-computed cache first
     cached = get_cached_enriched_anomalies(engine, current_user.id, start, end, limit=limit)
@@ -178,8 +174,7 @@ async def enriched_anomaly_log(
 )
 async def metric_trend(
     metric: str,
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> MetricTrendResponse:
@@ -188,8 +183,7 @@ async def metric_trend(
     Supported metrics: recovery, hrv, resting_hr, body_battery, strain,
     sleep_duration, deep_sleep, readiness, training_load (and aliases).
     """
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         trend = get_metric_trend(engine, metric, start, end, user_id=current_user.id)
     except ValueError as exc:

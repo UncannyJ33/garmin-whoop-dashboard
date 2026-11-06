@@ -2,7 +2,6 @@
 
 import dataclasses
 import logging
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
@@ -12,7 +11,7 @@ from src.analytics.sleep_analysis import (
     get_sleep_insights,
     get_strain_sleep_correlation,
 )
-from src.api.dependencies import get_engine_dep
+from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import (
     CorrelationResult,
     SleepConsistencyResponse,
@@ -33,14 +32,12 @@ router = APIRouter(prefix="/api/sleep", tags=["sleep"])
     summary="Sleep insights for a date range",
 )
 async def sleep_insights(
-    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    dates: DateRangeParams = Depends(),
     engine: Engine = Depends(get_engine_dep),
     current_user: User = Depends(get_current_user),
 ) -> list[SleepInsightResponse]:
     """Return per-night sleep insights linking sleep quality, prior training, and recovery."""
-    if start > end:
-        raise HTTPException(status_code=400, detail="start must be ≤ end")
+    start, end = dates.validated()
     try:
         insights = get_sleep_insights(engine, start, end, user_id=current_user.id)
         return [SleepInsightResponse(**dataclasses.asdict(s)) for s in insights]

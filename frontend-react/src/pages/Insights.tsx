@@ -447,7 +447,7 @@ export function Insights() {
   // Trend badge context sentence
   const trendContext = useMemo(() => {
     const dir = trendQ.data?.trend_direction
-    if (!dir || dir === 'insufficient_data') return null
+    if (!dir) return null
     return TREND_CONTEXT[selectedMetric]?.[dir as keyof typeof TREND_CONTEXT[string]] ?? null
   }, [trendQ.data, selectedMetric])
 
@@ -536,7 +536,7 @@ export function Insights() {
                 </span>
               ))}
             </div>
-            {trendQ.data && trendQ.data.trend_direction !== 'insufficient_data' && (
+            {trendQ.data && (
               <div className="space-y-1.5">
                 {/* Trend direction badge */}
                 {(() => {

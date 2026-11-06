@@ -1,4 +1,22 @@
 // ---------------------------------------------------------------------------
+// Closed string vocabularies (mirror the backend Literal types)
+// ---------------------------------------------------------------------------
+
+export type Recommendation =
+  | 'Push hard — your body is primed for high intensity'
+  | 'Train normally — good to go for planned workout'
+  | 'Go easy — consider reducing intensity or volume'
+  | 'Rest day — recovery is the priority'
+export type PrimarySource = 'whoop' | 'garmin' | 'both'
+export type SleepDebtTrend = 'unknown' | 'stable' | 'worsening' | 'improving'
+export type AnomalyDirection = 'high' | 'low'
+export type TrendDirection = 'improving' | 'declining' | 'stable'
+export type AcwrZone = 'detraining' | 'recovery' | 'sweet_spot' | 'overreaching' | 'danger'
+export type AcwrTrend = 'increasing' | 'decreasing' | 'stable'
+export type LimitingFactorSeverity = 'mild' | 'moderate' | 'significant'
+export type SyncState = 'running' | 'success' | 'error'
+
+// ---------------------------------------------------------------------------
 // Readiness
 // ---------------------------------------------------------------------------
 
@@ -13,7 +31,7 @@ export interface ContributingFactor {
 export interface ReadinessResult {
   date: string
   score: number | null
-  recommendation: string
+  recommendation: Recommendation
   contributing_factors: Record<string, ContributingFactor>
   confidence: number
 }
@@ -21,7 +39,7 @@ export interface ReadinessResult {
 export interface ReadinessHistoryPoint {
   date: string
   score: number | null
-  recommendation: string
+  recommendation: Recommendation
   confidence: number
 }
 
@@ -43,7 +61,7 @@ export interface EnrichedWorkout {
   start_time: string | null
   activity_type: string | null
   duration_minutes: number | null
-  primary_source: string
+  primary_source: PrimarySource
   matched: boolean
   // Physiological load
   strain: number | null
@@ -133,7 +151,7 @@ export interface SleepConsistency {
   avg_wake_hour: number | null
   wake_time_std_hours: number | null    // hours, not minutes
   avg_total_sleep_minutes: number | null
-  sleep_debt_trend: string | null       // was trend_direction
+  sleep_debt_trend: SleepDebtTrend | null       // was trend_direction
   sleep_debt_trend_slope_min_per_day: number | null
 }
 
@@ -144,7 +162,7 @@ export interface SleepConsistency {
 export interface AnomalyPoint {
   date: string
   value: number
-  direction: string
+  direction: AnomalyDirection
   severity: number
 }
 
@@ -161,7 +179,7 @@ export interface MetricTrend {
   rolling_avg_30d: (number | null)[]
   rolling_std_7d: (number | null)[]    // newly added
   anomalies: AnomalyPoint[]
-  trend_direction: string
+  trend_direction: TrendDirection
 }
 
 // Backend: WeeklySummaryResponse
@@ -190,7 +208,7 @@ export interface WeeklySummary {
 export interface SyncStatusItem {
   source: string
   last_sync_at: string | null
-  status: string | null
+  status: SyncState | 'never_synced' | null
   records_stored: number | null
   error_message: string | null
   next_sync_at: string | null
@@ -211,7 +229,7 @@ export interface DataStats {
 
 export interface SyncTriggerResponse {
   source: string
-  status: string
+  status: SyncState
   records_fetched: number
   records_stored: number
   started_at: string
@@ -257,9 +275,9 @@ export interface TrainingLoadResponse {
   acwr: number | null
   acute_load: number
   chronic_load: number
-  zone: string | null
+  zone: AcwrZone | null
   zone_description: string | null
-  trend: string
+  trend: AcwrTrend
   weekly_loads: WeeklyLoadItem[]
   confidence_note: string | null
 }
@@ -273,7 +291,7 @@ export interface LimitingFactor {
   seven_day_avg_display: string
   deviation_pct: number
   explanation: string
-  severity: string
+  severity: LimitingFactorSeverity
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +308,7 @@ export interface WeeklyDigestMetrics {
   avg_sleep_hours: number | null
   avg_deep_sleep_minutes: number | null
   acwr: number | null
-  acwr_zone: string | null
+  acwr_zone: AcwrZone | null
 }
 
 export interface WeeklyDigestResponse {
@@ -363,4 +381,22 @@ export interface UploadResult {
   date_range: string | null
   warnings: string[]
   training_load_note: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Raw JSONResponse endpoints (/api/auth/*)
+// ---------------------------------------------------------------------------
+
+export interface FeatureFlags {
+  whoop_oauth_enabled: boolean
+}
+
+export interface WhoopStatus {
+  connected: boolean
+}
+
+export interface GarminStatus {
+  connected: boolean
+  configured: boolean
+  error: string | null
 }
