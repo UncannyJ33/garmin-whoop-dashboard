@@ -152,7 +152,7 @@ export function ApiTest() {
         <Row
           name="useReadinessToday()"
           {...hookStatus(readinessToday.isLoading, readinessToday.error, readinessToday.data, d =>
-            d.score === undefined,
+            d?.score === undefined,
           )}
         />
         {readinessToday.data && (

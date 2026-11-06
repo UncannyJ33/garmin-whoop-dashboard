@@ -421,6 +421,7 @@ export function Recovery() {
                     Trend:{' '}
                     <span className={`font-medium ${
                       cons.sleep_debt_trend === 'improving' ? 'text-good'
+                      : cons.sleep_debt_trend === 'worsening' ? 'text-poor'
                       : 'text-moderate'
                     }`}>
                       {cons.sleep_debt_trend.charAt(0).toUpperCase() + cons.sleep_debt_trend.slice(1)}
@@ -669,6 +670,7 @@ export function Recovery() {
                   Sleep trend:{' '}
                   <span className={`font-semibold ${
                     cons.sleep_debt_trend === 'improving' ? 'text-good'
+                    : cons.sleep_debt_trend === 'worsening' ? 'text-poor'
                     : 'text-moderate'
                   }`}>
                     {cons.sleep_debt_trend.charAt(0).toUpperCase() + cons.sleep_debt_trend.slice(1)}

@@ -34,6 +34,7 @@ import { NoDataState } from '../components/LoadingState'
 import type { WeeklySummary } from '../types/api'
 import { activityLabel } from '../utils/formatters'
 import { colorForType } from '../utils/chartColors'
+import { useLocalToday } from '../hooks/useDateRange'
 import { DayButton } from '../components/DayButton'
 import { fmtDate } from '../utils/formatters'
 
@@ -345,7 +346,7 @@ export function Insights() {
   const [selectedMetric, setSelectedMetric] = useState('recovery')
   const [explorerDays,   setExplorerDays]   = useState(60)
 
-  const today   = toISO(new Date())
+  const today   = useLocalToday()
   const exStart = subDays(explorerDays)
   const exEnd   = today
 

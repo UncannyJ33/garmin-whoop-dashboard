@@ -15,6 +15,7 @@ import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import { ACWRGauge } from '../components/ACWRGauge'
 import { ErrorState } from '../components/ErrorState'
 import { LimitingFactorCard } from '../components/LimitingFactorCard'
+import type { LimitingFactorSeverity } from '../types/api'
 import { ReadinessArcGauge } from '../components/ReadinessArcGauge'
 import { SleepStageBar } from '../components/SleepStageBar'
 import type { ReadinessLevel } from '../components/StatusBadge'
@@ -59,8 +60,8 @@ function yesterdayISO(): string {
   return d.toLocaleDateString('en-CA')
 }
 
-function toCardSeverity(severity: string): 'alert' | 'caution' {
-  return severity === 'poor' ? 'alert' : 'caution'
+function toCardSeverity(severity: LimitingFactorSeverity): 'alert' | 'caution' {
+  return severity === 'significant' ? 'alert' : 'caution'
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +498,11 @@ export function Today() {
                 <div className="skeleton" style={{ height: 34, borderRadius: 6 }} />
                 <div className="skeleton" style={{ height: 34, borderRadius: 6 }} />
               </>
+            ) : limiters.isError ? (
+              <ErrorState
+                message="Couldn't load limiting factors."
+                onRetry={() => void limiters.refetch()}
+              />
             ) : limitersList.length === 0 ? (
               readiness.isSuccess ? (
                 <p style={{ fontSize: 13, color: 'var(--status-excellent)', textAlign: 'center' }}>

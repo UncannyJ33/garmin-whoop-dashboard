@@ -379,6 +379,11 @@ export function Training() {
             <div className="skeleton h-3 w-full rounded-full" />
             <div className="skeleton h-4 w-full rounded" />
           </div>
+        ) : trainingLoadQ.isError ? (
+          <ErrorState
+            message="Couldn't load training load."
+            onRetry={() => void trainingLoadQ.refetch()}
+          />
         ) : trainingLoadQ.data ? (
           <ACWRGauge
             acwr={trainingLoadQ.data.acwr}

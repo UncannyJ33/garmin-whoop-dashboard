@@ -162,7 +162,6 @@ export function ConnectDevicesPanel({ onStartSync, onSkip }: ConnectDevicesPanel
     setGarminModal(null)
     setCsvResult(result)
     void queryClient.invalidateQueries({ queryKey: ['auth', 'garmin-status', userId] })
-    void queryClient.invalidateQueries({ queryKey: ['workouts'] })
   }
 
   const anyConnected = whoopConnected || garminConnected || !!csvResult

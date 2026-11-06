@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import { todayISO } from './useDateRange'
+import { useLocalToday } from './useDateRange'
 
 const STALE = {
   SHORT:  5 * 60 * 1000,   // 5 min — user data that changes frequently (today's readiness, sync status)
@@ -54,9 +54,12 @@ export function invalidateWorkoutQueries(queryClient: QueryClient, userId: strin
 
 export function useReadinessToday() {
   const { userId } = useAuth()
+  const today = useLocalToday() // in the key so the query refetches after midnight
   return useQuery({
-    queryKey: ['readiness', 'today', userId],
-    queryFn: ({ signal }) => api.get<ReadinessResult>(`/api/readiness/today?date=${todayISO()}`, signal),
+    queryKey: ['readiness', 'today', today, userId],
+    queryFn: ({ signal }) =>
+      // 204 No Content when there is no readiness data for the date
+      api.get<ReadinessResult | null>(`/api/readiness/today?date=${today}`, signal),
     staleTime: STALE.SHORT,
     retry: 1,
     refetchOnWindowFocus: true,
@@ -268,8 +271,9 @@ export function useWeeklyDigest(date?: string) {
 
 export function useLimitingFactors(topN = 2) {
   const { userId } = useAuth()
+  const today = useLocalToday() // in the key so the query refetches after midnight
   return useQuery({
-    queryKey: ['readiness', 'limiting-factors', topN, userId],
+    queryKey: ['readiness', 'limiting-factors', topN, today, userId],
     queryFn: ({ signal }) =>
       api.get<LimitingFactor[]>(`/api/readiness/limiting-factors?top_n=${topN}`, signal),
     staleTime: STALE.SHORT,
@@ -280,11 +284,11 @@ export function useLimitingFactors(topN = 2) {
 
 export function useTrainingLoadRatio(date?: string) {
   const { userId } = useAuth()
+  const today = useLocalToday() // in the key so the query refetches after midnight
   return useQuery({
-    queryKey: ['training', 'load-ratio', date ?? 'today', userId],
+    queryKey: ['training', 'load-ratio', date ?? today, userId],
     queryFn: ({ signal }) =>
-      // 204 No Content when the user has no training data yet
-      api.get<TrainingLoadResponse | null>(
+      api.get<TrainingLoadResponse>(
         date ? `/api/training/load-ratio?date=${date}` : '/api/training/load-ratio',
         signal,
       ),
