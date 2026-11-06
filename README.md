@@ -11,8 +11,7 @@ This README is internal documentation for the owner (SJ) and Claude agents.
 > **Status: relaunch in progress (Nov 2026).** **Phase 2 is done** (branch
 > `feat/garmin-personal-api`, 2026-11-06): Garmin now comes from the official Personal API, and
 > the unofficial `garminconnect` password login is gone. **The SaaS cut (roadmap Phases 3-4) is
-> still pending**: open registration, waitlist, landing page, account deletion and the Whoop
-> webhook still exist.
+> still pending**: the landing page and the other SaaS-era frontend pages still exist.
 > Plan: [`plans/2026-11-06-personal-relaunch-roadmap.md`](plans/2026-11-06-personal-relaunch-roadmap.md).
 > Research: [`docs/research/2026-11-garmin-personal-api.md`](docs/research/2026-11-garmin-personal-api.md).
 > Sections below are marked **(current code)** or **(after relaunch)**.
@@ -134,8 +133,7 @@ import and fills the unified tables.
 4. Data is polled every 30 min. Refresh tokens rotate; a known bug can force re-auth (fix planned
    in roadmap Phase 3).
 
-The Whoop webhook receiver (`/api/webhooks/whoop`) is being removed: no signature verification,
-broken since migration 008. Do not set up webhooks or ngrok.
+Whoop data is polling only (no webhooks); do not set up ngrok.
 
 ## Common commands
 

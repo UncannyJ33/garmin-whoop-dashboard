@@ -73,3 +73,8 @@ def test_login_page_is_publicly_accessible(client: TestClient) -> None:
 def test_waitlist_route_gone(client: TestClient) -> None:
     res = client.post("/api/waitlist", json={"email": "a@example.com"})
     assert res.status_code in (404, 405)
+
+
+def test_webhook_routes_gone(client: TestClient) -> None:
+    res = client.post("/api/webhooks/whoop", json={})
+    assert res.status_code in (404, 405)

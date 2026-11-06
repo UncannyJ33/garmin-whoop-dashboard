@@ -40,7 +40,7 @@ Garmin/Whoop API → pipelines → raw tables (with `raw_json`) → normalizer +
   - `readiness_score.py` — 5 components: whoop_recovery 30%, hrv_trend 25%, body_battery 20%, sleep_quality 15%, training_load 10%; HRV z-score; weights redistribute when a source is missing
   - `workout_analysis.py` (Whoop+Garmin enrichment: strain/min, efficiency, recovery impact), `sleep_analysis.py` (strain↔sleep Pearson r, consistency), `trends.py` (rolling avgs, z-score anomalies, weekly/monthly rollups), `training_load.py` (ACWR), `limiting_factors.py`, `weekly_digest.py`, `anomaly_store.py` (anomaly_cache, filled after each sync), `cache.py` (in-memory TTL)
 - Auth (`src/auth/`): JWT (HS256, `JWT_SECRET`), bcrypt; `get_current_user` on protected routes.
-- API (`src/api/routes/`): readiness, workouts, sleep, recovery, training, trends, insights, sync, auth, account, garmin_upload (`POST /api/garmin/upload`, export import), garmin_csv, waitlist, webhooks. Models in `src/api/models.py`; docs at `/docs`.
+- API (`src/api/routes/`): readiness, workouts, sleep, recovery, training, trends, insights, sync, auth, account, garmin_upload (`POST /api/garmin/upload`, export import), garmin_csv. Models in `src/api/models.py`; docs at `/docs`.
 - DB: `src/database/` (models, `connection.py`, `migrations/`; run at startup).
 - React (`frontend-react/src/`): pages Today `/`, Training, Recovery, Insights, Settings (+ Login, GarminHelp); legacy redirects `/readiness`→`/`, `/workouts`→`/training`, `/sleep`→`/recovery`, `/trends`→`/insights`, `/recovery-activities`→`/recovery`. Hooks in `src/hooks/useApi.ts`, client `src/api/client.ts`, auth token held in memory (`AuthContext`), `DateRangeContext`, routes lazy-loaded.
 
