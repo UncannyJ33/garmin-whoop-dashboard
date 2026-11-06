@@ -11,7 +11,6 @@ Code that still exists but is **slated for removal. Don't extend it; don't add m
 - open registration, waitlist, `Landing`/`Privacy`/`Onboarding`/`Showcase`/`ApiTest`/`Demo` pages, `pulse-demo/`, `/demo` mount
 - Whoop allowlist + feature flags, account deletion
 - Whoop webhook receiver (`src/api/routes/webhooks.py`)
-- legacy Streamlit app (`frontend/`)
 
 Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan (done): `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
@@ -89,7 +88,6 @@ Whoop notes (Nov 2026; research §7):
 - Always use the venv: `source .venv/bin/activate`
 - Lint with `ruff`: `make lint`, auto-fix `make fmt`
 - `timezone.utc` → `datetime.UTC` (ruff UP017)
-- Frontend `sys.path` manipulation (Streamlit) needs `# noqa: E402` on following imports
 - UI preference: no zoom on any chart (don't add `selection_interval` / brush; React charts currently have none)
 - **Never commit** `.env`, credentials, tokens, DB files, Garmin/Whoop exports, or personal health data. Raw API samples go in gitignored `data/`; test fixtures must be sanitized.
 
@@ -97,7 +95,7 @@ Whoop notes (Nov 2026; research §7):
 A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As of 2026-11-06 the local `.venv` (Python 3.12) and `node_modules` exist, and `.env` exists (gitignored). Garmin sync needs `GARMIN_PERSONAL_API_KEY` in `.env` (optional `GARMIN_PERSONAL_API_BASE_URL`). `uv` is **not** installed globally (`brew install uv`); the old `/opt/homebrew/bin/uv` note is stale.
 - Backend (port 8000): `make run-api`
 - Frontend: `cd frontend-react && npm run dev` — Vite port **5173** (per `vite.config.ts`; old docs also said 5175, wrong), proxies `/api` → `VITE_API_URL` or `http://localhost:8000`
-- `make test` (pytest), `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`; runs with `user_id=None` if no owner exists, Phase 3 fix), `make run-frontend` (legacy Streamlit, port 8501)
+- `make test` (pytest), `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`; runs with `user_id=None` if no owner exists, Phase 3 fix)
 - `cd frontend-react && npm run build` (tsc + vite build → `dist/`), `npm run typecheck`
 - Container: `docker compose up --build` → port 8000; needs `.env` (copy `.env.example`)
 - Local `.env`: `DATABASE_URL=sqlite:///data/fitness_dashboard.db`; `JWT_SECRET` must be set even locally.
@@ -121,10 +119,6 @@ A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As 
 - Railway (engine.pulsebuilt.net) is shut down, and the Supabase project and its data were deleted (2026-11-06). Don't try to reach either one.
 - FastAPI serves `frontend-react/dist/` (`/assets` StaticFiles + `spa_fallback`, with a `/demo` special case) when `dist/` exists. Same-origin, so `VITE_API_URL` is unneeded.
 - Leftovers that Phase 5 removes or simplifies: `railway.toml`, `frontend-react/vercel.json`, and Supabase tuning in `scripts/start.sh` (single-connection migrations, `sslmode=require`, sequence reset). Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
-
-## Streamlit (legacy, slated for removal)
-- Run: `streamlit run frontend/app.py`. Views live in `frontend/views/`; never use `frontend/pages/` (Streamlit auto-discovers it and breaks manual routing).
-- Charts use Altair directly (v6: `alt.SelectionParameter`); views read unified tables, not raw `whoop_*`.
 
 ## Environment
 - GitHub: https://github.com/UncannyJ33/garmin-whoop-dashboard (private); `gh` authenticated as UncannyJ33

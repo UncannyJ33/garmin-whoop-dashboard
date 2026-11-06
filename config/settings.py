@@ -18,7 +18,6 @@ class Settings:
 
     # Server
     app_port: int
-    streamlit_port: int
     cors_origins: list
 
     # Garmin Personal API (official, key -> 24h bearer JWT)
@@ -44,8 +43,7 @@ settings = Settings(
     ),
     database_url=os.getenv("DATABASE_URL", "sqlite:///data/fitness_dashboard.db"),
     app_port=int(os.getenv("PORT") or os.getenv("APP_PORT", "8000")),
-    streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
-    cors_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()],
+    cors_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
     garmin_personal_api_key=os.getenv("GARMIN_PERSONAL_API_KEY", ""),
     garmin_personal_api_base_url=os.getenv("GARMIN_PERSONAL_API_BASE_URL")
     or "https://personal.connectapi.garmin.com",

@@ -46,7 +46,6 @@ src/
   normalization/  mappers, deduplication, normalizer
 config/           settings.py (env vars), field_mappings.yaml
 frontend-react/   React app (src/pages, components, hooks/useApi.ts)
-frontend/         legacy Streamlit app (slated for deletion)
 scripts/          initial_sync.py, import_data.py, schema_review.py, start.sh, ...
 landing/          pulsebuilt.net studio page (not part of the dashboard; leave alone)
 tests/            pytest suite
@@ -143,7 +142,6 @@ Whoop data is polling only (no webhooks); do not set up ngrok.
 | `make run-sync` | `scripts/initial_sync.py` (Whoop, then Garmin) |
 | `make test` | `pytest tests/ -v` |
 | `make lint` / `make fmt` | `ruff check .` / `ruff format .` |
-| `make run-frontend` | legacy Streamlit on :8501 (being deleted) |
 | `cd frontend-react && npm run dev` | Vite dev server, :5173 |
 | `cd frontend-react && npm run typecheck` | `tsc --noEmit` |
 | `cd frontend-react && npm run build` | typecheck + production build to `dist/` |

@@ -86,14 +86,21 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CacheControlMiddleware)
 
-_cors_origins = settings.cors_origins if settings.cors_origins != ["*"] else ["*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def install_cors(app: FastAPI, origins: list[str]) -> None:
+    """Add CORSMiddleware to ``app`` only when ``origins`` is non-empty (same-origin by default)."""
+    if not origins:
+        return
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+install_cors(app, settings.cors_origins)
 
 app.include_router(account_router)
 app.include_router(auth_router)

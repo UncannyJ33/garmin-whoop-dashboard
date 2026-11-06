@@ -35,7 +35,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy source code (changes more often than deps)
 COPY src/ ./src/
-COPY frontend/ ./frontend/
 COPY config/ ./config/
 COPY --chmod=0755 scripts/ ./scripts/
 
