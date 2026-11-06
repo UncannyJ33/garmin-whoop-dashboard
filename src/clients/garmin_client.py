@@ -29,6 +29,25 @@ _SLEEP_CORE_KEYS = ("sleepTimeSeconds", "sleepStartTimestampGMT", "sleepEndTimes
 _ACTIVITIES_PATH = "/activitylist-service/activities/search/activities"
 
 
+# Metric fields read by transform_daily_summary in src/ingestion/garmin_pipeline.py.
+# A daily summary where all of these are null carries no data (past history depth).
+_DAILY_METRIC_FIELDS = (
+    "totalSteps",
+    "totalDistanceMeters",
+    "activeKilocalories",
+    "totalKilocalories",
+    "restingHeartRate",
+    "minHeartRate",
+    "maxHeartRate",
+    "averageStressLevel",
+    "maxStressLevel",
+    "bodyBatteryHighestValue",
+    "bodyBatteryLowestValue",
+    "averageSpo2",
+    "lowestSpo2",
+)
+
+
 def _is_null(v: Any) -> bool:
     """True for None or an empty container."""
     return v is None or (isinstance(v, (dict, list, tuple, str)) and len(v) == 0)
@@ -124,7 +143,11 @@ class GarminClient:
         data = self._get(
             "/usersummary-service/usersummary/daily", {"calendarDate": _fmt_date(date_)}
         )
-        return data if isinstance(data, dict) and not _all_null(data) else {}
+        if not isinstance(data, dict) or _all_null(data):
+            return {}
+        if all(_is_null(data.get(k)) for k in _DAILY_METRIC_FIELDS):
+            return {}
+        return data
 
     def get_sleep(self, date_: date | datetime | str) -> dict | None:
         """Fetch the flat DailySleepDTO; None on 204/empty/{}/all-null (no watch worn)."""

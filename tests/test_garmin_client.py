@@ -289,3 +289,26 @@ def test_request_delay_enforced(monkeypatch):
 
 def test_default_delay_is_one_second():
     assert GarminClient(auth=StubAuth()).__dict__["_request_delay"] == 1.0
+
+
+def test_get_daily_summary_metrics_all_null_returns_empty_dict():
+    body = {
+        "calendarDate": "2026-11-01",
+        "userProfileId": 1,
+        "displayName": "x",
+        "source": "...",
+        "includesWellnessData": False,
+        "includesActivityData": False,
+        "includesCalorieConsumedData": False,
+        "totalSteps": None,
+        "averageSpo2": None,
+        "bodyBatteryHighestValue": None,
+    }
+    client, _ = make_client(lambda r, n: httpx.Response(200, json=body))
+    assert client.get_daily_summary("2026-11-01") == {}
+
+
+def test_get_daily_summary_single_metric_is_data():
+    body = {"calendarDate": "2026-11-01", "totalSteps": 5, "averageSpo2": None}
+    client, _ = make_client(lambda r, n: httpx.Response(200, json=body))
+    assert client.get_daily_summary("2026-11-01") == body
