@@ -8,11 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
+from config.settings import settings
 from src.api.dependencies import get_db, get_engine_dep
 from src.api.models import DataStatsResponse, SyncStatusItem, SyncTriggerResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.clients.garmin_auth import has_garmin_token
 from src.clients.whoop_auth import WhoopAuth
 from src.database.connection import get_session_factory as _get_session_factory
 from src.ingestion.scheduler import get_scheduler_status
@@ -153,8 +153,6 @@ async def data_stats(
 async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
     """Background coroutine: run a full 30-day incremental sync and clear the running flag.
 
-    For Garmin, if the user has stored credentials the session is refreshed
-    before the pipeline runs so stale tokens don't cause spurious failures.
     Errors are logged and suppressed so the caller is never blocked.
     """
     key = _sync_key(source, user_id)
@@ -170,13 +168,23 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
         else:
             from src.ingestion.garmin_pipeline import GarminPipeline
 
-            # Re-authenticate via stored credentials before running the pipeline
-            # so sessions that lapsed since the last sync are refreshed automatically.
-            _try_garmin_reauth(user_id, engine, db)
-
-            await asyncio.to_thread(
+            log = await asyncio.to_thread(
                 lambda: GarminPipeline(db, user_id=user_id).run(start=start.date(), end=now.date())
             )
+            if log is None:
+                logger.info(
+                    "Manual sync skipped (another Garmin sync running) — source=%s user=%s",
+                    source,
+                    user_id,
+                )
+                return
+            logger.info(
+                "Manual sync finished — source=%s user=%s status=%s",
+                source,
+                user_id,
+                log.status,
+            )
+            return
         logger.info("Manual sync complete — source=%s user=%s", source, user_id)
     except Exception:
         logger.exception("Manual sync failed — source=%s user=%s", source, user_id)
@@ -185,51 +193,6 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
         _running_syncs.pop(key, None)
         # Invalidate cache so the next status poll fetches fresh data from DB
         _status_cache.pop(user_id, None)
-
-
-def _try_garmin_reauth(user_id: str, engine: Engine, db: Session) -> None:
-    """Re-authenticate with Garmin using stored credentials if available.
-
-    This is a best-effort operation: if credentials don't exist or decryption
-    fails the function returns silently and the pipeline uses the existing
-    session (which may still be valid).
-
-    Args:
-        user_id: App user UUID.
-        engine: Engine for the credential lookup query.
-        db: Active session passed to ``authenticate_user_garmin``.
-    """
-    try:
-        with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT encrypted_email, encrypted_password "
-                    "FROM garmin_credentials WHERE user_id = :uid"
-                ),
-                {"uid": user_id},
-            ).one_or_none()
-        if row is None:
-            return
-        from src.auth.encryption import decrypt_credential
-        from src.clients.garmin_auth import authenticate_user_garmin
-
-        email = decrypt_credential(row[0])
-        password = decrypt_credential(row[1])
-        authenticate_user_garmin(user_id, email, password, db)
-    except Exception:
-        logger.warning("Garmin re-auth skipped for user %s — using existing session", user_id)
-
-
-def _user_has_garmin_access(user_id: str, db: Session, engine: Engine) -> bool:
-    """Return True if the user has a Garmin session token *or* stored credentials."""
-    if has_garmin_token(user_id, db):
-        return True
-    with engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT user_id FROM garmin_credentials WHERE user_id = :uid"),
-            {"uid": user_id},
-        ).one_or_none()
-    return row is not None
 
 
 @router.post(
@@ -251,8 +214,7 @@ async def trigger_sync(
     ``false`` when the job finishes.
 
     Authorization:
-    - Garmin: the calling user must have either a session token or stored
-      credentials.
+    - Garmin: ``GARMIN_PERSONAL_API_KEY`` must be set on the server.
     - Whoop: the calling user must have connected their Whoop account first.
     """
     if source not in _KNOWN_SOURCES:
@@ -270,13 +232,10 @@ async def trigger_sync(
 
     # ── Per-source authorization checks ──────────────────────────────────────
     if source == "garmin":
-        if not _user_has_garmin_access(current_user.id, db_check, engine):
+        if not settings.garmin_personal_api_key:
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Garmin not connected. Go to Settings → Connect Garmin "
-                    "or enable auto-sync to link your account."
-                ),
+                detail="Garmin not configured. Set GARMIN_PERSONAL_API_KEY on the server.",
             )
 
     if source == "whoop":

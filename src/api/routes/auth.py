@@ -1,5 +1,6 @@
 """Authentication routes: JWT register/login/refresh/me + Whoop OAuth."""
 
+import asyncio
 import logging
 from collections import defaultdict, deque
 from datetime import UTC, datetime
@@ -8,10 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel
-from sqlalchemy import Engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.api.dependencies import get_db, get_engine_dep
+from src.api.dependencies import get_db
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.auth.schemas import TokenResponse, UserCreate, UserLogin, UserResponse
@@ -301,24 +302,53 @@ async def feature_flags(request: Request) -> JSONResponse:
     return JSONResponse({"whoop_oauth_enabled": whoop_enabled})
 
 
-@router.get("/garmin/status", summary="Check whether the current user has connected Garmin")
+_GARMIN_PROBE_TTL_SECONDS = 600
+# (monotonic timestamp, connected, error) of the last key-validity probe.
+_garmin_probe_cache: tuple[float, bool, str | None] | None = None
+
+
+def _probe_garmin_key() -> tuple[bool, str | None]:
+    """Call the cheap user-settings endpoint to check the key; body is discarded."""
+    from src.clients.garmin_client import GarminClient
+    from src.clients.garmin_personal_auth import GarminPersonalApiError
+
+    try:
+        GarminClient().get_user_settings()
+    except GarminPersonalApiError as exc:
+        return False, str(exc)
+    return True, None
+
+
+@router.get("/garmin/status", summary="Check whether the Garmin Personal API key works")
 async def garmin_connection_status(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    engine: Engine = Depends(get_engine_dep),
 ) -> JSONResponse:
-    """Return whether the current user has valid Garmin session tokens or stored credentials."""
-    from src.clients.garmin_auth import has_garmin_token
+    """Return ``{"connected", "configured", "error"}`` for the Garmin Personal API key.
 
-    if has_garmin_token(current_user.id, db):
-        return JSONResponse({"connected": True})
+    ``connected`` requires no recorded token-exchange failure and a successful
+    probe; the probe result is cached for 10 minutes, but a recorded
+    ``last_error`` (e.g. from the scheduler) bypasses the cache.
+    """
+    global _garmin_probe_cache
+    import time
 
-    with engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT user_id FROM garmin_credentials WHERE user_id = :uid"),
-            {"uid": current_user.id},
-        ).one_or_none()
-    return JSONResponse({"connected": row is not None})
+    from config.settings import settings
+    from src.clients.garmin_personal_auth import get_default_auth
+
+    if not settings.garmin_personal_api_key:
+        return JSONResponse({"connected": False, "configured": False, "error": None})
+
+    last_error = get_default_auth().last_error
+    if last_error is not None:
+        return JSONResponse({"connected": False, "configured": True, "error": last_error})
+
+    cached = _garmin_probe_cache
+    if cached is not None and time.monotonic() - cached[0] < _GARMIN_PROBE_TTL_SECONDS:
+        connected, error = cached[1], cached[2]
+    else:
+        connected, error = await asyncio.to_thread(_probe_garmin_key)
+        _garmin_probe_cache = (time.monotonic(), connected, error)
+    return JSONResponse({"connected": connected, "configured": True, "error": error})
 
 
 class ChangePasswordBody(BaseModel):

@@ -3,16 +3,22 @@
 Covers:
 - Scheduler is not started when TESTING env var is set
 - start_scheduler / stop_scheduler lifecycle (idempotency)
-- _run_garmin_sync error handling (exceptions don't propagate)
-- _run_whoop_sync error handling (exceptions don't propagate)
+- get_owner_user_id and the single-owner Garmin / Whoop jobs
+- catch-up scheduling on restart
 - create_scheduler respects interval_minutes for both sources
 - get_scheduler_status returns correct running/stopped state
 - FastAPI lifespan wires start/stop correctly
 """
 
+import logging
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
+
+from config.settings import settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,7 +69,6 @@ def test_start_scheduler_creates_and_starts(monkeypatch):
 
     with (
         patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(sched_mod, "load_garmin_tokens_from_db", return_value=False),
         patch.object(sched_mod, "create_scheduler", return_value=mock_scheduler),
         patch.object(sched_mod, "_schedule_catchup_if_stale"),
     ):
@@ -197,119 +202,347 @@ def test_create_scheduler_default_whoop_interval():
 
 
 # ---------------------------------------------------------------------------
-# _run_garmin_multi_user error handling
+# Single-owner helpers
 # ---------------------------------------------------------------------------
 
-
-def test_run_garmin_multi_user_suppresses_exceptions():
-    """_run_garmin_multi_user must not propagate exceptions from get_users_to_sync."""
-    import src.api.dependencies as deps_mod
-    import src.ingestion.scheduler as sched_mod
-
-    with (
-        patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(
-            sched_mod, "get_users_to_sync", side_effect=RuntimeError("DB down")
-        ),
-        patch("src.ingestion.scheduler.logger") as mock_logger,
-    ):
-        sched_mod._run_garmin_multi_user()  # must NOT raise
-
-    mock_logger.exception.assert_called()
+OWNER = "owner-0001"
 
 
-def test_run_garmin_multi_user_logs_completion_on_success():
-    """_run_garmin_multi_user logs completion when the pipeline succeeds."""
-    import src.api.dependencies as deps_mod
-    import src.ingestion.scheduler as sched_mod
+def _make_engine():
+    """In-memory SQLite engine with all migrations applied."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    from src.database.migrations import run
 
-    mock_log = MagicMock()
-    mock_log.records_stored = 7
-    mock_log.status = "success"
+    run(engine=engine)
+    return engine
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.run.return_value = mock_log
 
+def _seed_user(engine, user_id: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO users (id, email, hashed_password, created_at, is_active)"
+                " VALUES (:id, :email, 'x', '2026-01-01T00:00:00', 1)"
+            ),
+            {"id": user_id, "email": f"{user_id}@example.com"},
+        )
+
+
+def _seed_whoop_token(engine, user_id: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT OR REPLACE INTO token_store"
+                " (service, access_token, refresh_token, expires_at, updated_at)"
+                " VALUES (:svc, 'at', 'rt', '2099-01-01', '2026-01-01')"
+            ),
+            {"svc": f"whoop_{user_id}"},
+        )
+
+
+def _sync_log_success(engine, source: str, user_id: str, completed_at: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sync_log"
+                " (source, sync_type, status, records_fetched, records_stored,"
+                "  started_at, completed_at, user_id)"
+                " VALUES (:src, 'incremental', 'success', 0, 5, :ca, :ca, :uid)"
+            ),
+            {"src": source, "ca": completed_at, "uid": user_id},
+        )
+
+
+def _session_factory():
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
-    mock_session_factory = MagicMock(return_value=mock_session)
+    return MagicMock(return_value=mock_session)
 
-    # One user with a session token (no credentials — simulates legacy owner)
-    users = [{"user_id": "owner-id", "garmin_auto_sync": False, "garmin_has_token": True}]
 
-    with (
-        patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(sched_mod, "get_users_to_sync", return_value=users),
-        patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
-        patch("src.ingestion.scheduler.save_garmin_tokens_to_db"),
-        patch("src.ingestion.scheduler.logger") as mock_logger,
-    ):
-        import src.ingestion.garmin_pipeline as gp_mod
+@pytest.fixture
+def garmin_key(monkeypatch):
+    monkeypatch.setattr(settings, "garmin_personal_api_key", "test-key")
 
-        with patch.object(gp_mod, "GarminPipeline", return_value=mock_pipeline):
-            sched_mod._run_garmin_multi_user()
 
-    mock_pipeline.run.assert_called_once()
-    completion_calls = [str(c) for c in mock_logger.info.call_args_list]
-    assert any("7" in c for c in completion_calls)
+@pytest.fixture(autouse=True)
+def _reset_no_key_flag():
+    import src.ingestion.scheduler as sched_mod
+
+    sched_mod._garmin_no_key_logged = False
+    yield
 
 
 # ---------------------------------------------------------------------------
-# _run_whoop_multi_user error handling
+# get_owner_user_id
 # ---------------------------------------------------------------------------
 
 
-def test_run_whoop_multi_user_suppresses_exceptions():
-    """_run_whoop_multi_user must not propagate exceptions from get_users_to_sync."""
+def test_get_owner_user_id_none_one_many():
+    from src.database.owner import get_owner_user_id
+
+    engine = _make_engine()
+    assert get_owner_user_id(engine) is None
+    _seed_user(engine, "u-1")
+    assert get_owner_user_id(engine) == "u-1"
+    _seed_user(engine, "u-2")
+    with pytest.raises(RuntimeError):
+        get_owner_user_id(engine)
+
+
+# ---------------------------------------------------------------------------
+# _run_garmin_sync
+# ---------------------------------------------------------------------------
+
+
+def _run_garmin_job(engine, pipeline_cls):
     import src.api.dependencies as deps_mod
+    import src.ingestion.garmin_pipeline as gp_mod
     import src.ingestion.scheduler as sched_mod
 
     with (
-        patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(
-            sched_mod, "get_users_to_sync", side_effect=RuntimeError("DB down")
-        ),
-        patch("src.ingestion.scheduler.logger") as mock_logger,
+        patch.object(deps_mod, "_engine", engine),
+        patch.object(gp_mod, "GarminPipeline", pipeline_cls),
+        patch("src.ingestion.scheduler.get_session_factory", return_value=_session_factory()),
     ):
-        sched_mod._run_whoop_multi_user()  # must NOT raise
-
-    mock_logger.exception.assert_called()
+        sched_mod._run_garmin_sync()
 
 
-def test_run_whoop_multi_user_logs_completion_on_success():
-    """_run_whoop_multi_user logs completion when the pipeline succeeds."""
+def test_garmin_job_skips_when_multiple_users(garmin_key, caplog):
+    engine = _make_engine()
+    _seed_user(engine, "u-1")
+    _seed_user(engine, "u-2")
+    pipeline_cls = MagicMock()
+    with caplog.at_level(logging.ERROR, logger="src.ingestion.scheduler"):
+        _run_garmin_job(engine, pipeline_cls)
+    pipeline_cls.assert_not_called()
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+def test_garmin_job_skips_without_key():
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    pipeline_cls = MagicMock()
+    _run_garmin_job(engine, pipeline_cls)
+    pipeline_cls.assert_not_called()
+
+
+def test_garmin_job_skips_without_owner(garmin_key):
+    pipeline_cls = MagicMock()
+    _run_garmin_job(_make_engine(), pipeline_cls)
+    pipeline_cls.assert_not_called()
+
+
+def test_garmin_job_runs_for_owner(garmin_key):
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run.return_value = MagicMock(
+        status="success", records_fetched=4, records_stored=3, error_message=None
+    )
+    _run_garmin_job(engine, pipeline_cls)
+    assert pipeline_cls.call_args.kwargs["user_id"] == OWNER
+    pipeline_cls.return_value.run.assert_called_once_with()
+
+
+def test_garmin_job_logs_error_status_without_raising(garmin_key, caplog):
+    from src.database.models import SyncLog
+
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run.return_value = SyncLog(
+        status="error", error_message="key rejected"
+    )  # counts are None
+    with caplog.at_level(logging.INFO, logger="src.ingestion.scheduler"):
+        _run_garmin_job(engine, pipeline_cls)
+    assert "key rejected" in caplog.text
+
+
+def test_garmin_job_handles_lock_skipped_none(garmin_key, caplog):
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run.return_value = None
+    with caplog.at_level(logging.INFO, logger="src.ingestion.scheduler"):
+        _run_garmin_job(engine, pipeline_cls)
+    assert "already running" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_garmin_job_suppresses_unexpected_exception(garmin_key):
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run.side_effect = RuntimeError("boom")
+    _run_garmin_job(engine, pipeline_cls)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _run_whoop_sync
+# ---------------------------------------------------------------------------
+
+
+def _run_whoop_job(engine, pipeline_cls):
     import src.api.dependencies as deps_mod
     import src.ingestion.scheduler as sched_mod
-
-    mock_log = MagicMock()
-    mock_log.records_stored = 3
-    mock_log.status = "success"
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.run = AsyncMock(return_value=mock_log)
-
-    mock_session = MagicMock()
-    mock_session.__enter__ = MagicMock(return_value=mock_session)
-    mock_session.__exit__ = MagicMock(return_value=False)
-    mock_session_factory = MagicMock(return_value=mock_session)
-
-    users = [{"user_id": "user-abc", "whoop_connected": True}]
+    import src.ingestion.whoop_pipeline as wp_mod
 
     with (
-        patch.object(deps_mod, "_engine", MagicMock()),
-        patch.object(sched_mod, "get_users_to_sync", return_value=users),
-        patch("src.ingestion.scheduler.get_session_factory", return_value=mock_session_factory),
-        patch("src.ingestion.scheduler.logger") as mock_logger,
+        patch.object(deps_mod, "_engine", engine),
+        patch.object(wp_mod, "WhoopPipeline", pipeline_cls),
+        patch("src.ingestion.scheduler.get_session_factory", return_value=_session_factory()),
     ):
-        import src.ingestion.whoop_pipeline as wp_mod
+        sched_mod._run_whoop_sync()
 
-        with patch.object(wp_mod, "WhoopPipeline", return_value=mock_pipeline):
-            sched_mod._run_whoop_multi_user()
 
-    mock_logger.info.assert_called()
-    completion_calls = [str(c) for c in mock_logger.info.call_args_list]
-    assert any("3" in c for c in completion_calls)
+def test_whoop_job_skips_without_token():
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    pipeline_cls = MagicMock()
+    _run_whoop_job(engine, pipeline_cls)
+    pipeline_cls.assert_not_called()
+
+
+def test_whoop_job_skips_when_multiple_users():
+    engine = _make_engine()
+    _seed_user(engine, "u-1")
+    _seed_user(engine, "u-2")
+    _seed_whoop_token(engine, "u-1")
+    pipeline_cls = MagicMock()
+    _run_whoop_job(engine, pipeline_cls)
+    pipeline_cls.assert_not_called()
+
+
+def test_whoop_job_runs_for_owner_only():
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    _seed_whoop_token(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run = AsyncMock(
+        return_value=MagicMock(records_stored=3, status="success")
+    )
+    _run_whoop_job(engine, pipeline_cls)
+    assert pipeline_cls.call_args.kwargs["user_id"] == OWNER
+
+
+def test_whoop_token_failure_removes_token_and_continues():
+    """Whoop 401: token row removed, no exception escapes.
+
+    Phase 3 changes this behavior (token rotation) — flip this test then.
+    """
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    _seed_whoop_token(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run = AsyncMock(side_effect=Exception("Token refresh failed: 401"))
+    _run_whoop_job(engine, pipeline_cls)  # must NOT raise
+    with engine.connect() as conn:
+        n = conn.execute(
+            text("SELECT COUNT(*) FROM token_store WHERE service = :k"), {"k": f"whoop_{OWNER}"}
+        ).scalar()
+    assert n == 0
+
+
+def test_whoop_transient_failure_keeps_token():
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    _seed_whoop_token(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run = AsyncMock(side_effect=Exception("Token refresh failed: 503"))
+    _run_whoop_job(engine, pipeline_cls)
+    with engine.connect() as conn:
+        n = conn.execute(text("SELECT COUNT(*) FROM token_store")).scalar()
+    assert n == 1
+
+
+# ---------------------------------------------------------------------------
+# create_scheduler job registration
+# ---------------------------------------------------------------------------
+
+
+def test_scheduler_registers_two_jobs():
+    import src.ingestion.scheduler as sched_mod
+
+    scheduler = sched_mod.create_scheduler()
+    jobs = {j.id: j for j in scheduler.get_jobs()}
+    assert set(jobs) == {"garmin_incremental_sync", "whoop_incremental_sync"}
+    garmin_interval = jobs["garmin_incremental_sync"].trigger.interval
+    assert garmin_interval == timedelta(minutes=settings.garmin_poll_interval_minutes)
+    assert jobs["garmin_incremental_sync"].func is sched_mod._run_garmin_sync
+    assert jobs["whoop_incremental_sync"].func is sched_mod._run_whoop_sync
+
+
+# ---------------------------------------------------------------------------
+# Catch-up on restart
+# ---------------------------------------------------------------------------
+
+
+class TestCatchupOnRestart:
+    """_schedule_catchup_if_stale schedules jobs for stale sources."""
+
+    @staticmethod
+    def _ids(mock_scheduler):
+        return {c[1].get("id") for c in mock_scheduler.add_job.call_args_list}
+
+    def test_schedules_catchup_when_no_sync_exists(self):
+        import src.ingestion.scheduler as sched_mod
+
+        mock_scheduler = MagicMock()
+        sched_mod._schedule_catchup_if_stale(mock_scheduler, _make_engine())
+        assert {"garmin_catchup", "whoop_catchup"} <= self._ids(mock_scheduler)
+
+    def test_schedules_catchup_when_last_sync_is_stale(self):
+        import src.ingestion.scheduler as sched_mod
+
+        engine = _make_engine()
+        _seed_user(engine, OWNER)
+        stale = (datetime.now(UTC) - timedelta(hours=3)).isoformat()
+        _sync_log_success(engine, "garmin", OWNER, stale)
+        _sync_log_success(engine, "whoop", OWNER, stale)
+        mock_scheduler = MagicMock()
+        sched_mod._schedule_catchup_if_stale(mock_scheduler, engine)
+        assert {"garmin_catchup", "whoop_catchup"} <= self._ids(mock_scheduler)
+
+    def test_no_catchup_when_recent_sync_exists(self):
+        import src.ingestion.scheduler as sched_mod
+
+        engine = _make_engine()
+        _seed_user(engine, OWNER)
+        recent = datetime.now(UTC).isoformat()
+        _sync_log_success(engine, "garmin", OWNER, recent)
+        _sync_log_success(engine, "whoop", OWNER, recent)
+        mock_scheduler = MagicMock()
+        sched_mod._schedule_catchup_if_stale(mock_scheduler, engine)
+        mock_scheduler.add_job.assert_not_called()
+
+    def test_catchup_jobs_use_single_owner_functions(self):
+        import src.ingestion.scheduler as sched_mod
+
+        mock_scheduler = MagicMock()
+        sched_mod._schedule_catchup_if_stale(mock_scheduler, _make_engine())
+        job_funcs = [c[0][0] for c in mock_scheduler.add_job.call_args_list]
+        assert sched_mod._run_garmin_sync in job_funcs
+        assert sched_mod._run_whoop_sync in job_funcs
+
+    def test_partial_catchup_only_stale_source(self):
+        import src.ingestion.scheduler as sched_mod
+
+        engine = _make_engine()
+        _seed_user(engine, OWNER)
+        _sync_log_success(engine, "whoop", OWNER, datetime.now(UTC).isoformat())
+        _sync_log_success(
+            engine, "garmin", OWNER, (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        )
+        mock_scheduler = MagicMock()
+        sched_mod._schedule_catchup_if_stale(mock_scheduler, engine)
+        ids = self._ids(mock_scheduler)
+        assert "garmin_catchup" in ids
+        assert "whoop_catchup" not in ids
 
 
 # ---------------------------------------------------------------------------
