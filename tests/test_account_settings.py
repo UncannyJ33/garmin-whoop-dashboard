@@ -255,6 +255,19 @@ class TestWhoopDisconnect:
         assert res.status_code == 200
         assert res.json()["connected"] is False
 
+    def test_whoop_status_needs_reauth(self):
+        _seed_whoop_token(self.engine, USER_A)
+        res = self.client.get("/api/auth/whoop/status", headers=_auth(USER_A))
+        assert res.json() == {"connected": True, "needs_reauth": False, "error": None}
+
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE token_store SET token_data_json = :j WHERE service = :k"),
+                {"j": '{"auth_error": "reconnect Whoop"}', "k": f"whoop_{USER_A}"},
+            )
+        res = self.client.get("/api/auth/whoop/status", headers=_auth(USER_A))
+        assert res.json() == {"connected": True, "needs_reauth": True, "error": "reconnect Whoop"}
+
     def test_disconnect_is_idempotent_when_no_token(self):
         """204 even if the token doesn't exist — safe to call multiple times."""
         res = self.client.delete("/api/auth/whoop/disconnect", headers=_auth(USER_A))

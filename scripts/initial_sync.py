@@ -45,12 +45,18 @@ async def main() -> None:
         # ── Whoop ──────────────────────────────────────────────────────
         print(f"\nStarting Whoop sync: {start.date()} → {now.date()}\n")
         whoop_log = await WhoopPipeline(db, user_id=owner).run(start=start, end=now)
-        _print_summary("Whoop", whoop_log)
+        if whoop_log is None:
+            print("  Whoop sync skipped: another Whoop sync is running")
+        else:
+            _print_summary("Whoop", whoop_log)
 
         # ── Garmin ─────────────────────────────────────────────────────
         print(f"\nStarting Garmin sync: {start.date()} → {now.date()}\n")
         garmin_log = GarminPipeline(db, user_id=owner).run(start=start.date(), end=now.date())
-        _print_summary("Garmin", garmin_log)
+        if garmin_log is None:
+            print("  Garmin sync skipped: another Garmin sync is running")
+        else:
+            _print_summary("Garmin", garmin_log)
 
     finally:
         db.close()

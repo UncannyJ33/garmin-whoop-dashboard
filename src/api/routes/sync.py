@@ -161,7 +161,14 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
         if source == "whoop":
             from src.ingestion.whoop_pipeline import WhoopPipeline
 
-            await WhoopPipeline(db, user_id=user_id).run(start=start, end=now)
+            log = await WhoopPipeline(db, user_id=user_id).run(start=start, end=now)
+            if log is None:
+                logger.info(
+                    "Manual sync skipped (another Whoop sync running) — source=%s user=%s",
+                    source,
+                    user_id,
+                )
+                return
         else:
             from src.ingestion.garmin_pipeline import GarminPipeline
 

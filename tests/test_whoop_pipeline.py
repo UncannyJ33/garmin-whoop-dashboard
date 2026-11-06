@@ -378,8 +378,8 @@ def test_sync_window_defaults_to_30_days(db):
     assert abs((start - expected_start).total_seconds()) < 5
 
 
-def test_sync_window_uses_last_successful_sync(db):
-    """With a prior successful sync, window starts from its sync_end."""
+def test_sync_window_overlaps_2_days(db):
+    """With a prior successful sync, window starts 2 days before its sync_end."""
     sync_end = datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC)
     log = SyncLog(
         source="whoop",
@@ -393,7 +393,7 @@ def test_sync_window_uses_last_successful_sync(db):
 
     pipeline = WhoopPipeline(db, client=MagicMock())
     start, _ = pipeline._get_sync_window()
-    assert start == sync_end
+    assert start == sync_end - timedelta(days=2)
 
 
 def test_sync_window_ignores_failed_syncs(db):
@@ -553,3 +553,35 @@ async def test_sync_type_is_incremental_without_dates(db):
     pipeline = WhoopPipeline(db, client=mock_client)
     log = await pipeline.run()
     assert log.sync_type == "incremental"
+
+
+# ---------------------------------------------------------------------------
+# Run lock
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_run_skipped(db):
+    """A run while the lock is held returns None: no SyncLog, no client call."""
+    from src.ingestion import whoop_pipeline
+
+    client = MagicMock()
+    assert whoop_pipeline._RUN_LOCK.acquire(blocking=False)
+    try:
+        assert await WhoopPipeline(db, client=client).run() is None
+    finally:
+        whoop_pipeline._RUN_LOCK.release()
+    assert client.method_calls == []
+    assert db.query(SyncLog).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_run_lock_released_after_exception(db):
+    from src.ingestion import whoop_pipeline
+
+    client = MagicMock()
+    client.get_cycles = AsyncMock(side_effect=RuntimeError("boom"))
+    with pytest.raises(RuntimeError):
+        await WhoopPipeline(db, client=client).run()
+    assert whoop_pipeline._RUN_LOCK.acquire(blocking=False)
+    whoop_pipeline._RUN_LOCK.release()

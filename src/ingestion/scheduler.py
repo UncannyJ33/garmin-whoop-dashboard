@@ -111,11 +111,14 @@ def _run_garmin_sync() -> None:
 def _run_whoop_sync() -> None:
     """Job target: run an incremental Whoop sync for the owner.
 
-    Skipped (INFO) when the owner has no ``whoop_{owner}`` row in ``token_store``.
-    On a 401 / missing-refresh-token failure the stale token row is removed so
-    the owner is prompted to reconnect.
+    Skipped (INFO) when the owner has no ``whoop_{owner}`` row in ``token_store``
+    or that row is flagged ``auth_error`` (needs re-auth; only a new OAuth
+    exchange clears it).  A rejected grant (``WhoopReauthRequired``) is logged
+    and the token row is kept.  ``None`` from the pipeline means another Whoop
+    sync holds the run lock.
     """
     from src.api.dependencies import _engine as app_engine
+    from src.clients.whoop_auth import WhoopReauthRequired, _auth_error_from_json
     from src.ingestion.whoop_pipeline import WhoopPipeline
 
     owner = _resolve_owner(app_engine, "Whoop")
@@ -124,18 +127,18 @@ def _run_whoop_sync() -> None:
 
     try:
         with app_engine.connect() as conn:
-            has_token = (
-                conn.execute(
-                    text("SELECT 1 FROM token_store WHERE service = :key"),
-                    {"key": f"whoop_{owner}"},
-                ).first()
-                is not None
-            )
+            row = conn.execute(
+                text("SELECT token_data_json FROM token_store WHERE service = :key"),
+                {"key": f"whoop_{owner}"},
+            ).first()
     except Exception:
         logger.exception("Whoop sync: could not check token — skipping run")
         return
-    if not has_token:
+    if row is None:
         logger.info("Whoop sync: owner has no Whoop token — skipping")
+        return
+    if _auth_error_from_json(row[0]) is not None:
+        logger.info("Whoop sync: needs re-auth — skipping")
         return
 
     logger.info("Whoop sync: starting")
@@ -144,29 +147,18 @@ def _run_whoop_sync() -> None:
         with SessionFactory() as db:
             log = asyncio.run(WhoopPipeline(db, user_id=owner).run())
             # Read inside the session: the instance is expired/detached once it closes.
-            stored, status = log.records_stored, log.status
-        logger.info("Whoop sync: %d stored (status: %s)", stored, status)
-    except Exception as exc:
-        err_msg = str(exc).lower()
-        # Only delete the token on actual auth failures (401 = token rejected
-        # by Whoop).  "token" and "refresh" are too broad — they match
-        # transient errors like "Token refresh failed: 503" and would delete
-        # a perfectly valid token just because Whoop had a blip.
-        is_token_invalid = any(
-            kw in err_msg for kw in ("401", "not authenticated", "no refresh token")
-        )
-        if is_token_invalid:
-            logger.warning("Whoop sync: token rejected (401) — removing token for re-auth: %s", exc)
-            try:
-                with app_engine.begin() as conn:
-                    conn.execute(
-                        text("DELETE FROM token_store WHERE service = :key"),
-                        {"key": f"whoop_{owner}"},
-                    )
-            except Exception:
-                logger.exception("Could not remove Whoop token")
-        else:
-            logger.exception("Whoop sync: unexpected error")
+            summary = None if log is None else (log.records_stored, log.status)
+    except WhoopReauthRequired as exc:
+        logger.warning("Whoop sync: needs re-auth (token kept): %s", exc)
+        return
+    except Exception:
+        logger.exception("Whoop sync: unexpected error")
+        return
+
+    if summary is None:
+        logger.info("Whoop sync: skipped (another Whoop sync running)")
+        return
+    logger.info("Whoop sync: %d stored (status: %s)", *summary)
 
 
 # ---------------------------------------------------------------------------

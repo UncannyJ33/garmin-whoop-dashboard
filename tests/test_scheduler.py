@@ -430,22 +430,50 @@ def test_whoop_job_runs_for_owner_only():
     assert pipeline_cls.call_args.kwargs["user_id"] == OWNER
 
 
-def test_whoop_token_failure_removes_token_and_continues():
-    """Whoop 401: token row removed, no exception escapes.
+def test_auth_failure_keeps_token_sets_needs_reauth(caplog):
+    """WhoopReauthRequired: WARNING logged, token row kept, no exception escapes."""
+    from src.clients.whoop_auth import WhoopReauthRequired
 
-    Phase 3 changes this behavior (token rotation) — flip this test then.
-    """
     engine = _make_engine()
     _seed_user(engine, OWNER)
     _seed_whoop_token(engine, OWNER)
     pipeline_cls = MagicMock()
-    pipeline_cls.return_value.run = AsyncMock(side_effect=Exception("Token refresh failed: 401"))
-    _run_whoop_job(engine, pipeline_cls)  # must NOT raise
+    pipeline_cls.return_value.run = AsyncMock(side_effect=WhoopReauthRequired("reconnect Whoop"))
+    with caplog.at_level(logging.WARNING, logger="src.ingestion.scheduler"):
+        _run_whoop_job(engine, pipeline_cls)  # must NOT raise
     with engine.connect() as conn:
         n = conn.execute(
             text("SELECT COUNT(*) FROM token_store WHERE service = :k"), {"k": f"whoop_{OWNER}"}
         ).scalar()
-    assert n == 0
+    assert n == 1
+    assert any("needs re-auth" in r.message for r in caplog.records)
+
+
+def test_whoop_job_skips_when_needs_reauth(caplog):
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    _seed_whoop_token(engine, OWNER)
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE token_store SET token_data_json = :j WHERE service = :k"),
+            {"j": '{"auth_error": "reconnect Whoop"}', "k": f"whoop_{OWNER}"},
+        )
+    pipeline_cls = MagicMock()
+    with caplog.at_level(logging.INFO, logger="src.ingestion.scheduler"):
+        _run_whoop_job(engine, pipeline_cls)
+    pipeline_cls.assert_not_called()
+    assert any("needs re-auth" in r.message for r in caplog.records)
+
+
+def test_whoop_job_logs_skip_on_none(caplog):
+    engine = _make_engine()
+    _seed_user(engine, OWNER)
+    _seed_whoop_token(engine, OWNER)
+    pipeline_cls = MagicMock()
+    pipeline_cls.return_value.run = AsyncMock(return_value=None)
+    with caplog.at_level(logging.INFO, logger="src.ingestion.scheduler"):
+        _run_whoop_job(engine, pipeline_cls)
+    assert any("another Whoop sync running" in r.message for r in caplog.records)
 
 
 def test_whoop_transient_failure_keeps_token():

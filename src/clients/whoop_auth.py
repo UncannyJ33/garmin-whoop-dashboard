@@ -1,6 +1,8 @@
+import asyncio
 import json
 import logging
 import secrets
+import threading
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
@@ -29,8 +31,71 @@ SCOPES = [
 TOKEN_EXPIRY_BUFFER_SECONDS = 300
 
 
+# Serialises token refreshes across the scheduler thread (its own event loop via
+# asyncio.run) and the FastAPI loop. Must be a threading.Lock: an asyncio.Lock is
+# bound to one loop. Whoop rotates refresh tokens, so two concurrent refreshes
+# with the same token would make the second one fail and revoke the grant.
+_REFRESH_LOCK = threading.Lock()
+_REFRESH_LOCK_TIMEOUT_S = 30
+
+
 class WhoopAuthError(Exception):
     """Raised when an OAuth operation fails."""
+
+
+class WhoopReauthRequired(WhoopAuthError):
+    """Raised when Whoop rejects the stored grant; the user must reconnect Whoop."""
+
+
+def _service_key(user_id: str | None) -> str:
+    return f"whoop_{user_id}" if user_id else "whoop"
+
+
+def _auth_error_from_json(raw: str | None) -> str | None:
+    """Extract the persisted ``auth_error`` from a ``token_data_json`` value.
+
+    NULL, non-JSON and non-object values mean "no error".
+    """
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    err = data.get("auth_error")
+    return err if isinstance(err, str) and err else None
+
+
+def whoop_auth_error(user_id: str | None, db: Session) -> str | None:
+    """Return the persisted re-auth message for the user's Whoop token, if any."""
+    record = db.get(TokenStore, _service_key(user_id))
+    if record is None:
+        return None
+    return _auth_error_from_json(record.token_data_json)
+
+
+def set_whoop_auth_error(user_id: str | None, message: str | None, db: Session) -> None:
+    """Set (or, with ``None``, clear) ``auth_error`` in the token row's JSON.
+
+    No token row means no-op. The message must never contain token values.
+    """
+    record = db.get(TokenStore, _service_key(user_id))
+    if record is None:
+        return
+    try:
+        data = json.loads(record.token_data_json) if record.token_data_json else {}
+    except (ValueError, TypeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if message is None:
+        data.pop("auth_error", None)
+    else:
+        data["auth_error"] = message
+    record.token_data_json = json.dumps(data)
+    db.commit()
 
 
 class WhoopAuth:
@@ -95,41 +160,68 @@ class WhoopAuth:
 
         return _store_tokens(response.json(), db, user_id=user_id)
 
-    async def refresh_access_token(self, db: Session, user_id: str | None = None) -> TokenStore:
+    async def refresh_access_token(
+        self, db: Session, user_id: str | None = None, *, force: bool = False
+    ) -> TokenStore:
         """Use the stored refresh token to obtain a new access token.
+
+        Serialised by a process-wide lock; after acquiring it the token row is
+        re-read so a refresh completed by another caller is reused (not repeated).
 
         Args:
             db: Active database session for reading and updating the token.
             user_id: App user UUID used to look up the token row. When provided
                      the service key is ``"whoop_{user_id}"``; otherwise ``"whoop"``.
+            force: POST even if the (re-read) token is unexpired, e.g. after the
+                   API answered 401. Still uses the re-read refresh token.
 
         Returns:
             The updated TokenStore record.
 
         Raises:
-            WhoopAuthError: If no refresh token exists or the request fails.
+            WhoopReauthRequired: Whoop rejected the refresh (400/401); the state
+                is persisted and the token row kept.
+            WhoopAuthError: No refresh token, lock timeout, or a transient failure.
         """
-        service_key = f"whoop_{user_id}" if user_id else "whoop"
-        record = db.get(TokenStore, service_key)
-        if record is None or not record.refresh_token:
-            raise WhoopAuthError("No refresh token available. Complete the OAuth flow first.")
+        service_key = _service_key(user_id)
+        acquired = await asyncio.to_thread(_REFRESH_LOCK.acquire, True, _REFRESH_LOCK_TIMEOUT_S)
+        if not acquired:
+            raise WhoopAuthError("Timed out waiting for Whoop token refresh")
+        try:
+            record = db.get(TokenStore, service_key)
+            if record is not None:
+                # Force a real SELECT: db.get alone returns the identity-map copy.
+                db.expire(record)
+                record = db.get(TokenStore, service_key)
+            if record is None or not record.refresh_token:
+                raise WhoopAuthError("No refresh token available. Complete the OAuth flow first.")
+            if not force and not is_token_expired(record):
+                return record
 
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    WHOOP_TOKEN_URL,
-                    data={
-                        "grant_type": "refresh_token",
-                        "refresh_token": record.refresh_token,
-                        "client_id": settings.whoop_client_id,
-                        "client_secret": settings.whoop_client_secret,
-                    },
-                )
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                raise WhoopAuthError(f"Token refresh failed: {e.response.status_code}") from e
+            async with httpx.AsyncClient() as client:
+                try:
+                    response = await client.post(
+                        WHOOP_TOKEN_URL,
+                        data={
+                            "grant_type": "refresh_token",
+                            "refresh_token": record.refresh_token,
+                            "client_id": settings.whoop_client_id,
+                            "client_secret": settings.whoop_client_secret,
+                        },
+                    )
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    status = e.response.status_code
+                    if status in (400, 401):
+                        msg = f"Whoop rejected the token refresh ({status}); reconnect Whoop"
+                        logger.warning("Whoop token refresh rejected: %s", status)
+                        set_whoop_auth_error(user_id, msg, db)
+                        raise WhoopReauthRequired(msg) from e
+                    raise WhoopAuthError(f"Token refresh failed: {status}") from e
 
-        return _store_tokens(response.json(), db, user_id=user_id)
+            return _store_tokens(response.json(), db, user_id=user_id)
+        finally:
+            _REFRESH_LOCK.release()
 
     async def get_valid_token(self, db: Session, user_id: str | None = None) -> str:
         """Return a valid access token, automatically refreshing if expired.
@@ -213,7 +305,7 @@ def _store_tokens(token_data: dict, db: Session, user_id: str | None = None) -> 
         db.add(record)
 
     record.access_token = token_data["access_token"]
-    # Whoop only returns a new refresh token on initial exchange, not on refresh
+    # Whoop rotates refresh tokens: persist a returned one, keep the old one otherwise
     if "refresh_token" in token_data:
         record.refresh_token = token_data["refresh_token"]
     record.expires_at = expires_at.isoformat()

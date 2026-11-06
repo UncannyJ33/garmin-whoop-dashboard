@@ -23,7 +23,7 @@ from src.auth.security import (
     hash_password,
     verify_password,
 )
-from src.clients.whoop_auth import WhoopAuth, WhoopAuthError
+from src.clients.whoop_auth import WhoopAuth, WhoopAuthError, whoop_auth_error
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -222,9 +222,10 @@ async def whoop_connection_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    """Return whether the current user has a valid Whoop token stored."""
+    """Return Whoop connection state, including whether the user must reconnect."""
     connected = WhoopAuth.has_token(current_user.id, db)
-    return JSONResponse({"connected": connected})
+    error = whoop_auth_error(current_user.id, db) if connected else None
+    return JSONResponse({"connected": connected, "needs_reauth": error is not None, "error": error})
 
 
 _GARMIN_PROBE_TTL_SECONDS = 600
