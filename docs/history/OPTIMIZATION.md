@@ -1,3 +1,5 @@
+> **Archived 2026-11-06.** Written in March 2026 for the multi-user PulseEngine SaaS (Railway + Supabase). Kept as a historical record; parts covering multi-user, Supabase, Railway, landing/onboarding, and `garminconnect` no longer apply. Current docs: `README.md`, `CLAUDE.md`, `plans/`.
+
 # PulseEngine — Full-Stack Optimization Audit
 
 **Date:** 2026-03-25
