@@ -1,0 +1,81 @@
+{
+  "_synthetic": true,
+  "calendarDate": "2026-04-10",
+  "sleepTimeSeconds": 27000,
+  "napTimeSeconds": 0,
+  "sleepWindowConfirmed": true,
+  "sleepWindowConfirmationType": "ENHANCED_CONFIRMED_FINAL",
+  "sleepStartTimestampGMT": "2026-04-10T04:30:00.0",
+  "sleepEndTimestampGMT": "2026-04-10T12:30:00.0",
+  "sleepStartTimestampLocal": "2026-04-09T23:30:00.0",
+  "sleepEndTimestampLocal": "2026-04-10T07:30:00.0",
+  "autoSleepStartTimestampGMT": null,
+  "autoSleepEndTimestampGMT": null,
+  "sleepQualityTypePK": null,
+  "sleepResultTypePK": null,
+  "unmeasurableSleepSeconds": 0,
+  "deepSleepSeconds": 5400,
+  "lightSleepSeconds": 15300,
+  "remSleepSeconds": 6300,
+  "awakeSleepSeconds": 1800,
+  "deviceRemCapable": true,
+  "retro": false,
+  "sleepFromDevice": true,
+  "averageSpO2Value": 95.0,
+  "lowestSpO2Value": 90,
+  "highestSpO2Value": 99,
+  "numberOfEventsBelowThreshold": 0,
+  "averageSpO2HRSleep": 54.0,
+  "spo2Threshold": 86,
+  "averageRespirationValue": 14.0,
+  "lowestRespirationValue": 10.0,
+  "highestRespirationValue": 18.0,
+  "awakeCount": 2,
+  "avgSleepStress": 18.5,
+  "ageGroup": "ADULT",
+  "avgHeartRate": 54.0,
+  "sleepScoreFeedback": "POSITIVE_LONG_AND_DEEP",
+  "sleepScoreInsight": "NONE",
+  "sleepScorePersonalizedInsight": "NOT_AVAILABLE",
+  "sleepScores": {
+    "overall": {
+      "value": 82,
+      "qualifierKey": "GOOD"
+    },
+    "totalDuration": {
+      "value": 85,
+      "qualifierKey": "GOOD"
+    },
+    "stress": {
+      "value": 80,
+      "qualifierKey": "GOOD"
+    },
+    "awakeCount": {
+      "value": 90,
+      "qualifierKey": "EXCELLENT"
+    },
+    "remPercentage": {
+      "value": 78,
+      "qualifierKey": "GOOD"
+    },
+    "restlessness": {
+      "value": 75,
+      "qualifierKey": "FAIR"
+    },
+    "lightPercentage": {
+      "value": 88,
+      "qualifierKey": "GOOD"
+    },
+    "deepPercentage": {
+      "value": 79,
+      "qualifierKey": "GOOD"
+    }
+  },
+  "userNote": null,
+  "sleepVersion": 2,
+  "sleepNeed": null,
+  "nextSleepNeed": null,
+  "dailyNapDTOS": [],
+  "breathingDisruptionSeverity": "NONE",
+  "sleepAlignment": null
+}

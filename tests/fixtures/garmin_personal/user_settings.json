@@ -1,0 +1,49 @@
+{
+  "preferredLocale": "en",
+  "measurementSystem": "statute_us",
+  "firstDayOfWeek": {
+    "dayId": 2,
+    "dayName": "sunday",
+    "sortOrder": 2,
+    "isPossibleFirstDay": true
+  },
+  "numberFormat": "decimal_period",
+  "timeFormat": {
+    "formatId": 32,
+    "formatKey": "time_twelve_hr",
+    "minFraction": 0,
+    "maxFraction": 0,
+    "groupingUsed": false,
+    "displayFormat": "h:mm a"
+  },
+  "dateFormat": {
+    "formatId": 23,
+    "formatKey": "mmddyyyy",
+    "minFraction": 0,
+    "maxFraction": 0,
+    "groupingUsed": false,
+    "displayFormat": "EEE, MMM d, yyyy"
+  },
+  "powerFormat": {
+    "formatId": 30,
+    "formatKey": "watt",
+    "minFraction": 0,
+    "maxFraction": 0,
+    "groupingUsed": true,
+    "displayFormat": null
+  },
+  "heartRateFormat": {
+    "formatId": 21,
+    "formatKey": "bpm",
+    "minFraction": 0,
+    "maxFraction": 0,
+    "groupingUsed": false,
+    "displayFormat": null
+  },
+  "hydrationMeasurementUnit": "cup",
+  "golfDistanceUnit": "statute_us",
+  "golfElevationUnit": null,
+  "golfSpeedUnit": null,
+  "availableTrainingDays": null,
+  "preferredLongTrainingDays": null
+}

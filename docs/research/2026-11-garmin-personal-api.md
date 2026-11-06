@@ -192,6 +192,78 @@ routes and UI, and the scheduler's per-user backoff and auto-disable machinery.
    FIT download.
 6. Note any 429 or `Retry-After` behavior while pulling one month of daily summaries at 1 call/sec.
 
+## 9. Spike results (2026-11-06, live key; `scripts/garmin_personal_probe.py`)
+
+Fixtures: `tests/fixtures/garmin_personal/`. `activities`, `daily_summary`, `user_settings` and
+`sleep_empty` are real shapes with every numeric value replaced by a synthetic one (Local timestamps set equal to GMT); `sleep.json` and `hrv.json` are
+**synthetic** (`"_synthetic": true`) because the owner wears a Whoop at night: all 14 probed nights
+had no Garmin sleep or HRV data. Raw samples live in `data/garmin_personal_samples/` (gitignored).
+
+**Auth and limits**
+- Token exchange: 200, plain-text JWT, `exp` = 24.0 h out (observed lifetime). No 429 on any call
+  (about 70 calls at 1 call/s).
+- Activities list returns a bare JSON array (no wrapper). Content-Type is
+  `application/json;charset=UTF-8`.
+
+**Activities** (44 in 30 d, a mix of runs, strength sessions and other activity types)
+- `activityId` is a JSON integer (str() it). `startTimeLocal`/`startTimeGMT` are
+  `"YYYY-MM-DD HH:MM:SS"` strings; `beginTimestamp` is Unix ms. `duration` is **seconds as a float**
+  at the activity level (the spec's ms applies to `SummarizedExerciseSet.duration`).
+- Run: populated floats for `activityTrainingLoad`, `avgGroundContactTime`, `avgVerticalOscillation`,
+  `avgVerticalRatio`, `avgStrideLength`, `aerobicTrainingEffect`, `anaerobicTrainingEffect`,
+  `averageRunningCadenceInStepsPerMinute`, `hrTimeInZone_1`..`_5`.
+- Strength: `activityTrainingLoad`, `aerobicTrainingEffect`, `anaerobicTrainingEffect`, `hrTimeInZone_1..5`
+  populated; running-dynamics keys and cadence are **absent** (not null).
+- **`vO2MaxValue` is absent from every activity** (0 of 44, runs included). VO2 max is not in the
+  list payload; the pipeline must treat it as None (or find it elsewhere).
+- `activityName`, `startLatitude/Longitude`, `locationName`, `ownerId`, `ownerDisplayName`,
+  `ownerFullName`, `ownerProfileImageUrl*`, `activityUUID` are present on records (dropped in fixtures).
+- Strength `summarizedExerciseSets[]` keys: `category`, `reps`, `volume`, `duration`, `sets`,
+  `maxWeight`, and **optional** `subCategory` (present on only 14 of 51 sets). `maxWeight` is mostly
+  5 digits (a handful 1 or 6 digits), consistent with grams. **`SUMMARY_WEIGHT_DIVISOR = 1000`.**
+  `category` is an exercise-level enum (e.g. `DEADLIFT`, `BENCH_PRESS`, `PULL_UP`, `ROW`, `UNKNOWN`);
+  `subCategory` is finer (e.g. `BARBELL_DEADLIFT`, `LAT_PULLDOWN`).
+- `subCategory` vs historical `exercise_name`: **differs.** No local history DB exists; the
+  `GarminExerciseSet` model comment gives `exercise_category` like `CHEST_PRESS` and `exercise_name`
+  like `BENCH_PRESS`. Personal API `category` is the `BENCH_PRESS`-style value, while `subCategory`
+  is finer-grained and often missing. Map `exercise_name` from `category`, and keep `subCategory`
+  (when present) only as extra detail. There are no per-set rows in the list payload, only
+  per-exercise summaries (one row per `category`).
+
+**Sleep**
+- `dailySleep?date=` returns the **flat** DTO (no `dailySleepDTO` wrapper, unlike garminconnect).
+- No-watch night: **200 with the full DTO key set but every value null** (`calendarDate` and
+  `sleepTimeSeconds` are null too), except `deviceRemCapable: false`, `retro: false`, and
+  `sleepNeed`/`nextSleepNeed` objects, which stay populated. `sleepScores`, `dailyNapDTOS` and
+  `breathingDisruptionSeverity` keys are absent. Detect "no data" with `sleepTimeSeconds is None`
+  (or `calendarDate is None`). The same shape came back for a date ~730 d ago.
+- Sleep timestamp JSON type and `sleepScores` keys **could not be observed** (no populated night):
+  the spec says `string` date-time, garminconnect gave Unix ms, so `transform_sleep` must accept both.
+  The synthetic fixture uses ISO strings. `SLEEP_SCORE_KEY = "overall"` is unconfirmed; the
+  synthetic fixture uses the garminconnect key set (`overall`, `totalDuration`, `stress`,
+  `awakeCount`, `remPercentage`, `restlessness`, `lightPercentage`, `deepPercentage`).
+  Re-check when the owner next wears the Garmin to bed.
+
+**HRV**
+- `hrv/{date}` returns **204 (empty body) on every probed night**, including yesterday and the
+  no-watch night. No-watch HRV = 204. Populated keys come from the spec only (`hrvSummary` with
+  `weeklyAvg`, `lastNightAvg`, `lastNight5MinHigh`, `baseline{lowUpper,balancedLow,balancedUpper,markerValue}`,
+  `status`, `feedbackPhrase`, `createTimeStamp`; plus `hrvReadings[]`) and are unverified live.
+
+**Daily summary**: flat `UserDailySummaryDto`, populated for yesterday (steps, RHR, stress, body battery
+highs/lows, intensity minutes, etc.). `bodyBatteryDuringSleep`, `averageSpo2` and `sleepingSeconds`
+(0) are null/zero without the watch at night. `restingHeartRate` is populated.
+
+**History depth**
+- Daily summary: populated at 90 d and 180 d; **empty (200, all null) at 365 d, 545 d and 730 d.**
+  Likely the account has no wellness data before roughly one year ago (not confirmed to be an API cap).
+- Activities: an ascending-sorted list returned activities up to ~690 d old, so activity history is
+  at least ~690 d deep. A ±15-day window around 730 d returned `[]`.
+- FIT download for the ~690-day-old activity: 200, `Content-Type: application/x-zip-compressed`,
+  ~12 KB (a zip wrapper, so unzip before parsing). File not saved.
+
+**Other**: `user_settings` has `displayName` and `timeZone` (dropped in the fixture).
+
 ## Sources
 
 - Garmin Personal API FAQ: <https://developer.garmin.com/gc-developer-program/personal/personal-faq/>
