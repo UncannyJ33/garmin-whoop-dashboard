@@ -133,7 +133,10 @@ def _spa_file(dist: Path, full_path: str) -> Path | None:
     if full_path == "api" or full_path.startswith("api/"):
         return None
     root = dist.resolve()
-    resolved = (root / full_path).resolve()
+    try:
+        resolved = (root / full_path).resolve()
+    except ValueError:  # e.g. NUL byte in path
+        return dist / "index.html"
     if resolved.is_file() and resolved.is_relative_to(root):
         return resolved
     return dist / "index.html"

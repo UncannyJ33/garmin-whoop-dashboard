@@ -44,3 +44,7 @@ def test_subdirectory_index_not_served(dist: Path) -> None:
 def test_api_paths_none(dist: Path) -> None:
     assert _spa_file(dist, "api/nope") is None
     assert _spa_file(dist, "api") is None
+
+
+def test_nul_byte_path_gets_index(dist: Path) -> None:
+    assert _spa_file(dist, "a\x00b") == dist / "index.html"
