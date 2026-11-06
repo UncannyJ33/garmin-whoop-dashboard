@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -123,19 +123,33 @@ async def health() -> dict:
 
 # Serve React frontend static files (production build)
 _DIST = Path(__file__).parent.parent.parent / "frontend-react" / "dist"
+
+
+def _spa_file(dist: Path, full_path: str) -> Path | None:
+    """Decide what the SPA catch-all serves for ``full_path``.
+
+    Returns None for ``api`` paths (caller must 404). Returns the requested
+    file only if, once resolved (symlinks and ``..`` included), it is a file
+    inside ``dist``; otherwise ``dist/index.html``.
+    """
+    if full_path == "api" or full_path.startswith("api/"):
+        return None
+    root = dist.resolve()
+    resolved = (root / full_path).resolve()
+    if resolved.is_file() and resolved.is_relative_to(root):
+        return resolved
+    return dist / "index.html"
+
+
 if _DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
-        """Serve index.html for all non-API routes (React SPA).
-
-        Also handles sub-apps (e.g. /demo) whose index.html lives in a
-        subdirectory of dist — serves dist/<path>/index.html when present.
-        """
-        file = _DIST / full_path
-        if file.is_file():
-            return FileResponse(file)
-        if (file / "index.html").is_file():
-            return FileResponse(file / "index.html")
-        return FileResponse(_DIST / "index.html")
+        """Serve index.html for all non-API routes (React SPA); 404 for unknown /api/*."""
+        file = _spa_file(_DIST, full_path)
+        if file is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        if file.name in ("index.html", "sw.js"):
+            return FileResponse(file, headers={"Cache-Control": "no-cache"})
+        return FileResponse(file)
