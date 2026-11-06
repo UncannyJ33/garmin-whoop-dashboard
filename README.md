@@ -75,8 +75,7 @@ Edit `.env`; these matter locally:
 | `GARMIN_PERSONAL_API_KEY` | Garmin Personal API key (see Garmin data below); optional `GARMIN_PERSONAL_API_BASE_URL` |
 | `GARMIN_POLL_INTERVAL_MINUTES` | optional, default 30 |
 
-`ADMIN_EMAIL` belongs to the SaaS-era waitlist and is not needed. Without a Garmin key the app
-still runs; Garmin data then comes only from the export import.
+Without a Garmin key the app still runs; Garmin data then comes only from the export import.
 
 Two terminals (migrations run automatically on API startup):
 

@@ -41,9 +41,6 @@ class Settings:
     # Whoop even when whoop_public_oauth_enabled is False
     whoop_allowed_user_ids: list[str]
 
-    # Admin email for protected admin endpoints
-    admin_email: str
-
 
 settings = Settings(
     whoop_client_id=os.getenv("WHOOP_CLIENT_ID", ""),
@@ -66,5 +63,4 @@ settings = Settings(
     whoop_allowed_user_ids=[
         uid.strip() for uid in os.getenv("WHOOP_ALLOWED_USER_IDS", "").split(",") if uid.strip()
     ],
-    admin_email=os.getenv("ADMIN_EMAIL", ""),
 )

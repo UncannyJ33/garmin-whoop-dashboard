@@ -20,7 +20,6 @@ from src.api.routes.sleep import router as sleep_router
 from src.api.routes.sync import router as sync_router
 from src.api.routes.training import router as training_router
 from src.api.routes.trends import router as trends_router
-from src.api.routes.waitlist import router as waitlist_router
 from src.api.routes.webhooks import router as webhooks_router
 from src.api.routes.workouts import router as workouts_router
 from src.ingestion.scheduler import start_scheduler, stop_scheduler
@@ -63,7 +62,7 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 # Paths that should never be cached (mutable state or real-time data)
-_NO_CACHE_PREFIXES = ("/api/sync/", "/api/auth/", "/api/webhooks/", "/api/waitlist")
+_NO_CACHE_PREFIXES = ("/api/sync/", "/api/auth/", "/api/webhooks/")
 
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
@@ -109,7 +108,6 @@ app.include_router(insights_router)
 app.include_router(sync_router)
 app.include_router(garmin_upload_router)
 app.include_router(webhooks_router)
-app.include_router(waitlist_router)
 
 
 @app.get("/health", tags=["health"])

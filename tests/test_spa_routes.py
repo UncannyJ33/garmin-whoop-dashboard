@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from src.api.main import _spa_file
 
@@ -48,3 +49,27 @@ def test_api_paths_none(dist: Path) -> None:
 
 def test_nul_byte_path_gets_index(dist: Path) -> None:
     assert _spa_file(dist, "a\x00b") == dist / "index.html"
+
+
+@pytest.fixture(scope="module")
+def client():
+    from src.api.main import app
+
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
+
+
+def test_root_path_is_publicly_accessible(client: TestClient) -> None:
+    """GET / must not require auth or redirect: the SPA serves the landing page."""
+    res = client.get("/")
+    assert res.status_code not in (401, 302, 307)
+
+
+def test_login_page_is_publicly_accessible(client: TestClient) -> None:
+    res = client.get("/login")
+    assert res.status_code not in (401, 302, 307)
+
+
+def test_waitlist_route_gone(client: TestClient) -> None:
+    res = client.post("/api/waitlist", json={"email": "a@example.com"})
+    assert res.status_code in (404, 405)
