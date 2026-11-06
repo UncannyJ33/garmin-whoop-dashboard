@@ -38,7 +38,7 @@ from src.database.models import (
     SyncLog,
 )
 from src.ingestion.garmin_pipeline import transform_activity
-from src.normalization.normalizer import Normalizer
+from src.normalization.normalizer import Normalizer, upsert_row
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,7 @@ class GarminImporter:
             self._db.commit()
 
         except Exception as exc:
+            logger.exception("CSV import failed")
             log.status = "error"
             log.error_message = str(exc)
             log.completed_at = datetime.now(tz=UTC).isoformat()
@@ -278,7 +279,7 @@ class GarminImporter:
     # ------------------------------------------------------------------
 
     def _store_json_activities(
-        self, activities: list[dict], fetched_at: str, source_name: str
+        self, activities: list[dict[str, Any]], fetched_at: str, source_name: str
     ) -> tuple[int, list[date]]:
         """Transform and upsert a list of JSON activity dicts.
 
@@ -297,9 +298,9 @@ class GarminImporter:
                 data = transform_activity(record, fetched_at)
                 if self._user_id:
                     data["user_id"] = self._user_id
+                d = _date_from_gmt(data.get("start_time_gmt") or data.get("start_time"))
                 self._upsert(GarminActivity, "activity_id", data)
                 stored += 1
-                d = _date_from_gmt(data.get("start_time_gmt") or data.get("start_time"))
                 if d:
                     dates.append(d)
             except (KeyError, TypeError, ValueError) as exc:
@@ -364,6 +365,7 @@ class GarminImporter:
                     self._upsert(model_cls, pk_field, data)
                     stored += 1
                 except Exception as exc:  # noqa: BLE001
+                    logger.warning("CSV %s row %d: upsert failed: %s", csv_path.name, row_num, exc)
                     errors.append(f"{csv_path.name} row {row_num}: {exc}")
 
         if stored:
@@ -373,15 +375,7 @@ class GarminImporter:
 
     def _upsert(self, model_cls: type[_M], pk_field: str, data: dict[str, Any]) -> _M:
         """Insert or update a single row identified by its primary key."""
-        pk = data[pk_field]
-        row = self._db.get(model_cls, pk)
-        if row is None:
-            row = model_cls(**data)
-            self._db.add(row)
-        else:
-            for k, v in data.items():
-                setattr(row, k, v)
-        return row
+        return upsert_row(self._db, model_cls, pk_field, data)
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +464,7 @@ def _find_activity_json_files(dir_path: Path) -> list[Path]:
     return result
 
 
-def _extract_activities(data: Any) -> list[dict]:
+def _extract_activities(data: Any) -> list[dict[str, Any]]:
     """Extract a list of activity dicts from parsed JSON.
 
     Handles:

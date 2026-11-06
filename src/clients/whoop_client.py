@@ -58,7 +58,7 @@ class WhoopClient:
         params: dict[str, Any] | None = None,
         *,
         _token_refreshed: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Execute a GET request with retry logic for 429, 401, and 5xx.
 
         Args:
@@ -147,7 +147,7 @@ class WhoopClient:
         path: str,
         start_date: date | datetime | str,
         end_date: date | datetime | str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch all pages from a collection endpoint and combine into one list.
 
         Args:
@@ -162,7 +162,7 @@ class WhoopClient:
         end = end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
 
         params: dict[str, Any] = {"start": start, "end": end}
-        records: list[dict] = []
+        records: list[dict[str, Any]] = []
 
         while True:
             data = await self._request(path, params)
@@ -178,7 +178,7 @@ class WhoopClient:
         self,
         start_date: date | datetime | str,
         end_date: date | datetime | str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch all physiological cycles in the given date range."""
         return await self._get_paginated("/cycle", start_date, end_date)
 
@@ -186,7 +186,7 @@ class WhoopClient:
         self,
         start_date: date | datetime | str,
         end_date: date | datetime | str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch all recovery records in the given date range."""
         return await self._get_paginated("/recovery", start_date, end_date)
 
@@ -194,7 +194,7 @@ class WhoopClient:
         self,
         start_date: date | datetime | str,
         end_date: date | datetime | str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch all sleep records in the given date range."""
         return await self._get_paginated("/activity/sleep", start_date, end_date)
 
@@ -202,14 +202,14 @@ class WhoopClient:
         self,
         start_date: date | datetime | str,
         end_date: date | datetime | str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch all workout records in the given date range."""
         return await self._get_paginated("/activity/workout", start_date, end_date)
 
-    async def get_body_measurements(self) -> dict:
+    async def get_body_measurements(self) -> dict[str, Any]:
         """Fetch user body measurements (height, weight, max HR)."""
         return await self._request("/user/measurement/body")
 
-    async def get_profile(self) -> dict:
+    async def get_profile(self) -> dict[str, Any]:
         """Fetch basic user profile (name, email, user ID)."""
         return await self._request("/user/profile/basic")

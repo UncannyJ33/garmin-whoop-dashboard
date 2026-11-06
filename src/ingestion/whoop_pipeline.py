@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
 
@@ -13,7 +14,8 @@ from src.database.models import (
     WhoopSleep,
     WhoopWorkout,
 )
-from src.normalization.normalizer import Normalizer
+from src.ingestion.sync_log import mark_sync_error, start_sync_log
+from src.normalization.normalizer import Normalizer, upsert_row
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ _M = TypeVar("_M")  # ORM model type variable for _upsert
 # ---------------------------------------------------------------------------
 
 
-def transform_cycle(record: dict, fetched_at: str) -> dict:
+def transform_cycle(record: dict[str, Any], fetched_at: str) -> dict[str, Any]:
     """Map a Whoop /v2/cycle response dict to whoop_cycles column values.
 
     Args:
@@ -54,7 +56,7 @@ def transform_cycle(record: dict, fetched_at: str) -> dict:
     }
 
 
-def transform_recovery(record: dict, fetched_at: str) -> dict:
+def transform_recovery(record: dict[str, Any], fetched_at: str) -> dict[str, Any]:
     """Map a Whoop /v2/recovery response dict to whoop_recovery column values.
 
     The Whoop recovery endpoint does not return an ``id`` field. A stable
@@ -83,7 +85,7 @@ def transform_recovery(record: dict, fetched_at: str) -> dict:
     }
 
 
-def transform_sleep(record: dict, fetched_at: str) -> dict:
+def transform_sleep(record: dict[str, Any], fetched_at: str) -> dict[str, Any]:
     """Map a Whoop /v2/activity/sleep response dict to whoop_sleep column values.
 
     Args:
@@ -118,7 +120,7 @@ def transform_sleep(record: dict, fetched_at: str) -> dict:
     }
 
 
-def transform_workout(record: dict, fetched_at: str) -> dict:
+def transform_workout(record: dict[str, Any], fetched_at: str) -> dict[str, Any]:
     """Map a Whoop /v2/activity/workout response dict to whoop_workouts column values.
 
     Args:
@@ -218,7 +220,10 @@ class WhoopPipeline:
                 start = datetime.fromisoformat(meta["sync_end"])
                 return start, now
             except (KeyError, ValueError):
-                pass
+                logger.warning(
+                    "Whoop sync: unreadable sync_log metadata (id=%s); using default lookback",
+                    last.id,
+                )
         return now - timedelta(days=DEFAULT_LOOKBACK_DAYS), now
 
     async def run(
@@ -242,24 +247,15 @@ class WhoopPipeline:
         auto_start, auto_end = self._get_sync_window()
         sync_start = start or auto_start
         sync_end = end or auto_end
-        now = datetime.now(tz=UTC)
 
-        sync_type = "manual" if (start or end) else "incremental"
-        log = SyncLog(
-            source="whoop",
-            sync_type=sync_type,
-            started_at=now.isoformat(),
-            status="running",
+        log = start_sync_log(
+            self._db,
+            "whoop",
+            manual=bool(start or end),
             user_id=self.user_id,
-            metadata_json=json.dumps(
-                {
-                    "sync_start": sync_start.isoformat(),
-                    "sync_end": sync_end.isoformat(),
-                }
-            ),
+            sync_start=sync_start,
+            sync_end=sync_end,
         )
-        self._db.add(log)
-        self._db.commit()
         logger.info(
             "Whoop sync started: %s → %s",
             sync_start.date(),
@@ -306,12 +302,10 @@ class WhoopPipeline:
             logger.info("Normalization complete: %s", norm_counts)
 
         except Exception as exc:
-            logger.error("Whoop sync failed: %s", exc)
+            logger.exception("Whoop sync failed")
             try:
                 self._db.rollback()
-                log.status = "error"
-                log.error_message = str(exc)
-                log.completed_at = datetime.now(tz=UTC).isoformat()
+                mark_sync_error(log, exc)
                 self._db.merge(log)
                 self._db.commit()
             except Exception as log_exc:
@@ -325,57 +319,39 @@ class WhoopPipeline:
     # ------------------------------------------------------------------
 
     def _upsert(self, model_cls: type[_M], data: dict[str, Any]) -> _M:
-        """Insert or update a single row identified by ``data["id"]``.
+        """Insert or update a single row identified by ``data["id"]`` (not committed)."""
+        return upsert_row(self._db, model_cls, "id", data)
 
-        Args:
-            model_cls: The SQLAlchemy ORM class to insert/update.
-            data: Column-value mapping produced by a transform function.
+    def _upsert_records(
+        self,
+        model_cls: type[_M],
+        transform: Callable[[dict[str, Any], str], dict[str, Any]],
+        records: list[dict[str, Any]],
+        fetched_at: str,
+        owner_field: str = "user_id",
+    ) -> int:
+        """Transform, tag with the owner and upsert records. Returns number processed."""
+        for r in records:
+            data = transform(r, fetched_at)
+            data[owner_field] = self.user_id
+            self._upsert(model_cls, data)
+        self._db.commit()
+        return len(records)
 
-        Returns:
-            The inserted or updated ORM instance (not yet committed).
-        """
-        pk = data["id"]
-        row = self._db.get(model_cls, pk)
-        if row is None:
-            row = model_cls(**data)
-            self._db.add(row)
-        else:
-            for key, value in data.items():
-                setattr(row, key, value)
-        return row
-
-    def _store_cycles(self, records: list[dict], fetched_at: str) -> int:
+    def _store_cycles(self, records: list[dict[str, Any]], fetched_at: str) -> int:
         """Transform and upsert cycle records. Returns number of records processed."""
-        for r in records:
-            data = transform_cycle(r, fetched_at)
-            data["app_user_id"] = self.user_id
-            self._upsert(WhoopCycle, data)
-        self._db.commit()
-        return len(records)
+        return self._upsert_records(
+            WhoopCycle, transform_cycle, records, fetched_at, owner_field="app_user_id"
+        )
 
-    def _store_recovery(self, records: list[dict], fetched_at: str) -> int:
+    def _store_recovery(self, records: list[dict[str, Any]], fetched_at: str) -> int:
         """Transform and upsert recovery records. Returns number of records processed."""
-        for r in records:
-            data = transform_recovery(r, fetched_at)
-            data["user_id"] = self.user_id
-            self._upsert(WhoopRecovery, data)
-        self._db.commit()
-        return len(records)
+        return self._upsert_records(WhoopRecovery, transform_recovery, records, fetched_at)
 
-    def _store_sleep(self, records: list[dict], fetched_at: str) -> int:
+    def _store_sleep(self, records: list[dict[str, Any]], fetched_at: str) -> int:
         """Transform and upsert sleep records. Returns number of records processed."""
-        for r in records:
-            data = transform_sleep(r, fetched_at)
-            data["user_id"] = self.user_id
-            self._upsert(WhoopSleep, data)
-        self._db.commit()
-        return len(records)
+        return self._upsert_records(WhoopSleep, transform_sleep, records, fetched_at)
 
-    def _store_workouts(self, records: list[dict], fetched_at: str) -> int:
+    def _store_workouts(self, records: list[dict[str, Any]], fetched_at: str) -> int:
         """Transform and upsert workout records. Returns number of records processed."""
-        for r in records:
-            data = transform_workout(r, fetched_at)
-            data["user_id"] = self.user_id
-            self._upsert(WhoopWorkout, data)
-        self._db.commit()
-        return len(records)
+        return self._upsert_records(WhoopWorkout, transform_workout, records, fetched_at)

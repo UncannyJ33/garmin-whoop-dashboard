@@ -236,6 +236,7 @@ def test_401_twice_raises_key_error():
     with pytest.raises(GarminKeyError):
         client.get_daily_summary("2026-11-01")
     assert len(reqs) == 2
+    assert "rejected the bearer token twice" in client._auth.last_error
 
 
 def test_403_raises_key_error_without_retry():

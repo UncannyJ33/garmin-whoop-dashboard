@@ -38,6 +38,7 @@ import hashlib
 import io
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +178,7 @@ def parse_activities_csv(
     content: bytes,
     units: str = "miles",
     user_id: str | None = None,
-) -> tuple[list[dict], list[CSVRowError]]:
+) -> tuple[list[dict[str, Any]], list[CSVRowError]]:
     """Parse a Garmin Connect activities CSV export.
 
     Args:
@@ -197,7 +198,7 @@ def parse_activities_csv(
     text = content.decode("utf-8-sig")  # strip BOM if present
     reader = csv.DictReader(io.StringIO(text))
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     errors: list[CSVRowError] = []
     now_iso = datetime.now(UTC).isoformat()
 
@@ -281,6 +282,6 @@ def parse_activities_csv(
 
         except Exception as exc:  # noqa: BLE001
             errors.append(CSVRowError(row_num, str(exc)))
-            logger.debug("CSV row %d parse error: %s", row_num, exc)
+            logger.warning("CSV row %d parse error: %s", row_num, exc)
 
     return rows, errors

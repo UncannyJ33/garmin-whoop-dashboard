@@ -256,7 +256,7 @@ def _process_csv(
                 n = Normalizer(norm_db, user_id=user_id)
                 n.normalize_all(span_start, span_end)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Upload CSV: normalization failed (non-fatal): %s", exc)
+            logger.warning("Upload CSV: normalization failed (non-fatal): %s", exc, exc_info=True)
     else:
         db.rollback()
 

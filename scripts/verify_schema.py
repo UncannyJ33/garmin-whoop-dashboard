@@ -7,7 +7,7 @@ Usage:
     # Check local SQLite (default .env)
     python scripts/verify_schema.py
 
-    # Check Supabase without editing .env
+    # Check a Postgres database without editing .env
     DATABASE_URL="postgresql://..." python scripts/verify_schema.py
 """
 

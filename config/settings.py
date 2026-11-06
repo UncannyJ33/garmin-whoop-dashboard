@@ -64,9 +64,7 @@ settings = Settings(
     log_level=os.getenv("LOG_LEVEL", "INFO"),
     whoop_public_oauth_enabled=os.getenv("WHOOP_PUBLIC_OAUTH_ENABLED", "false").lower() == "true",
     whoop_allowed_user_ids=[
-        uid.strip()
-        for uid in os.getenv("WHOOP_ALLOWED_USER_IDS", "").split(",")
-        if uid.strip()
+        uid.strip() for uid in os.getenv("WHOOP_ALLOWED_USER_IDS", "").split(",") if uid.strip()
     ],
     admin_email=os.getenv("ADMIN_EMAIL", ""),
 )

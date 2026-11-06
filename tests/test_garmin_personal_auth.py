@@ -161,11 +161,14 @@ def _boom(request):
     raise httpx.ConnectError("down", request=request)
 
 
-@pytest.mark.parametrize("handler", [
-    lambda r: httpx.Response(500),
-    lambda r: httpx.Response(503),
-    _boom,
-])
+@pytest.mark.parametrize(
+    "handler",
+    [
+        lambda r: httpx.Response(500),
+        lambda r: httpx.Response(503),
+        _boom,
+    ],
+)
 def test_exchange_5xx_raises_transient(handler):
     auth, _ = make_auth(handler)
     with pytest.raises(GarminTransientError) as ei:
@@ -262,7 +265,9 @@ def test_force_refresh_race_exchanges_once():
     import time
 
     time.sleep(0.1)
-    auth._token = gpa.BearerToken(access_token=jwt, expires_at=stale.expires_at + timedelta(hours=1),
+    auth._token = gpa.BearerToken(
+        access_token=jwt,
+        expires_at=stale.expires_at + timedelta(hours=1),
         refresh_at=stale.refresh_at + timedelta(hours=1),
     )
     auth._lock.release()

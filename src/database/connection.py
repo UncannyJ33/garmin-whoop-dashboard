@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy import Engine, create_engine, event
 
 from config.settings import settings
 
@@ -58,15 +58,14 @@ def get_engine(database_url: str | None = None) -> Engine:
             # pool_size=10: keeps 10 warm connections ready.  The Trends page
             # fires ~7 parallel metric requests; pool_size=10 avoids queueing.
             # max_overflow=15 absorbs further bursts; pool_pre_ping replaces
-            # dead connections (handles transient PgBouncer drops).
-            # pool_recycle=1800 refreshes before Supabase's server_lifetime.
+            # dead connections (handles transient drops from a pooler).
+            # pool_recycle=1800 refreshes before the server's connection lifetime.
             pool_size=10,
             max_overflow=15,
             pool_pre_ping=True,
             pool_recycle=1800,
             pool_timeout=30,
-            # sslmode=require: Supabase's explicit recommendation for psycopg2 +
-            # Transaction mode pooler (port 6543).
+            # sslmode=require: required by hosted Postgres behind a pooler.
             connect_args={"sslmode": "require"},
         )
 
@@ -85,14 +84,3 @@ def get_session_factory(engine: Engine) -> type:
     from sqlalchemy.orm import sessionmaker
 
     return sessionmaker(bind=engine, autocommit=False, autoflush=False)
-
-
-def check_connection(engine: Engine) -> bool:
-    """Verify the database is reachable. Returns True on success, False on failure."""
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception as exc:
-        logger.error("Database connection failed: %s", exc)
-        return False

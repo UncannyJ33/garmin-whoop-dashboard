@@ -40,7 +40,9 @@ def kj_to_kcal(kj: float | None) -> float | None:
     return kj * 0.239
 
 
-def parse_zone_durations(json_str: str | None) -> dict[str, float | None]:
+def parse_zone_durations(
+    json_str: str | None, workout_id: str | None = None
+) -> dict[str, float | None]:
     """Parse Whoop zone_durations_json into per-zone minute values.
 
     The Whoop API returns a 6-element JSON array [zone0, zone1, zone2, zone3,
@@ -49,6 +51,7 @@ def parse_zone_durations(json_str: str | None) -> dict[str, float | None]:
 
     Args:
         json_str: JSON array string from whoop_workouts.zone_durations_json, or None.
+        workout_id: Optional workout id, used only in the corrupt-JSON warning.
 
     Returns:
         Dict with keys "zone_1" through "zone_5", each float minutes or None.
@@ -72,6 +75,7 @@ def parse_zone_durations(json_str: str | None) -> dict[str, float | None]:
             "zone_5": ms_to_minutes(zones[5]) if len(zones) > 5 else None,
         }
     except (ValueError, TypeError, AttributeError):
+        logger.warning("Corrupt zone_durations JSON for workout %s; zones left empty", workout_id)
         return _empty
 
 
@@ -158,7 +162,7 @@ def map_whoop_workout(workout: WhoopWorkout, mapping: dict) -> dict:
         Dict of unified_workouts column names → values.
     """
     sport = normalize_whoop_sport(workout.sport_name, mapping)
-    zones = parse_zone_durations(workout.zone_durations_json)
+    zones = parse_zone_durations(workout.zone_durations_json, workout.id)
 
     duration_minutes: float | None = None
     if workout.start_time and workout.end_time:

@@ -202,7 +202,7 @@ class TestSyncStatusPerUser:
         client = _make_client(engine)
         try:
             with patch("src.api.routes.sync.asyncio.create_task") as mock_task:
-                mock_task.side_effect = lambda coro: coro.close()
+                mock_task.side_effect = lambda coro: (coro.close(), MagicMock())[1]
                 r = client.post("/api/sync/trigger/garmin", headers=_auth_header(USER_A))
             assert r.status_code == 200
         finally:
@@ -393,3 +393,19 @@ class TestGarminStatus:
         get_default_auth().last_error = "now broken"
         assert self._get(status_client).json()["connected"] is False
         assert calls == [1]
+
+
+def test_startup_refuses_empty_jwt_secret(monkeypatch):
+    """Empty JWT_SECRET must fail fast at startup (forgeable tokens otherwise)."""
+    import asyncio
+
+    from src.api.main import app, lifespan
+
+    monkeypatch.setattr(settings, "jwt_secret", "")
+
+    async def _enter():
+        async with lifespan(app):
+            pass
+
+    with pytest.raises(RuntimeError, match="JWT_SECRET"):
+        asyncio.run(_enter())

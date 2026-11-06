@@ -15,10 +15,12 @@ Output: formatted table to stdout + CSV files saved to data/review/.
 import logging
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql.elements import TextClause
 from tabulate import tabulate
 
 logger = logging.getLogger(__name__)
@@ -89,12 +91,20 @@ def _load_daily(engine: Engine, start: date, end: date) -> pd.DataFrame:
         ORDER BY date
     """)
 
+    w, g = _read_pair(engine, whoop_sql, garmin_sql, start, end)
+    return pd.merge(w, g, on="date", how="outer").sort_values("date").reset_index(drop=True)
+
+
+def _read_pair(
+    engine: Engine, whoop_sql: TextClause, garmin_sql: TextClause, start: date, end: date
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run the Whoop and Garmin queries over [start, end] and return both frames."""
     params = {"start": start.isoformat(), "end": end.isoformat()}
     with engine.connect() as conn:
-        w = pd.read_sql(whoop_sql, conn, params=params)
-        g = pd.read_sql(garmin_sql, conn, params=params)
-
-    return pd.merge(w, g, on="date", how="outer").sort_values("date").reset_index(drop=True)
+        return (
+            pd.read_sql(whoop_sql, conn, params=params),
+            pd.read_sql(garmin_sql, conn, params=params),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +145,7 @@ def _load_sleep(engine: Engine, start: date, end: date) -> pd.DataFrame:
         ORDER BY date
     """)
 
-    params = {"start": start.isoformat(), "end": end.isoformat()}
-    with engine.connect() as conn:
-        w = pd.read_sql(whoop_sql, conn, params=params)
-        g = pd.read_sql(garmin_sql, conn, params=params)
-
+    w, g = _read_pair(engine, whoop_sql, garmin_sql, start, end)
     return pd.merge(w, g, on="date", how="outer").sort_values("date").reset_index(drop=True)
 
 
@@ -184,10 +190,7 @@ def _load_workouts(engine: Engine, start: date, end: date) -> pd.DataFrame:
         ORDER BY start_time_gmt
     """)
 
-    params = {"start": start.isoformat(), "end": end.isoformat()}
-    with engine.connect() as conn:
-        w = pd.read_sql(whoop_sql, conn, params=params)
-        g = pd.read_sql(garmin_sql, conn, params=params)
+    w, g = _read_pair(engine, whoop_sql, garmin_sql, start, end)
 
     if w.empty and g.empty:
         return pd.DataFrame()
@@ -270,7 +273,7 @@ def _load_workouts(engine: Engine, start: date, end: date) -> pd.DataFrame:
     )
 
 
-def _matched_row(d: str, w: "pd.Series", g: "pd.Series") -> dict:
+def _matched_row(d: str, w: "pd.Series", g: "pd.Series") -> dict[str, Any]:
     return {
         "date": d,
         "match": "✓",
@@ -288,7 +291,7 @@ def _matched_row(d: str, w: "pd.Series", g: "pd.Series") -> dict:
     }
 
 
-def _whoop_only_row(d: str, w: "pd.Series") -> dict:
+def _whoop_only_row(d: str, w: "pd.Series") -> dict[str, Any]:
     return {
         "date": d,
         "match": "—",
@@ -306,7 +309,7 @@ def _whoop_only_row(d: str, w: "pd.Series") -> dict:
     }
 
 
-def _garmin_only_row(d: str, g: "pd.Series") -> dict:
+def _garmin_only_row(d: str, g: "pd.Series") -> dict[str, Any]:
     return {
         "date": d,
         "match": "—",
