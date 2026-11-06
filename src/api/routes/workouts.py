@@ -15,6 +15,7 @@ from src.api.dependencies import get_engine_dep
 from src.api.models import (
     EnrichedWorkoutResponse,
     ExerciseSetItem,
+    ExerciseSummaryItem,
     StrengthMaxWeightItem,
     StrengthVolumeItem,
     WorkoutTypeSummaryItem,
@@ -67,19 +68,33 @@ async def strength_volume(
         rows = (
             conn.execute(
                 text("""
-                SELECT
-                    uw.date,
-                    SUM(es.repetition_count * es.weight_kg) AS total_volume_kg
-                FROM unified_workouts uw
-                JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
-                WHERE uw.date BETWEEN :start AND :end
-                  AND uw.user_id = :uid
-                  AND es.set_type = 'ACTIVE'
-                  AND es.repetition_count IS NOT NULL
-                  AND es.weight_kg IS NOT NULL
-                  AND es.weight_kg > 0
-                GROUP BY uw.date
-                ORDER BY uw.date
+                SELECT date, SUM(v) AS total_volume_kg FROM (
+                    SELECT uw.date AS date, SUM(es.repetition_count * es.weight_kg) AS v
+                    FROM unified_workouts uw
+                    JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
+                    WHERE uw.date BETWEEN :start AND :end
+                      AND uw.user_id = :uid
+                      AND es.set_type = 'ACTIVE'
+                      AND es.repetition_count IS NOT NULL
+                      AND es.weight_kg IS NOT NULL
+                      AND es.weight_kg > 0
+                    GROUP BY uw.date
+                    UNION ALL
+                    SELECT uw.date AS date, SUM(s.volume_kg) AS v
+                    FROM unified_workouts uw
+                    JOIN garmin_exercise_summaries s ON s.activity_id = uw.garmin_activity_id
+                    WHERE uw.date BETWEEN :start AND :end
+                      AND uw.user_id = :uid
+                      AND s.volume_kg IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM garmin_exercise_sets es
+                          WHERE es.activity_id = uw.garmin_activity_id
+                            AND es.set_type = 'ACTIVE'
+                      )
+                    GROUP BY uw.date
+                ) AS u
+                GROUP BY date
+                ORDER BY date
             """),
                 {"start": str(start), "end": str(end), "uid": current_user.id},
             )
@@ -107,20 +122,37 @@ async def strength_max_weight(
         rows = (
             conn.execute(
                 text("""
-                SELECT
-                    uw.date,
-                    es.exercise_name,
-                    MAX(es.weight_kg) AS max_weight_kg
-                FROM unified_workouts uw
-                JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
-                WHERE uw.date BETWEEN :start AND :end
-                  AND uw.user_id = :uid
-                  AND es.set_type = 'ACTIVE'
-                  AND es.weight_kg IS NOT NULL
-                  AND es.weight_kg > 0
-                  AND es.exercise_name IS NOT NULL
-                GROUP BY uw.date, es.exercise_name
-                ORDER BY uw.date, es.exercise_name
+                SELECT date, exercise_name, MAX(w) AS max_weight_kg FROM (
+                    SELECT uw.date AS date, es.exercise_name AS exercise_name,
+                           MAX(es.weight_kg) AS w
+                    FROM unified_workouts uw
+                    JOIN garmin_exercise_sets es ON es.activity_id = uw.garmin_activity_id
+                    WHERE uw.date BETWEEN :start AND :end
+                      AND uw.user_id = :uid
+                      AND es.set_type = 'ACTIVE'
+                      AND es.weight_kg IS NOT NULL
+                      AND es.weight_kg > 0
+                      AND es.exercise_name IS NOT NULL
+                    GROUP BY uw.date, es.exercise_name
+                    UNION ALL
+                    SELECT uw.date AS date, s.exercise_name AS exercise_name,
+                           MAX(s.max_weight_kg) AS w
+                    FROM unified_workouts uw
+                    JOIN garmin_exercise_summaries s ON s.activity_id = uw.garmin_activity_id
+                    WHERE uw.date BETWEEN :start AND :end
+                      AND uw.user_id = :uid
+                      AND s.max_weight_kg IS NOT NULL
+                      AND s.max_weight_kg > 0
+                      AND s.exercise_name IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM garmin_exercise_sets es
+                          WHERE es.activity_id = uw.garmin_activity_id
+                            AND es.set_type = 'ACTIVE'
+                      )
+                    GROUP BY uw.date, s.exercise_name
+                ) AS u
+                GROUP BY date, exercise_name
+                ORDER BY date, exercise_name
             """),
                 {"start": str(start), "end": str(end), "uid": current_user.id},
             )
@@ -231,3 +263,40 @@ async def get_workout(
     if workout is None:
         raise HTTPException(status_code=404, detail=f"Workout '{workout_id}' not found")
     return EnrichedWorkoutResponse(**dataclasses.asdict(workout))
+
+
+@router.get(
+    "/{workout_id}/exercise-summary",
+    response_model=list[ExerciseSummaryItem],
+    summary="Per-exercise summary for a strength workout",
+)
+async def get_exercise_summary(
+    workout_id: str,
+    engine: Engine = Depends(get_engine_dep),
+    current_user: User = Depends(get_current_user),
+) -> list[ExerciseSummaryItem]:
+    """Return per-exercise summaries (Personal API) for a unified workout."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT garmin_activity_id FROM unified_workouts WHERE id = :id AND user_id = :uid"
+            ),
+            {"id": workout_id, "uid": current_user.id},
+        ).one_or_none()
+        if row is None or row[0] is None:
+            return []
+        rows = (
+            conn.execute(
+                text("""
+                SELECT exercise_category, exercise_name, set_count, repetition_count,
+                       volume_kg, max_weight_kg, duration_seconds
+                FROM garmin_exercise_summaries
+                WHERE activity_id = :aid
+                ORDER BY id
+            """),
+                {"aid": row[0]},
+            )
+            .mappings()
+            .all()
+        )
+    return [ExerciseSummaryItem(**dict(r)) for r in rows]

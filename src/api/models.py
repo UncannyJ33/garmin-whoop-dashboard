@@ -234,6 +234,16 @@ class ExerciseSetItem(BaseModel):
     duration_seconds: float | None = None
 
 
+class ExerciseSummaryItem(BaseModel):
+    exercise_category: str | None = None
+    exercise_name: str | None = None
+    set_count: int | None = None
+    repetition_count: int | None = None
+    volume_kg: float | None = None
+    max_weight_kg: float | None = None
+    duration_seconds: float | None = None
+
+
 class StrengthVolumeItem(BaseModel):
     date: str
     total_volume_kg: float
