@@ -3,7 +3,7 @@ UVICORN   = .venv/bin/uvicorn
 PYTEST    = .venv/bin/pytest
 RUFF      = .venv/bin/ruff
 
-.PHONY: run dev run-api build-frontend up down run-sync test lint fmt owner
+.PHONY: run dev run-api build-frontend up down run-sync test lint fmt owner backfill
 
 # Bind host is BIND_HOST (not HOST: zsh sets HOST to the machine hostname).
 # Default is localhost-only; LAN exposure is an explicit opt-in: make run BIND_HOST=0.0.0.0
@@ -53,3 +53,7 @@ fmt:
 
 owner:
 	$(PYTHON) scripts/create_owner.py --email $(EMAIL)
+
+backfill:
+	$(if $(START),,$(error START=YYYY-MM-DD is required))
+	PORT=$(PORT) $(shell command -v caffeinate >/dev/null && echo caffeinate -i) $(PYTHON) scripts/backfill.py --source $(or $(SOURCE),all) --start $(START) $(if $(CHUNK_DAYS),--chunk-days $(CHUNK_DAYS),)
