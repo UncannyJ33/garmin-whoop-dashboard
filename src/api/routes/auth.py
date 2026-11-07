@@ -1,4 +1,4 @@
-"""Authentication routes: JWT register/login/refresh/me + Whoop OAuth."""
+"""Authentication routes: JWT login/refresh/me + Whoop OAuth."""
 
 import asyncio
 import logging
@@ -9,13 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
-from src.api.dependencies import get_db
+from src.api.dependencies import get_db, get_engine_dep
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.auth.schemas import TokenResponse, UserCreate, UserLogin, UserResponse
+from src.auth.schemas import TokenResponse, UserLogin, UserResponse
 from src.auth.security import (
     create_access_token,
     create_refresh_token,
@@ -23,7 +23,8 @@ from src.auth.security import (
     hash_password,
     verify_password,
 )
-from src.clients.whoop_auth import WhoopAuth, WhoopAuthError
+from src.clients.whoop_auth import WhoopAuth, WhoopAuthError, _service_key, whoop_auth_error
+from src.database.owner import get_owner_user_id_cached
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -52,29 +53,24 @@ def _check_rate_limit(ip: str) -> None:
 # ── JWT endpoints ─────────────────────────────────────────────────────────────
 
 
-@router.post(
-    "/register",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new user account",
-)
-def register(body: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
-    """Register a new account."""
-    existing = db.execute(
-        text("SELECT id FROM users WHERE email = :email"), {"email": body.email}
-    ).one_or_none()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered.")
-    user = User(email=body.email, hashed_password=hash_password(body.password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    logger.info("New user registered: %s", user.email)
-    return UserResponse(id=user.id, email=user.email, created_at=user.created_at)
+def _require_owner(user_id: str, engine: Engine) -> None:
+    """Raise 403 unless ``user_id`` is the single owner (every protected route is owner-only)."""
+    try:
+        owner_id = get_owner_user_id_cached(engine)
+    except RuntimeError:
+        logger.error("users table has more than one row; refusing to issue tokens")
+        owner_id = None
+    if user_id != owner_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not the owner account")
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login and receive JWT tokens")
-def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+def login(
+    body: UserLogin,
+    request: Request,
+    db: Session = Depends(get_db),
+    engine: Engine = Depends(get_engine_dep),
+) -> TokenResponse:
     """Authenticate with email + password. Returns access + refresh tokens."""
     ip = request.client.host if request.client else "unknown"
     _check_rate_limit(ip)
@@ -92,6 +88,7 @@ def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> T
         )
     if not user["is_active"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled.")
+    _require_owner(user["id"], engine)
 
     access_token, access_expires = create_access_token(user["id"])
     refresh_token, _ = create_refresh_token(user["id"])
@@ -106,7 +103,11 @@ def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> T
 @router.post(
     "/refresh", response_model=TokenResponse, summary="Exchange refresh token for new access token"
 )
-def refresh_token(request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+def refresh_token(
+    request: Request,
+    db: Session = Depends(get_db),
+    engine: Engine = Depends(get_engine_dep),
+) -> TokenResponse:
     """Pass a refresh token in the Authorization: Bearer header to get a new access token."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -133,6 +134,7 @@ def refresh_token(request: Request, db: Session = Depends(get_db)) -> TokenRespo
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise invalid
+    _require_owner(user.id, engine)
 
     access_token, access_expires = create_access_token(user.id)
     new_refresh, _ = create_refresh_token(user.id)
@@ -144,13 +146,25 @@ def refresh_token(request: Request, db: Session = Depends(get_db)) -> TokenRespo
 
 
 @router.get("/me", response_model=UserResponse, summary="Current user info")
-def me(current_user: User = Depends(get_current_user)) -> UserResponse:
-    """Return the authenticated user's profile."""
-    return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        created_at=current_user.created_at,
+def me(
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> UserResponse:
+    """Return the authenticated user's profile.
+
+    ``get_current_user`` builds a detached User from the JWT (no email), so the
+    profile is read from the ``users`` row.
+    """
+    row = (
+        db.execute(
+            text("SELECT id, email, created_at FROM users WHERE id = :id"),
+            {"id": current_user.id},
+        )
+        .mappings()
+        .one_or_none()
     )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return UserResponse(id=row["id"], email=row["email"], created_at=str(row["created_at"]))
 
 
 # ── Whoop OAuth ───────────────────────────────────────────────────────────────
@@ -220,19 +234,7 @@ async def whoop_authorize_url(
 
     The frontend navigates to this URL to start the OAuth flow.
     State is persisted to the DB so it survives server restarts.
-    Blocked unless the global flag is on or the user is in the allowlist.
     """
-    from config.settings import settings
-
-    allowed = settings.whoop_public_oauth_enabled or (
-        current_user.id in settings.whoop_allowed_user_ids
-    )
-    if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Whoop OAuth is not currently available.",
-        )
-
     url, state = _whoop_auth.get_authorization_url()
     _store_oauth_state(state, current_user.id, db)
     return JSONResponse({"url": url})
@@ -243,38 +245,10 @@ async def whoop_connection_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    """Return whether the current user has a valid Whoop token stored."""
+    """Return Whoop connection state, including whether the user must reconnect."""
     connected = WhoopAuth.has_token(current_user.id, db)
-    return JSONResponse({"connected": connected})
-
-
-@router.get("/feature-flags", summary="Return feature flags for the current user")
-async def feature_flags(request: Request) -> JSONResponse:
-    """Return feature flags that control frontend behaviour.
-
-    Unauthenticated by default so the onboarding page can read it before
-    the user has completed setup.  If an authenticated user is in the
-    ``WHOOP_ALLOWED_USER_IDS`` allowlist, ``whoop_oauth_enabled`` is
-    overridden to ``True`` even when the global flag is off.
-    """
-    from config.settings import settings
-
-    whoop_enabled = settings.whoop_public_oauth_enabled
-
-    # Per-user allowlist override — check optional Bearer token
-    if not whoop_enabled and settings.whoop_allowed_user_ids:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                token = auth_header.removeprefix("Bearer ").strip()
-                payload = decode_token(token)
-                user_id: str | None = payload.get("sub")
-                if user_id and user_id in settings.whoop_allowed_user_ids:
-                    whoop_enabled = True
-            except Exception:  # noqa: BLE001
-                pass  # invalid / expired token — fall back to global flag
-
-    return JSONResponse({"whoop_oauth_enabled": whoop_enabled})
+    error = whoop_auth_error(current_user.id, db) if connected else None
+    return JSONResponse({"connected": connected, "needs_reauth": error is not None, "error": error})
 
 
 _GARMIN_PROBE_TTL_SECONDS = 600
@@ -391,7 +365,7 @@ async def whoop_disconnect(
     """
     from src.database.models import TokenStore
 
-    record = db.get(TokenStore, f"whoop_{current_user.id}")
+    record = db.get(TokenStore, _service_key(current_user.id))
     if record:
         db.delete(record)
         db.commit()

@@ -352,23 +352,6 @@ class SyncLog(Base):
     user_id = Column(Text, nullable=True, index=True)  # app user UUID (Task 5.4)
 
 
-class GarminCredentials(Base):
-    """Legacy table, no longer written (password login and credential encryption were removed).
-
-    Kept until the Phase 3.4 cleanup; the columns held Fernet ciphertext, never raw credentials.
-    """
-
-    __tablename__ = "garmin_credentials"
-
-    user_id = Column(Text, primary_key=True)  # app user UUID
-    encrypted_email = Column(Text, nullable=False)
-    encrypted_password = Column(Text, nullable=False)
-    auto_sync_enabled = Column(Boolean, default=True, nullable=False)
-    consent_given_at = Column(String, nullable=False)  # ISO 8601
-    created_at = Column(String, nullable=False)  # ISO 8601
-    updated_at = Column(String, nullable=False)  # ISO 8601
-
-
 class TokenStore(Base):
     """OAuth token storage for external API services."""
 

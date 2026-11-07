@@ -3,9 +3,9 @@
  */
 import { Spinner } from '../components/Spinner'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { GARMIN_KEY_LABEL, GarminKeyHint, garminKeyState } from '../components/GarminKeyStatus'
-import { invalidateWorkoutQueries, useChangePassword, useDataStats, useDeleteAccount, useDisconnectWhoop, useFeatureFlags, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
+import { invalidateWorkoutQueries, useChangePassword, useDataStats, useDisconnectWhoop, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
 import type { UploadResult } from '../types/api'
 import { GarminUpload } from '../components/GarminUpload'
 import { Modal } from '../components/Modal'
@@ -111,20 +111,16 @@ function useSleepTarget() {
 
 export function Settings() {
   const { hours: sleepTarget, setHours: setSleepTarget } = useSleepTarget()
-  const { userId, logout } = useAuth()
+  const { userId } = useAuth()
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
 
   const statusQ = useSyncStatus()
   const statsQ  = useDataStats()
   const trigger = useTriggerSync()
-  const flagsQ  = useFeatureFlags()
-  const whoopOAuthEnabled = flagsQ.data?.whoop_oauth_enabled ?? false
   const whoopStatus = useWhoopStatus()
   const garminStatus = useGarminStatus()
   const disconnectWhoop = useDisconnectWhoop()
   const changePassword = useChangePassword()
-  const deleteAccount = useDeleteAccount()
 
   // Track which sources last completed (for success banner) and any trigger errors
   const [lastSyncedSource, setLastSyncedSource] = useState<string | null>(null)
@@ -147,11 +143,6 @@ export function Settings() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [passwordSuccess, setPasswordSuccess] = useState(false)
-
-  // Delete account
-  const [showDeleteAccount, setShowDeleteAccount] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // Handle Whoop OAuth redirect-back params
   const [searchParams, setSearchParams] = useSearchParams()
@@ -179,6 +170,10 @@ export function Settings() {
     for (const source of prevRunning.current) {
       if (!nowRunning.has(source)) {
         const item = statusQ.data.find((s) => s.source === source)
+        // A sync that hit re-auth flips the Whoop status; refresh it without a reload
+        if (source === 'whoop') {
+          void queryClient.invalidateQueries({ queryKey: ['auth', 'whoop-status', userId] })
+        }
         if (item?.status === 'error') {
           setSyncError({ source, message: item.error_message ?? 'Sync failed' })
         } else {
@@ -261,19 +256,6 @@ export function Settings() {
     )
   }
 
-  function handleDeleteAccount() {
-    setDeleteError(null)
-    deleteAccount.mutate(undefined, {
-      onSuccess: () => {
-        logout()
-        navigate('/login')
-      },
-      onError: (err) => {
-        setDeleteError(err instanceof Error ? err.message : 'Could not delete account.')
-      },
-    })
-  }
-
   return (
     <div className="space-y-4 pb-16 max-w-2xl">
 
@@ -330,11 +312,15 @@ export function Settings() {
           const whoopConnected = whoopStatus.data?.connected ?? false
           const garminConnected = garminStatus.data?.connected ?? false
           const isConnected = isWhoop ? whoopConnected : garminConnected
+          // needs_reauth wins over connected (the token row is kept, so both are true)
+          const needsReauth = isWhoop && (whoopStatus.data?.needs_reauth ?? false)
 
           const rawStatus = !isConnected ? null : source.status
           const garminKey = garminKeyState(garminStatus.data)
           const base = statusLabel(rawStatus)
-          const { text, color, dot } = isGarmin && garminKey !== 'connected'
+          const { text, color, dot } = needsReauth
+            ? { text: 'Needs reconnect', color: 'text-poor', dot: 'bg-poor' }
+            : isGarmin && garminKey !== 'connected'
             ? { text: GARMIN_KEY_LABEL[garminKey], color: garminKey === 'not_set' ? 'text-slate-500' : 'text-poor', dot: garminKey === 'not_set' ? 'bg-slate-500' : 'bg-poor' }
             : base
 
@@ -352,12 +338,20 @@ export function Settings() {
                 </div>
 
                 {/* Show Connect button when not connected, Sync Now when connected */}
-                {!isConnected ? (
-                  isGarmin ? null : isWhoop && !whoopOAuthEnabled ? (
-                    <span className="rounded-lg px-3 py-1.5 text-xs text-slate-500 border border-surface-border">
-                      Coming soon
-                    </span>
-                  ) : (
+                {needsReauth ? (
+                  <button
+                    onClick={() => {
+                      void handleConnectWhoop()
+                    }}
+                    disabled={connectingWhoop}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      connectingWhoop ? 'bg-slate-500 text-slate-400 cursor-not-allowed' : 'bg-red-500 text-white'
+                    }`}
+                  >
+                    {connectingWhoop ? <><Spinner /> Connecting…</> : 'Reconnect Whoop'}
+                  </button>
+                ) : !isConnected ? (
+                  isGarmin ? null : (
                     <button
                       onClick={() => {
                         void handleConnectWhoop()
@@ -451,7 +445,7 @@ export function Settings() {
               </div>
 
               {/* Stale sync warning */}
-              {isConnected && isStale(source.last_sync_at) && (
+              {isConnected && !needsReauth && isStale(source.last_sync_at) && (
                 <div className="rounded-lg bg-moderate/10 border border-moderate/30 px-3 py-2 text-xs text-moderate flex items-start gap-2">
                   <span className="mt-0.5 flex-shrink-0">⚠</span>
                   <span>
@@ -459,6 +453,13 @@ export function Settings() {
                       ? 'Last sync was over 24 hours ago — your data may be outdated. Tap Sync Now to refresh.'
                       : 'No sync on record — tap Sync Now to load your data.'}
                   </span>
+                </div>
+              )}
+
+              {/* Whoop re-auth error */}
+              {needsReauth && whoopStatus.data?.error && (
+                <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
+                  {whoopStatus.data.error}
                 </div>
               )}
 
@@ -712,43 +713,6 @@ export function Settings() {
         </div>
       </div>
 
-      {/* ── SECTION: Danger Zone ─────────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wider px-1" style={{ color: 'var(--status-alert)' }}>
-          Danger Zone
-        </p>
-        <div
-          className="card"
-          style={{ borderColor: 'rgba(232,119,90,0.25)', background: 'rgba(232,119,90,0.04)' }}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Delete Account</p>
-              <p className="text-2xs text-slate-500 mt-0.5 leading-relaxed">
-                Permanently delete your account and all associated data. This cannot be undone.
-              </p>
-            </div>
-            <button
-              onClick={() => { setDeleteConfirmText(''); setDeleteError(null); setShowDeleteAccount(true) }}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 ml-4 flex-shrink-0"
-              style={{
-                color:       'var(--status-alert)',
-                borderColor: 'rgba(232,119,90,0.35)',
-              }}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Footer ───────────────────────────────────────────────────────────── */}
-      <p className="text-center text-xs text-slate-600 pt-2">
-        <Link to="/privacy" className="hover:text-slate-400 transition-colors">
-          Privacy Policy
-        </Link>
-      </p>
-
       {/* ── Garmin Upload Modal ──────────────────────────────────────────────── */}
       <Modal
         open={showCSVModal}
@@ -789,52 +753,6 @@ export function Settings() {
             }`}
           >
             {disconnectWhoop.isPending ? <><Spinner /> Disconnecting…</> : 'Disconnect'}
-          </button>
-        </div>
-      </Modal>
-
-      {/* ── Delete Account Modal ──────────────────────────────────────────────── */}
-      <Modal
-        open={showDeleteAccount}
-        onClose={() => setShowDeleteAccount(false)}
-        title="Delete Account"
-        description={<>This will permanently delete your account, all synced data, credentials, and tokens.<span className="text-poor font-semibold"> This action cannot be undone.</span></>}
-      >
-        <div>
-          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-            Type <span className="font-mono font-bold text-poor">DELETE</span> to confirm
-          </label>
-          <input
-            type="text"
-            value={deleteConfirmText}
-            onChange={e => setDeleteConfirmText(e.target.value)}
-            placeholder="DELETE"
-            className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-poor"
-          />
-        </div>
-        {deleteError && (
-          <div className="rounded-lg bg-poor/5 border border-poor/20 px-3 py-2 text-xs text-poor">
-            {deleteError}
-          </div>
-        )}
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowDeleteAccount(false)}
-            disabled={deleteAccount.isPending}
-            className="flex-1 rounded-lg border border-surface-border px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-surface-overlay transition-colors disabled:opacity-40"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleDeleteAccount}
-            disabled={deleteAccount.isPending || deleteConfirmText !== 'DELETE'}
-            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-              deleteAccount.isPending || deleteConfirmText !== 'DELETE'
-                ? 'bg-slate-500 text-slate-400 cursor-not-allowed'
-                : 'bg-red-600 text-white hover:bg-red-700'
-            }`}
-          >
-            {deleteAccount.isPending ? <><Spinner /> Deleting…</> : 'Delete My Account'}
           </button>
         </div>
       </Modal>

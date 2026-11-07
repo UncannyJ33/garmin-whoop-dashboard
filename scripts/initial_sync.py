@@ -6,6 +6,7 @@ Usage (from project root, venv active):
 
 import asyncio
 import logging
+import sys
 from datetime import UTC, datetime, timedelta
 
 from src.database.connection import get_engine, get_session_factory
@@ -18,6 +19,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
+logger = logging.getLogger(__name__)
 
 
 def _print_summary(label: str, log) -> None:
@@ -39,18 +41,46 @@ async def main() -> None:
     owner = get_owner_user_id(engine)
 
     try:
+        if owner is None:
+            print("No owner account. Run `make owner EMAIL=...` first.")
+            sys.exit(1)
+
         now = datetime.now(tz=UTC)
         start = now - timedelta(days=30)
 
+        failed: list[str] = []
+
         # ── Whoop ──────────────────────────────────────────────────────
         print(f"\nStarting Whoop sync: {start.date()} → {now.date()}\n")
-        whoop_log = await WhoopPipeline(db, user_id=owner).run(start=start, end=now)
-        _print_summary("Whoop", whoop_log)
+        try:
+            whoop_log = await WhoopPipeline(db, user_id=owner).run(start=start, end=now)
+        except Exception as e:
+            logger.exception("Whoop sync failed")
+            print(f"  Whoop sync FAILED: {type(e).__name__}: {e}")
+            failed.append("Whoop")
+        else:
+            if whoop_log is None:
+                print("  Whoop sync skipped: another Whoop sync is running")
+            else:
+                _print_summary("Whoop", whoop_log)
 
         # ── Garmin ─────────────────────────────────────────────────────
         print(f"\nStarting Garmin sync: {start.date()} → {now.date()}\n")
-        garmin_log = GarminPipeline(db, user_id=owner).run(start=start.date(), end=now.date())
-        _print_summary("Garmin", garmin_log)
+        try:
+            garmin_log = GarminPipeline(db, user_id=owner).run(start=start.date(), end=now.date())
+        except Exception as e:
+            logger.exception("Garmin sync failed")
+            print(f"  Garmin sync FAILED: {type(e).__name__}: {e}")
+            failed.append("Garmin")
+        else:
+            if garmin_log is None:
+                print("  Garmin sync skipped: another Garmin sync is running")
+            else:
+                _print_summary("Garmin", garmin_log)
+
+        if failed:
+            print(f"\nFailed sources: {', '.join(failed)}")
+            sys.exit(1)
 
     finally:
         db.close()

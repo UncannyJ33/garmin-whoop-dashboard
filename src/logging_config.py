@@ -1,7 +1,7 @@
 """Centralized logging configuration.
 
-Call ``configure_logging()`` once at application startup (FastAPI lifespan,
-Streamlit ``app.py``) to apply a consistent format and level across all
+Call ``configure_logging()`` once at application startup (FastAPI lifespan)
+to apply a consistent format and level across all
 project modules.
 
 Level is controlled by the ``LOG_LEVEL`` environment variable (default INFO).

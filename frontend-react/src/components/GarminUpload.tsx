@@ -4,7 +4,7 @@
  * Supported formats: .csv (Activities export), .json (summarized activities),
  * .zip (full account export from Garmin Connect Account Settings).
  *
- * Used in: Onboarding, Settings
+ * Used in: Settings, ConnectDevicesPanel
  */
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'

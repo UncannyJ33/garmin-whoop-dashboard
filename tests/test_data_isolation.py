@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from src.api.dependencies import get_db, get_engine_dep
@@ -90,6 +90,15 @@ def iso_engine():
         poolclass=StaticPool,
     )
     run_migrations(engine=eng)
+    # Only the owner (A) has a users row; B keeps data rows only.
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO users (id, email, hashed_password, created_at, is_active)"
+                " VALUES (:id, 'a@example.test', 'x', '2026-01-01T00:00:00', 1)"
+            ),
+            {"id": USER_A_ID},
+        )
     yield eng
     eng.dispose()
 

@@ -11,8 +11,7 @@ This README is internal documentation for the owner (SJ) and Claude agents.
 > **Status: relaunch in progress (Nov 2026).** **Phase 2 is done** (branch
 > `feat/garmin-personal-api`, 2026-11-06): Garmin now comes from the official Personal API, and
 > the unofficial `garminconnect` password login is gone. **The SaaS cut (roadmap Phases 3-4) is
-> still pending**: open registration, waitlist, landing page, account deletion and the Whoop
-> webhook still exist.
+> still pending**: the landing page and the other SaaS-era frontend pages still exist.
 > Plan: [`plans/2026-11-06-personal-relaunch-roadmap.md`](plans/2026-11-06-personal-relaunch-roadmap.md).
 > Research: [`docs/research/2026-11-garmin-personal-api.md`](docs/research/2026-11-garmin-personal-api.md).
 > Sections below are marked **(current code)** or **(after relaunch)**.
@@ -47,7 +46,6 @@ src/
   normalization/  mappers, deduplication, normalizer
 config/           settings.py (env vars), field_mappings.yaml
 frontend-react/   React app (src/pages, components, hooks/useApi.ts)
-frontend/         legacy Streamlit app (slated for deletion)
 scripts/          initial_sync.py, import_data.py, schema_review.py, start.sh, ...
 landing/          pulsebuilt.net studio page (not part of the dashboard; leave alone)
 tests/            pytest suite
@@ -75,8 +73,7 @@ Edit `.env`; these matter locally:
 | `GARMIN_PERSONAL_API_KEY` | Garmin Personal API key (see Garmin data below); optional `GARMIN_PERSONAL_API_BASE_URL` |
 | `GARMIN_POLL_INTERVAL_MINUTES` | optional, default 30 |
 
-`ADMIN_EMAIL` belongs to the SaaS-era waitlist and is not needed. Without a Garmin key the app
-still runs; Garmin data then comes only from the export import.
+Without a Garmin key the app still runs; Garmin data then comes only from the export import.
 
 Two terminals (migrations run automatically on API startup):
 
@@ -85,9 +82,8 @@ make run-api                      # FastAPI on :8000 (docs at /docs)
 cd frontend-react && npm run dev  # Vite on :5173 (proxies /api to :8000)
 ```
 
-Open http://localhost:5173. **Register an account at `/login`** (open registration still exists;
-Phase 3 replaces it with `scripts/create_owner.py`). Register exactly one account: with a second
-user, background syncs stop and the Garmin owner check fails, then **Settings -> connect Whoop**
+Open http://localhost:5173. Create the single owner account with `make owner EMAIL=you@example.com`
+(prompts for a password; registration is closed), log in, then **Settings -> connect Whoop**
 (OAuth). To serve the built app from FastAPI instead: `cd frontend-react && npm run build`, then
 `make run-api` and open http://localhost:8000.
 
@@ -135,8 +131,7 @@ import and fills the unified tables.
 4. Data is polled every 30 min. Refresh tokens rotate; a known bug can force re-auth (fix planned
    in roadmap Phase 3).
 
-The Whoop webhook receiver (`/api/webhooks/whoop`) is being removed: no signature verification,
-broken since migration 008. Do not set up webhooks or ngrok.
+Whoop data is polling only (no webhooks); do not set up ngrok.
 
 ## Common commands
 
@@ -146,7 +141,6 @@ broken since migration 008. Do not set up webhooks or ngrok.
 | `make run-sync` | `scripts/initial_sync.py` (Whoop, then Garmin) |
 | `make test` | `pytest tests/ -v` |
 | `make lint` / `make fmt` | `ruff check .` / `ruff format .` |
-| `make run-frontend` | legacy Streamlit on :8501 (being deleted) |
 | `cd frontend-react && npm run dev` | Vite dev server, :5173 |
 | `cd frontend-react && npm run typecheck` | `tsc --noEmit` |
 | `cd frontend-react && npm run build` | typecheck + production build to `dist/` |
@@ -164,8 +158,8 @@ docker compose up --build        # http://localhost:8000
 
 **It runs locally only.** The old Railway + Supabase deployment (engine.pulsebuilt.net) is gone:
 Railway is shut down, and the Supabase project and its data were deleted. History gets
-re-pulled from the APIs (roadmap Phase 6). `railway.toml` and `frontend-react/vercel.json` are
-leftovers that Phase 5 deletes.
+re-pulled from the APIs (roadmap Phase 6). `railway.toml` is a
+leftover that Phase 5 deletes.
 
 ## Docs map
 

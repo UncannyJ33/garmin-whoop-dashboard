@@ -9,9 +9,9 @@
  */
 
 import { memo, useState } from 'react'
-import type { EnrichedWorkout } from '../types/api'
+import type { EnrichedWorkout, ExerciseSummaryItem } from '../types/api'
 import { DataSourceBadge } from './DataSourceBadge'
-import { useExerciseSets } from '../hooks/useApi'
+import { useExerciseSets, useExerciseSummary } from '../hooks/useApi'
 import { activityLabel } from '../utils/formatters'
 import { KG_TO_LB, STRENGTH_TYPES } from '../utils/workoutTypes'
 
@@ -51,6 +51,21 @@ function StrainValue({ strain }: { strain: number | null }) {
     >
       {strain.toFixed(1)}
     </span>
+  )
+}
+
+/** Uppercase section label above each detail grid */
+function SectionHeading({ children, mb = 8 }: { children: React.ReactNode; mb?: number }) {
+  return (
+    <p
+      style={{
+        fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
+        textTransform: 'uppercase', color: 'var(--text-secondary)',
+        marginBottom: mb,
+      }}
+    >
+      {children}
+    </p>
   )
 }
 
@@ -144,16 +159,66 @@ function HRZoneBar({ zones }: { zones: EnrichedWorkout['hr_zone_minutes'] }) {
 
 // ── Exercise Sets ──────────────────────────────────────────────────────────
 
+/** "BARBELL_BENCH_PRESS" → "Barbell Bench Press"; skips empty segments. */
+function humanizeExercise(raw: string): string {
+  return raw
+    .replace(/_/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map(w => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function ExerciseSummaryTable({ items }: { items: ExerciseSummaryItem[] }) {
+  const cell = { fontFamily: "'IBM Plex Mono'", color: 'var(--text-primary)' }
+  return (
+    <table className="w-full" style={{ fontSize: 12 }}>
+      <thead>
+        <tr style={{ borderBottom: '0.5px solid var(--border-subtle)' }}>
+          {['Exercise', 'Sets', 'Reps', 'Max weight (lb)', 'Volume (lb)'].map(h => (
+            <th key={h} className="pb-1 pr-4 text-left" style={{ fontWeight: 500, color: 'var(--text-tertiary)' }}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((it, i) => (
+          <tr
+            key={i}
+            style={{ borderBottom: i < items.length - 1 ? '0.5px solid var(--border-subtle)' : 'none' }}
+          >
+            <td className="py-1.5 pr-4" style={{ color: 'var(--text-secondary)' }}>
+              {humanizeExercise(it.exercise_name || it.exercise_category || 'Unknown')}
+            </td>
+            <td className="py-1.5 pr-4" style={cell}>{it.set_count ?? '—'}</td>
+            <td className="py-1.5 pr-4" style={cell}>{it.repetition_count ?? '—'}</td>
+            <td className="py-1.5 pr-4" style={cell}>
+              {it.max_weight_kg == null ? '—' : it.max_weight_kg === 0 ? 'BW' : (it.max_weight_kg * KG_TO_LB).toFixed(1)}
+            </td>
+            <td className="py-1.5" style={cell}>
+              {it.volume_kg ? (it.volume_kg * KG_TO_LB).toFixed(0) : '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 function ExerciseSets({ workoutId }: { workoutId: string }) {
   const setsQ = useExerciseSets(workoutId, true)
+  const noSets = setsQ.isSuccess && setsQ.data.length === 0
+  const summaryQ = useExerciseSummary(workoutId, noSets)
 
-  if (setsQ.isLoading) {
+  if (setsQ.isLoading || (noSets && summaryQ.isLoading)) {
     return <div className="skeleton h-16 rounded-lg" />
   }
   if (!setsQ.data?.length) {
+    if (summaryQ.data?.length) return <ExerciseSummaryTable items={summaryQ.data} />
     return (
       <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-        No exercise set data — run a sync to fetch strength set details.
+        No strength detail available for this workout.
       </p>
     )
   }
@@ -161,11 +226,7 @@ function ExerciseSets({ workoutId }: { workoutId: string }) {
   // Group by exercise name
   const grouped: Record<string, typeof setsQ.data> = {}
   for (const s of setsQ.data) {
-    const key = (s.exercise_name || s.exercise_category || 'Unknown')
-      .replace(/_/g, ' ')
-      .split(' ')
-      .map(w => w[0].toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ')
+    const key = humanizeExercise(s.exercise_name || s.exercise_category || 'Unknown')
     if (!grouped[key]) grouped[key] = []
     grouped[key].push(s)
   }
@@ -317,15 +378,7 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
         >
           {/* Physiological Load */}
           <div>
-            <p
-              style={{
-                fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
-                textTransform: 'uppercase', color: 'var(--text-secondary)',
-                marginBottom: 8,
-              }}
-            >
-              Physiological Load
-            </p>
+            <SectionHeading>Physiological Load</SectionHeading>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 ['Strain',   fmtVal(w.strain)],
@@ -340,15 +393,7 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
 
           {/* Performance */}
           <div>
-            <p
-              style={{
-                fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
-                textTransform: 'uppercase', color: 'var(--text-secondary)',
-                marginBottom: 8,
-              }}
-            >
-              Performance
-            </p>
+            <SectionHeading>Performance</SectionHeading>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 ['Distance',       fmtDist(w.distance_m)],
@@ -368,15 +413,7 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
           {/* Running Dynamics */}
           {isRun && (
             <div>
-              <p
-                style={{
-                  fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
-                  textTransform: 'uppercase', color: 'var(--text-secondary)',
-                  marginBottom: 8,
-                }}
-              >
-                Running Dynamics
-              </p>
+              <SectionHeading>Running Dynamics</SectionHeading>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   ['Ground Contact',    fmtVal(w.avg_ground_contact_time_ms, 0, ' ms')],
@@ -393,30 +430,14 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
           {/* Exercise Sets */}
           {isStrength && (
             <div>
-              <p
-                style={{
-                  fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
-                  textTransform: 'uppercase', color: 'var(--text-secondary)',
-                  marginBottom: 8,
-                }}
-              >
-                Exercise Sets
-              </p>
+              <SectionHeading>Exercise Sets</SectionHeading>
               <ExerciseSets workoutId={w.id} />
             </div>
           )}
 
           {/* HR Zones */}
           <div>
-            <p
-              style={{
-                fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
-                textTransform: 'uppercase', color: 'var(--text-secondary)',
-                marginBottom: 8,
-              }}
-            >
-              HR Zones
-            </p>
+            <SectionHeading>HR Zones</SectionHeading>
             <HRZoneBar zones={w.hr_zone_minutes} />
           </div>
 
@@ -429,15 +450,7 @@ export const WorkoutRow = memo(function WorkoutRow({ workout: w }: WorkoutRowPro
                 padding:      '12px',
               }}
             >
-              <p
-                style={{
-                  fontSize: 10, fontWeight: 500, letterSpacing: '0.07em',
-                  textTransform: 'uppercase', color: 'var(--text-secondary)',
-                  marginBottom: 4,
-                }}
-              >
-                Recovery Impact
-              </p>
+              <SectionHeading mb={4}>Recovery Impact</SectionHeading>
               <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 Next-day recovery:{' '}
                 <span

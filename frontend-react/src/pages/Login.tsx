@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { formatDetail } from '../api/client'
 
@@ -13,7 +13,6 @@ interface LoginResponse {
 export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -26,24 +25,6 @@ export function Login() {
     setError(null)
     setLoading(true)
     try {
-      if (mode === 'register') {
-        // Register first, then auto-login
-        const regRes = await fetch(`${BASE_URL}/api/auth/register`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true',
-          },
-          body: JSON.stringify({ email, password }),
-        })
-        if (!regRes.ok) {
-          const body = (await regRes.json()) as { detail?: unknown }
-          setError(formatDetail(body.detail) ?? `Registration failed (${regRes.status})`)
-          return
-        }
-      }
-
-      // Login (after register or directly)
       const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
@@ -67,8 +48,6 @@ export function Login() {
     }
   }
 
-  const isLogin = mode === 'login'
-
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm animate-fade-in">
@@ -85,7 +64,7 @@ export function Login() {
             PulseEngine
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginTop: 4 }}>
-            {isLogin ? 'Sign in to your dashboard' : 'Create a new account'}
+            Sign in to your dashboard
           </p>
         </div>
 
@@ -141,7 +120,7 @@ export function Login() {
             <input
               id="password"
               type="password"
-              autoComplete={isLogin ? 'current-password' : 'new-password'}
+              autoComplete="current-password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -190,52 +169,12 @@ export function Login() {
               transition: 'opacity 150ms ease',
             }}
           >
-            {loading
-              ? isLogin
-                ? 'Signing in…'
-                : 'Creating account…'
-              : isLogin
-                ? 'Sign in'
-                : 'Create account'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
-
-          {!isLogin && (
-            <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12, lineHeight: 1.6 }}>
-              By creating an account, you agree to our{' '}
-              <Link to="/privacy" style={{ color: 'var(--text-secondary)', textDecoration: 'underline' }}>
-                Privacy Policy
-              </Link>
-              .
-            </p>
-          )}
         </form>
 
         <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, marginTop: 16 }}>
-          {isLogin ? (
-            <>
-              Don&apos;t have an account?{' '}
-              <button
-                type="button"
-                onClick={() => { setMode('register'); setError(null) }}
-                className="underline"
-                style={{ color: 'var(--brand)' }}
-              >
-                Create one
-              </button>
-            </>
-          ) : (
-            <>
-              Already have an account?{' '}
-              <button
-                type="button"
-                onClick={() => { setMode('login'); setError(null) }}
-                className="underline"
-                style={{ color: 'var(--brand)' }}
-              >
-                Sign in
-              </button>
-            </>
-          )}
+          No account? Run <code>make owner EMAIL=you@example.com</code> on the server.
         </p>
       </div>
     </div>

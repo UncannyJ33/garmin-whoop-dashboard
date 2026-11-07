@@ -238,25 +238,3 @@
     transition-duration: 0.01ms !important;
   }
 }
-
-/* ── Privacy policy page typography ──────────────────────────────────────── */
-.prose-policy {
-  color: var(--text-secondary);
-  line-height: 1.75;
-  font-size: 0.9375rem;
-}
-.prose-policy section { margin-bottom: 2.5rem; }
-.prose-policy h2 {
-  font-size: 1.0625rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.prose-policy p { margin-bottom: 1rem; }
-.prose-policy ul { list-style: disc; padding-left: 1.5rem; margin-bottom: 1rem; }
-.prose-policy li { margin-bottom: 0.5rem; }
-.prose-policy strong { color: var(--text-primary); font-weight: 500; }
-.prose-policy a { color: var(--status-excellent); text-decoration: underline; text-underline-offset: 2px; }
-.prose-policy a:hover { color: #7dd8b8; }

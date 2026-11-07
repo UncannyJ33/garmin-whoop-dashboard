@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import text
 
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
@@ -322,6 +323,49 @@ def test_cross_source_workout_match_creates_unified_row(db):
     assert row.whoop_strain == pytest.approx(13.5)
     assert row.garmin_activity_id == "g-cross-001"
     assert row.garmin_distance_m == pytest.approx(10100.0)
+
+
+def test_matched_workout_removes_garmin_only_row(db):
+    """Garmin synced first, Whoop later: the stale g_<aid> row is removed on match."""
+    garmin_a = GarminActivity(
+        activity_id="g-late-001",
+        activity_type="running",
+        start_time="2024-03-07 07:00:00",
+        start_time_gmt="2024-03-07 14:02:00",
+        duration_seconds=3600.0,
+        fetched_at=datetime.now(tz=UTC).isoformat(),
+    )
+    db.add(garmin_a)
+    db.commit()
+
+    n = Normalizer(db)
+    n.normalize_workouts(date(2024, 3, 7), date(2024, 3, 7))
+    assert db.get(UnifiedWorkout, "g_g-late-001") is not None
+
+    db.add(
+        WhoopWorkout(
+            id="w-late-001",
+            start_time="2024-03-07T14:00:00Z",
+            end_time="2024-03-07T15:00:00Z",
+            sport_name="running",
+            strain=13.5,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+        )
+    )
+    db.commit()
+    n.normalize_workouts(date(2024, 3, 7), date(2024, 3, 7))
+
+    count = db.execute(
+        text("SELECT COUNT(*) FROM unified_workouts WHERE garmin_activity_id = :aid"),
+        {"aid": "g-late-001"},
+    ).scalar()
+    assert count == 1
+    row = db.execute(
+        text("SELECT id FROM unified_workouts WHERE garmin_activity_id = :aid"),
+        {"aid": "g-late-001"},
+    ).scalar()
+    assert row == "w_w-late-001"
+    assert db.get(UnifiedWorkout, "g_g-late-001") is None
 
 
 def test_unmatched_garmin_activity_stored_as_garmin_only(db):

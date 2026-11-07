@@ -15,7 +15,6 @@ from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.clients.whoop_auth import WhoopAuth
 from src.database.connection import get_session_factory as _get_session_factory
-from src.database.owner import get_owner_user_id
 from src.ingestion.scheduler import get_scheduler_status
 
 logger = logging.getLogger(__name__)
@@ -162,7 +161,14 @@ async def _run_sync_task(source: str, engine: Engine, user_id: str) -> None:
         if source == "whoop":
             from src.ingestion.whoop_pipeline import WhoopPipeline
 
-            await WhoopPipeline(db, user_id=user_id).run(start=start, end=now)
+            log = await WhoopPipeline(db, user_id=user_id).run(start=start, end=now)
+            if log is None:
+                logger.info(
+                    "Manual sync skipped (another Whoop sync running) — source=%s user=%s",
+                    source,
+                    user_id,
+                )
+                return
         else:
             from src.ingestion.garmin_pipeline import GarminPipeline
 
@@ -234,19 +240,6 @@ async def trigger_sync(
             raise HTTPException(
                 status_code=403,
                 detail="Garmin not configured. Set GARMIN_PERSONAL_API_KEY on the server.",
-            )
-        # The server-wide key holds the owner's data: only the owner may sync it.
-        try:
-            owner_id = get_owner_user_id(engine)
-        except RuntimeError:
-            raise HTTPException(
-                status_code=403,
-                detail="Garmin sync unavailable: more than one user exists.",
-            ) from None
-        if current_user.id != owner_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Garmin sync is restricted to the account owner.",
             )
 
     if source == "whoop":

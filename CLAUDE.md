@@ -6,16 +6,12 @@ Personal Garmin + Whoop fitness dashboard. Single user (SJ), self-hosted. Former
 - Frontend: React 18 + TypeScript + Vite + TailwindCSS + Recharts + TanStack Query (`frontend-react/`).
 
 ## Status: relaunch in progress (started 2026-11-06)
-**Phase 2 done (2026-11-06, branch `feat/garmin-personal-api`): Garmin now comes from the official Personal API.** Phases 3–4 (SaaS cut) are still pending. Goal: a basic private dashboard.
-Code that still exists but is **slated for removal. Don't extend it; don't add multi-user features**:
-- open registration, waitlist, `Landing`/`Privacy`/`Onboarding`/`Showcase`/`ApiTest`/`Demo` pages, `pulse-demo/`, `/demo` mount
-- Whoop allowlist + feature flags, account deletion
-- Whoop webhook receiver (`src/api/routes/webhooks.py`)
-- legacy Streamlit app (`frontend/`)
+**Phases 2-4 done (2026-11-06), branch `feat/phase3-saas-cut`.** Garmin comes from the official Personal API. The SaaS cut is done: owner bootstrap via `make owner EMAIL=...` (registration closed), and the SaaS pages (Landing/Privacy/Onboarding/Showcase/ApiTest/Demo), PWA, `pulse-demo/`, webhook receiver and Streamlit are all removed. Whoop shows a "needs reconnect" state. Goal: a basic private dashboard. Tests: 946 passing (serial).
+The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs (nothing registers it).
 
 Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan (done): `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
-- **D1** Keep JWT login + `user_id` plumbing with exactly one owner user (`scripts/create_owner.py`, planned). Don't rip out `user_id`.
+- **D1** Keep JWT login + `user_id` plumbing with exactly one owner user (`scripts/create_owner.py`). Don't rip out `user_id`.
 - **D2** Own small `httpx` client for the Garmin Personal API. Don't use Garmin's official package (reference only).
 - **D3** Polling only. No webhooks.
 - **D4** Strength = `summarizedExerciseSets` (per-exercise, table `garmin_exercise_summaries`), not set-level, for now.
@@ -34,13 +30,13 @@ Garmin/Whoop API → pipelines → raw tables (with `raw_json`) → normalizer +
 - Ingestion (`src/ingestion/`): `whoop_pipeline.py`, `garmin_pipeline.py` (both take `(db, user_id)`, tag rows + `SyncLog`, call `normalize_all()` after sync), `scheduler.py` (APScheduler: exactly two jobs, `garmin_incremental_sync` every `GARMIN_POLL_INTERVAL_MINUTES`=30 and `whoop_incremental_sync` every 30, owner only; skips with an error log if >1 user), `csv_import.py`, `garmin_csv_parser.py`. Incremental sync resumes from last successful `sync_log` `sync_end`; window in `sync_log.metadata_json` (`sync_start`/`sync_end`; Garmin uses `date`, not `datetime`).
   - **Garmin failure policy (invariant):** any Garmin failure (key, 429, 5xx/transport, unexpected status, invalid JSON, non-list activities page) ends the run with `sync_log.status="error"` and the window does **not** advance; the next run re-pulls. Incremental runs re-fetch a 2-day overlap (`INCREMENTAL_OVERLAP_DAYS`). Runs are serialized by a non-blocking `_RUN_LOCK` (overlap = skipped). All-null/metric-null responses mean "no data": no row written.
 - Clients (`src/clients/`): `whoop_auth.py`, `whoop_client.py` (pagination + retry), `garmin_personal_auth.py` (key → 24 h JWT cached in memory via one process-wide `get_default_auth()`; errors `GarminKeyError`/`GarminRateLimitError`/`GarminTransientError`; `last_error` = latest rejection), `garmin_client.py` (httpx against `https://personal.connectapi.garmin.com`, 1 s between calls; `get_activities` (paged, 100/page), `get_daily_summary`, `get_sleep`, `get_hrv`, `get_user_settings`).
-- Owner (`src/database/owner.py`): `get_owner_user_id(engine)` → None for 0 users, the id for 1, `RuntimeError` for >1. `POST /api/sync/trigger/garmin` returns 403 unless a key is set and the caller is the owner. `GET /api/auth/garmin/status` → `{connected, configured, error}` (10-min probe cache); Settings/Connect-devices cards show Connected / Key not set / Key rejected / Can't reach Garmin.
+- Owner (`src/database/owner.py`): `get_owner_user_id(engine)` → None for 0 users, the id for 1, `RuntimeError` for >1. `POST /api/sync/trigger/garmin` returns 403 only when no key is set; non-owners get 401 from `get_current_user`, and `/api/auth/login` and `/api/auth/refresh` return 403 "Not the owner account" for non-owners (and when >1 user exists). `GET /api/auth/garmin/status` → `{connected, configured, error}` (10-min probe cache); Settings/Connect-devices cards show Connected / Key not set / Key rejected / Can't reach Garmin.
 - Normalization (`src/normalization/`): `whoop_mapper.py`, `garmin_mapper.py`, `deduplication.py`, `normalizer.py`; field decisions in `config/field_mappings.yaml`; `comparison_tool.py` + `scripts/schema_review.py` for schema review (CSVs to gitignored `data/review/`). Unified tables: `unified_daily`, `unified_sleep`, `unified_workouts`.
 - Analytics (`src/analytics/`, all take `user_id`):
   - `readiness_score.py` — 5 components: whoop_recovery 30%, hrv_trend 25%, body_battery 20%, sleep_quality 15%, training_load 10%; HRV z-score; weights redistribute when a source is missing
   - `workout_analysis.py` (Whoop+Garmin enrichment: strain/min, efficiency, recovery impact), `sleep_analysis.py` (strain↔sleep Pearson r, consistency), `trends.py` (rolling avgs, z-score anomalies, weekly/monthly rollups), `training_load.py` (ACWR), `limiting_factors.py`, `weekly_digest.py`, `anomaly_store.py` (anomaly_cache, filled after each sync), `cache.py` (in-memory TTL)
-- Auth (`src/auth/`): JWT (HS256, `JWT_SECRET`), bcrypt; `get_current_user` on protected routes.
-- API (`src/api/routes/`): readiness, workouts, sleep, recovery, training, trends, insights, sync, auth, account, garmin_upload (`POST /api/garmin/upload`, export import), garmin_csv, waitlist, webhooks. Models in `src/api/models.py`; docs at `/docs`.
+- Auth (`src/auth/`): JWT (HS256, `JWT_SECRET`), bcrypt; `get_current_user` on protected routes accepts the owner only, via a 60 s cached owner lookup (`get_owner_user_id_cached`).
+- API (`src/api/routes/`): readiness, workouts, sleep, recovery, training, trends, insights, sync, auth, account, garmin_upload (`POST /api/garmin/upload`, export import). Models in `src/api/models.py`; docs at `/docs`.
 - DB: `src/database/` (models, `connection.py`, `migrations/`; run at startup).
 - React (`frontend-react/src/`): pages Today `/`, Training, Recovery, Insights, Settings (+ Login, GarminHelp); legacy redirects `/readiness`→`/`, `/workouts`→`/training`, `/sleep`→`/recovery`, `/trends`→`/insights`, `/recovery-activities`→`/recovery`. Hooks in `src/hooks/useApi.ts`, client `src/api/client.ts`, auth token held in memory (`AuthContext`), `DateRangeContext`, routes lazy-loaded.
 
@@ -89,7 +85,6 @@ Whoop notes (Nov 2026; research §7):
 - Always use the venv: `source .venv/bin/activate`
 - Lint with `ruff`: `make lint`, auto-fix `make fmt`
 - `timezone.utc` → `datetime.UTC` (ruff UP017)
-- Frontend `sys.path` manipulation (Streamlit) needs `# noqa: E402` on following imports
 - UI preference: no zoom on any chart (don't add `selection_interval` / brush; React charts currently have none)
 - **Never commit** `.env`, credentials, tokens, DB files, Garmin/Whoop exports, or personal health data. Raw API samples go in gitignored `data/`; test fixtures must be sanitized.
 
@@ -97,7 +92,7 @@ Whoop notes (Nov 2026; research §7):
 A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As of 2026-11-06 the local `.venv` (Python 3.12) and `node_modules` exist, and `.env` exists (gitignored). Garmin sync needs `GARMIN_PERSONAL_API_KEY` in `.env` (optional `GARMIN_PERSONAL_API_BASE_URL`). `uv` is **not** installed globally (`brew install uv`); the old `/opt/homebrew/bin/uv` note is stale.
 - Backend (port 8000): `make run-api`
 - Frontend: `cd frontend-react && npm run dev` — Vite port **5173** (per `vite.config.ts`; old docs also said 5175, wrong), proxies `/api` → `VITE_API_URL` or `http://localhost:8000`
-- `make test` (pytest), `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`; runs with `user_id=None` if no owner exists, Phase 3 fix), `make run-frontend` (legacy Streamlit, port 8501)
+- `make test` (pytest), `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`; exits 1 when there is no owner; runs Whoop and Garmin independently, logs each failure, and exits 1 at the end if any source failed)
 - `cd frontend-react && npm run build` (tsc + vite build → `dist/`), `npm run typecheck`
 - Container: `docker compose up --build` → port 8000; needs `.env` (copy `.env.example`)
 - Local `.env`: `DATABASE_URL=sqlite:///data/fitness_dashboard.db`; `JWT_SECRET` must be set even locally.
@@ -119,12 +114,8 @@ A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As 
 
 ### Deployment: local only
 - Railway (engine.pulsebuilt.net) is shut down, and the Supabase project and its data were deleted (2026-11-06). Don't try to reach either one.
-- FastAPI serves `frontend-react/dist/` (`/assets` StaticFiles + `spa_fallback`, with a `/demo` special case) when `dist/` exists. Same-origin, so `VITE_API_URL` is unneeded.
-- Leftovers that Phase 5 removes or simplifies: `railway.toml`, `frontend-react/vercel.json`, and Supabase tuning in `scripts/start.sh` (single-connection migrations, `sslmode=require`, sequence reset). Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
-
-## Streamlit (legacy, slated for removal)
-- Run: `streamlit run frontend/app.py`. Views live in `frontend/views/`; never use `frontend/pages/` (Streamlit auto-discovers it and breaks manual routing).
-- Charts use Altair directly (v6: `alt.SelectionParameter`); views read unified tables, not raw `whoop_*`.
+- FastAPI serves `frontend-react/dist/` (`/assets` StaticFiles + `spa_fallback`, which stays inside `dist/` and returns 404 for unknown `/api/*`) when `dist/` exists. Same-origin, so `VITE_API_URL` is unneeded.
+- Leftovers that Phase 5 removes or simplifies: `railway.toml` and Supabase tuning in `scripts/start.sh` (single-connection migrations, `sslmode=require`, sequence reset). Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
 
 ## Environment
 - GitHub: https://github.com/UncannyJ33/garmin-whoop-dashboard (private); `gh` authenticated as UncannyJ33

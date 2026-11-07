@@ -18,7 +18,6 @@ class Settings:
 
     # Server
     app_port: int
-    streamlit_port: int
     cors_origins: list
 
     # Garmin Personal API (official, key -> 24h bearer JWT)
@@ -35,15 +34,6 @@ class Settings:
     # Logging
     log_level: str
 
-    # Feature flags
-    whoop_public_oauth_enabled: bool
-    # Per-user Whoop OAuth allowlist — comma-separated user IDs that can connect
-    # Whoop even when whoop_public_oauth_enabled is False
-    whoop_allowed_user_ids: list[str]
-
-    # Admin email for protected admin endpoints
-    admin_email: str
-
 
 settings = Settings(
     whoop_client_id=os.getenv("WHOOP_CLIENT_ID", ""),
@@ -53,8 +43,7 @@ settings = Settings(
     ),
     database_url=os.getenv("DATABASE_URL", "sqlite:///data/fitness_dashboard.db"),
     app_port=int(os.getenv("PORT") or os.getenv("APP_PORT", "8000")),
-    streamlit_port=int(os.getenv("STREAMLIT_PORT", "8501")),
-    cors_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()],
+    cors_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
     garmin_personal_api_key=os.getenv("GARMIN_PERSONAL_API_KEY", ""),
     garmin_personal_api_base_url=os.getenv("GARMIN_PERSONAL_API_BASE_URL")
     or "https://personal.connectapi.garmin.com",
@@ -62,9 +51,4 @@ settings = Settings(
     jwt_secret=os.getenv("JWT_SECRET", ""),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
-    whoop_public_oauth_enabled=os.getenv("WHOOP_PUBLIC_OAUTH_ENABLED", "false").lower() == "true",
-    whoop_allowed_user_ids=[
-        uid.strip() for uid in os.getenv("WHOOP_ALLOWED_USER_IDS", "").split(",") if uid.strip()
-    ],
-    admin_email=os.getenv("ADMIN_EMAIL", ""),
 )

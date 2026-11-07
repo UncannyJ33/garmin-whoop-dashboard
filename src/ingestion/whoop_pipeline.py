@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
@@ -20,6 +21,12 @@ from src.normalization.normalizer import Normalizer, upsert_row
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOOKBACK_DAYS = 30
+# A Whoop cycle can run past 24h and its recovery/sleep scores land after it
+# starts, so re-fetch 2 days (same overlap as Garmin) to catch re-scores.
+INCREMENTAL_OVERLAP_DAYS = 2
+
+# Serialises runs (scheduled + manual); a skipped run returns None, no SyncLog.
+_RUN_LOCK = threading.Lock()
 
 _M = TypeVar("_M")  # ORM model type variable for _upsert
 
@@ -203,7 +210,7 @@ class WhoopPipeline:
     def _get_sync_window(self) -> tuple[datetime, datetime]:
         """Return (start, end) for the next sync window.
 
-        Start is the ``sync_end`` of the last successful sync, or 30 days ago
+        Start is the last successful sync's ``sync_end`` minus the overlap, or 30 days ago
         if no prior sync exists.
         """
         last = (
@@ -218,7 +225,7 @@ class WhoopPipeline:
             try:
                 meta = json.loads(last.metadata_json)
                 start = datetime.fromisoformat(meta["sync_end"])
-                return start, now
+                return start - timedelta(days=INCREMENTAL_OVERLAP_DAYS), now
             except (KeyError, ValueError):
                 logger.warning(
                     "Whoop sync: unreadable sync_log metadata (id=%s); using default lookback",
@@ -230,7 +237,7 @@ class WhoopPipeline:
         self,
         start: datetime | None = None,
         end: datetime | None = None,
-    ) -> SyncLog:
+    ) -> SyncLog | None:
         """Fetch and store Whoop data for the given window.
 
         Args:
@@ -239,11 +246,22 @@ class WhoopPipeline:
             end: Sync window end. Defaults to now.
 
         Returns:
-            The completed SyncLog entry.
+            The completed SyncLog entry, or None if another run holds the lock
+            (no SyncLog is written in that case).
 
         Raises:
             Re-raises any exception from the client after logging the error.
         """
+        if not _RUN_LOCK.acquire(blocking=False):
+            logger.info("Whoop sync already running — skipping this run")
+            return None
+        try:
+            return await self._run_locked(start, end)
+        finally:
+            _RUN_LOCK.release()
+
+    async def _run_locked(self, start: datetime | None, end: datetime | None) -> SyncLog:
+        """Body of :meth:`run`; the caller holds ``_RUN_LOCK``."""
         auto_start, auto_end = self._get_sync_window()
         sync_start = start or auto_start
         sync_end = end or auto_end

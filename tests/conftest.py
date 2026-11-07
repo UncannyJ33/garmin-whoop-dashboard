@@ -8,6 +8,15 @@ os.environ.setdefault("JWT_SECRET", "test-secret-not-real")  # before settings i
 
 from config.settings import settings  # noqa: E402
 from src.clients.garmin_personal_auth import reset_default_auth  # noqa: E402
+from src.database.owner import clear_owner_cache  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _clear_owner_cache():
+    """Each test module builds its own engine and user ids; never leak the cached owner."""
+    clear_owner_cache()
+    yield
+    clear_owner_cache()
 
 
 @pytest.fixture(autouse=True)

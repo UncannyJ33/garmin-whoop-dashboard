@@ -11,7 +11,10 @@ from src.clients.whoop_auth import (
     WHOOP_AUTH_URL,
     WhoopAuth,
     WhoopAuthError,
+    WhoopReauthRequired,
     is_token_expired,
+    set_whoop_auth_error,
+    whoop_auth_error,
 )
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
@@ -374,3 +377,364 @@ def test_is_token_expired_naive_datetime():
         updated_at=datetime.now(tz=UTC).isoformat(),
     )
     assert is_token_expired(record) is False
+
+
+# ---------------------------------------------------------------------------
+# Refresh hardening: lock, force, rotation, re-auth state
+# ---------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+import json  # noqa: E402
+import threading  # noqa: E402
+
+import httpx  # noqa: E402
+
+from src.clients import whoop_auth as whoop_auth_mod  # noqa: E402
+
+_RealAsyncClient = httpx.AsyncClient
+
+
+def _seed(db, *, expired: bool, refresh_token: str = "stored-refresh") -> None:
+    delta = timedelta(hours=-1) if expired else timedelta(hours=1)
+    db.add(
+        TokenStore(
+            service="whoop",
+            access_token="old-access",
+            refresh_token=refresh_token,
+            expires_at=(datetime.now(tz=UTC) + delta).isoformat(),
+            updated_at=datetime.now(tz=UTC).isoformat(),
+        )
+    )
+    db.commit()
+
+
+def _transport_client(handler):
+    """Patch whoop_auth's AsyncClient to a real client over a MockTransport."""
+    return patch(
+        "src.clients.whoop_auth.httpx.AsyncClient",
+        side_effect=lambda *a, **kw: _RealAsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_refresh_single_post(auth, db):
+    """Two get_valid_token calls on an expired row cause exactly one refresh POST."""
+    _seed(db, expired=True)
+    posts: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        posts.append(request.content.decode())
+        await asyncio.sleep(0)
+        return httpx.Response(
+            200, json={"access_token": "new-access", "refresh_token": "r2", "expires_in": 3600}
+        )
+
+    with _transport_client(handler):
+        tokens = await asyncio.gather(auth.get_valid_token(db), auth.get_valid_token(db))
+
+    assert len(posts) == 1
+    assert tokens == ["new-access", "new-access"]
+
+
+class _SpyLock:
+    """threading.Lock wrapper that signals on acquire calls (for deterministic tests)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.acquires = 0
+        self.second_call = threading.Event()
+        self.second_returned = threading.Event()
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        self.acquires += 1
+        n = self.acquires
+        if n == 2:
+            self.second_call.set()
+        got = self._lock.acquire(blocking, timeout)
+        if n == 2 and got:
+            self.second_returned.set()
+        return got
+
+    def release(self) -> None:
+        self._lock.release()
+
+    def locked(self) -> bool:
+        return self._lock.locked()
+
+
+@pytest.mark.asyncio
+async def test_refresh_lock_serialises_across_threads(auth, tmp_path):
+    """A refresh on another loop/session blocks on the lock, then re-reads and skips the POST."""
+    engine = get_engine(f"sqlite:///{tmp_path / 'tok.db'}")
+    run_migrations(engine=engine)
+    Session = get_session_factory(engine)
+    with Session() as seed_db:
+        _seed(seed_db, expired=True)
+    posts: list[str] = []
+    in_post = threading.Event()
+    release_post = threading.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        posts.append(request.content.decode())
+        in_post.set()
+        assert release_post.wait(10)
+        return httpx.Response(
+            200, json={"access_token": "new-access", "refresh_token": "r2", "expires_in": 3600}
+        )
+
+    results: dict[str, str] = {}
+
+    def run(name: str, direct: bool) -> None:
+        async def go() -> None:
+            with Session() as session:
+                if direct:
+                    results[name] = (await auth.refresh_access_token(session)).access_token
+                else:
+                    results[name] = await auth.get_valid_token(session)
+
+        asyncio.run(go())
+
+    spy = _SpyLock()
+    with patch.object(whoop_auth_mod, "_REFRESH_LOCK", spy), _transport_client(handler):
+        t1 = threading.Thread(target=run, args=("a", False))
+        t1.start()
+        assert in_post.wait(10)  # t1 holds the lock, mid-POST
+        t2 = threading.Thread(target=run, args=("b", True))
+        t2.start()
+        assert spy.second_call.wait(10)  # t2 reached the lock
+        assert not spy.second_returned.is_set()  # ...and is blocked on it
+        release_post.set()
+        t1.join(10)
+        t2.join(10)
+
+    engine.dispose()
+    assert spy.acquires == 2
+    assert len(posts) == 1
+    assert results == {"a": "new-access", "b": "new-access"}
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_does_not_leak_lock(auth, db):
+    _seed(db, expired=True)
+    spy = _SpyLock()
+    assert spy.acquire()  # holder (call 1)
+    with patch.object(whoop_auth_mod, "_REFRESH_LOCK", spy):
+        task = asyncio.create_task(auth.refresh_access_token(db))
+        assert await asyncio.to_thread(spy.second_call.wait, 10)  # waiter parked in executor
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        spy.release()  # worker now wins the lock after the waiter is gone
+        assert await asyncio.to_thread(spy.second_returned.wait, 10)
+        for _ in range(200):
+            if not spy.locked():
+                break
+            await asyncio.sleep(0.01)
+        assert not spy.locked()
+
+
+@pytest.mark.asyncio
+async def test_stale_rejection_does_not_flag_after_reconnect(auth, engine, db):
+    """A 400 for a refresh token rotated by a concurrent reconnect must not set the flag."""
+    _seed(db, expired=True, refresh_token="old-refresh")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        with get_session_factory(engine)() as other:  # reconnect lands mid-POST
+            row = other.get(TokenStore, "whoop")
+            row.refresh_token = "reconnected-refresh"
+            other.commit()
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    with _transport_client(handler):
+        with pytest.raises(WhoopAuthError, match="rotated concurrently") as exc_info:
+            await auth.refresh_access_token(db)
+    assert not isinstance(exc_info.value, WhoopReauthRequired)
+    assert whoop_auth_error(None, db) is None
+    assert db.get(TokenStore, "whoop").refresh_token == "reconnected-refresh"
+
+
+@pytest.mark.asyncio
+async def test_rotation_between_400_and_flag_write_does_not_flag(auth, engine, db):
+    """Another process commits a new refresh token after the 400 but before the flag write."""
+    _seed(db, expired=True, refresh_token="old-refresh")
+    real_set = whoop_auth_mod.set_whoop_auth_error
+
+    def set_after_rotation(*args, **kwargs):
+        with get_session_factory(engine)() as other:  # other process rotates mid-way
+            other.get(TokenStore, "whoop").refresh_token = "rotated-refresh"
+            other.commit()
+        return real_set(*args, **kwargs)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    with (
+        _transport_client(handler),
+        patch.object(whoop_auth_mod, "set_whoop_auth_error", side_effect=set_after_rotation),
+    ):
+        with pytest.raises(WhoopAuthError, match="rotated concurrently") as exc_info:
+            await auth.refresh_access_token(db)
+    assert not isinstance(exc_info.value, WhoopReauthRequired)
+    assert whoop_auth_error(None, db) is None
+    assert db.get(TokenStore, "whoop", populate_existing=True).refresh_token == "rotated-refresh"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", [None, ""])
+async def test_row_without_refresh_token_flags_reauth(auth, db, empty):
+    _seed(db, expired=True)
+    db.get(TokenStore, "whoop").refresh_token = empty
+    db.commit()
+    with pytest.raises(WhoopReauthRequired):
+        await auth.refresh_access_token(db)
+    assert whoop_auth_error(None, db) is not None
+    assert db.get(TokenStore, "whoop") is not None
+
+
+@pytest.mark.asyncio
+async def test_forced_refresh_posts_even_when_unexpired(auth, db):
+    _seed(db, expired=False)
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        posts.append(request.content.decode())
+        return httpx.Response(200, json={"access_token": "forced-access", "expires_in": 3600})
+
+    with _transport_client(handler):
+        record = await auth.refresh_access_token(db, force=True)
+
+    assert len(posts) == 1
+    assert "refresh_token=stored-refresh" in posts[0]
+    assert record.access_token == "forced-access"
+
+
+@pytest.mark.asyncio
+async def test_unforced_refresh_skips_post_when_row_already_fresh(auth, db):
+    _seed(db, expired=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("must not POST")
+
+    with _transport_client(handler):
+        record = await auth.refresh_access_token(db)
+    assert record.access_token == "old-access"
+
+
+@pytest.mark.asyncio
+async def test_refresh_rereads_row_changed_by_other_session(auth, engine, db):
+    """The refresh uses the re-read refresh_token, not a stale identity-map copy."""
+    _seed(db, expired=True, refresh_token="stale-refresh")
+    db.get(TokenStore, "whoop")  # populate identity map
+    with get_session_factory(engine)() as other:
+        row = other.get(TokenStore, "whoop")
+        row.refresh_token = "rotated-refresh"
+        other.commit()
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        posts.append(request.content.decode())
+        return httpx.Response(200, json={"access_token": "n", "expires_in": 3600})
+
+    with _transport_client(handler):
+        await auth.refresh_access_token(db)
+    assert "refresh_token=rotated-refresh" in posts[0]
+
+
+@pytest.mark.asyncio
+async def test_refresh_persists_rotated_refresh_token(auth, db):
+    _seed(db, expired=True)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"access_token": "n", "refresh_token": "rotated", "expires_in": 3600}
+        )
+
+    with _transport_client(handler):
+        record = await auth.refresh_access_token(db)
+    assert record.refresh_token == "rotated"
+    assert db.get(TokenStore, "whoop").refresh_token == "rotated"
+
+
+@pytest.mark.asyncio
+async def test_refresh_400_raises_reauth_and_keeps_row(auth, db):
+    _seed(db, expired=True)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    with _transport_client(handler):
+        with pytest.raises(WhoopReauthRequired) as exc_info:
+            await auth.refresh_access_token(db)
+    assert isinstance(exc_info.value, WhoopAuthError)
+    assert "stored-refresh" not in str(exc_info.value)
+    assert db.get(TokenStore, "whoop") is not None
+    assert whoop_auth_error(None, db) == str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_refresh_503_raises_auth_error_without_reauth_state(auth, db):
+    _seed(db, expired=True)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    with _transport_client(handler):
+        with pytest.raises(WhoopAuthError) as exc_info:
+            await auth.refresh_access_token(db)
+    assert not isinstance(exc_info.value, WhoopReauthRequired)
+    assert whoop_auth_error(None, db) is None
+
+
+@pytest.mark.asyncio
+async def test_successful_refresh_clears_auth_error(auth, db):
+    _seed(db, expired=True)
+    set_whoop_auth_error(None, "reconnect Whoop", db)
+    assert whoop_auth_error(None, db) == "reconnect Whoop"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"access_token": "n", "expires_in": 3600})
+
+    with _transport_client(handler):
+        await auth.refresh_access_token(db)
+    assert whoop_auth_error(None, db) is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_lock_timeout_raises(auth, db):
+    _seed(db, expired=True)
+    with patch.object(whoop_auth_mod, "_REFRESH_LOCK_TIMEOUT_S", 0.05):
+        assert whoop_auth_mod._REFRESH_LOCK.acquire(blocking=False)
+        try:
+            with pytest.raises(WhoopAuthError, match="Timed out"):
+                await auth.refresh_access_token(db)
+        finally:
+            whoop_auth_mod._REFRESH_LOCK.release()
+
+
+def test_auth_error_helpers_edge_cases(db):
+    # no row: no-op / None
+    assert whoop_auth_error("u1", db) is None
+    set_whoop_auth_error("u1", "x", db)
+    assert db.get(TokenStore, "whoop_u1") is None
+    # NULL and non-JSON token_data_json read as "no error"
+    db.add(
+        TokenStore(
+            service="whoop_u1",
+            access_token="a",
+            refresh_token="r",
+            expires_at="x",
+            updated_at="x",
+            user_id="u1",
+        )
+    )
+    db.commit()
+    assert whoop_auth_error("u1", db) is None
+    db.get(TokenStore, "whoop_u1").token_data_json = "not json"
+    db.commit()
+    assert whoop_auth_error("u1", db) is None
+    # set then clear
+    set_whoop_auth_error("u1", "boom", db)
+    assert whoop_auth_error("u1", db) == "boom"
+    set_whoop_auth_error("u1", None, db)
+    assert whoop_auth_error("u1", db) is None
+    assert json.loads(db.get(TokenStore, "whoop_u1").token_data_json) == {}

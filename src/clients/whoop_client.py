@@ -86,10 +86,13 @@ class WhoopClient:
             # 401 — refresh token once and retry
             if response.status_code == 401:
                 if _token_refreshed:
+                    # The refresh just succeeded, so the grant is valid: this is more
+                    # likely an endpoint/scope problem or a blip. Don't flag re-auth;
+                    # only a refresh-endpoint 400/401 does that (whoop_auth.py).
                     logger.error("401 on %s even after token refresh", path)
-                    raise WhoopAPIError(f"401 on {path} after token refresh — re-authorize")
+                    raise WhoopAPIError(f"Whoop returned 401 on {path} after a successful refresh")
                 logger.warning("401 on %s — refreshing token and retrying", path)
-                await self._auth.refresh_access_token(self._db, user_id=self._user_id)
+                await self._auth.refresh_access_token(self._db, user_id=self._user_id, force=True)
                 return await self._request(path, params, _token_refreshed=True)
 
             # 429 — exponential backoff up to _MAX_RATE_LIMIT_RETRIES

@@ -2,11 +2,10 @@
 
 Covers:
 1. Device management — Whoop disconnect removes token; status reflects disconnected state
-2. Data export — GET /api/account/export returns user-scoped ZIP with 4 CSVs
+2. Data export — GET /api/account/export returns user-scoped ZIP with 5 CSVs
 3. Password change — correct password succeeds; wrong/short password rejected
-4. Account deletion — removes ALL data from ALL tables
-5. Deletion invalidates session — subsequent refresh fails with 401
-6. Cross-user isolation — export and deletion only touch the calling user's rows
+4. Account deletion route is gone
+5. Cross-user isolation — export only returns the calling user's rows
 """
 
 from __future__ import annotations
@@ -109,20 +108,6 @@ def _seed_garmin_token(engine, user_id: str) -> None:
                 " VALUES (:svc, 'at', 'rt', '2099-01-01', '2026-01-01', :uid)"
             ),
             {"svc": f"garmin_{user_id}", "uid": user_id},
-        )
-
-
-def _seed_garmin_credentials(engine, user_id: str) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                "INSERT OR IGNORE INTO garmin_credentials"
-                " (user_id, encrypted_email, encrypted_password,"
-                "  auto_sync_enabled, consent_given_at, created_at, updated_at)"
-                " VALUES (:uid, 'enc_email', 'enc_pass', 1,"
-                "  '2026-01-01', '2026-01-01', '2026-01-01')"
-            ),
-            {"uid": user_id},
         )
 
 
@@ -270,6 +255,19 @@ class TestWhoopDisconnect:
         assert res.status_code == 200
         assert res.json()["connected"] is False
 
+    def test_whoop_status_needs_reauth(self):
+        _seed_whoop_token(self.engine, USER_A)
+        res = self.client.get("/api/auth/whoop/status", headers=_auth(USER_A))
+        assert res.json() == {"connected": True, "needs_reauth": False, "error": None}
+
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE token_store SET token_data_json = :j WHERE service = :k"),
+                {"j": '{"auth_error": "reconnect Whoop"}', "k": f"whoop_{USER_A}"},
+            )
+        res = self.client.get("/api/auth/whoop/status", headers=_auth(USER_A))
+        assert res.json() == {"connected": True, "needs_reauth": True, "error": "reconnect Whoop"}
+
     def test_disconnect_is_idempotent_when_no_token(self):
         """204 even if the token doesn't exist — safe to call multiple times."""
         res = self.client.delete("/api/auth/whoop/disconnect", headers=_auth(USER_A))
@@ -280,7 +278,6 @@ class TestWhoopDisconnect:
         assert res.status_code == 401
 
     def test_disconnect_does_not_affect_other_user(self):
-        _seed_user(self.engine, USER_B, EMAIL_B, PASSWORD)
         _seed_whoop_token(self.engine, USER_A)
         _seed_whoop_token(self.engine, USER_B)
 
@@ -307,11 +304,37 @@ class TestDataExport:
         assert res.status_code == 200
         assert "application/zip" in res.headers["content-type"]
 
-    def test_export_contains_four_csv_files(self):
+    def test_export_contains_five_csv_files(self):
         res = self.client.get("/api/account/export", headers=_auth(USER_A))
         with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
             names = set(zf.namelist())
-        assert names == {"workouts.csv", "sleep.csv", "daily_metrics.csv", "recovery.csv"}
+        assert names == {
+            "workouts.csv",
+            "sleep.csv",
+            "daily_metrics.csv",
+            "recovery.csv",
+            "garmin_exercise_summaries.csv",
+        }
+
+    def test_export_includes_exercise_summaries(self):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO garmin_exercise_summaries"
+                    " (activity_id, exercise_name, set_count, fetched_at, user_id)"
+                    " VALUES ('act-1', 'BENCH_PRESS', 3, '2026-01-01T00:00:00', :uid)"
+                ),
+                {"uid": USER_A},
+            )
+        res = self.client.get("/api/account/export", headers=_auth(USER_A))
+        with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+            lines = zf.read("garmin_exercise_summaries.csv").decode().strip().splitlines()
+        assert len(lines) == 2  # header + 1 data row
+        assert "BENCH_PRESS" in lines[1]
+
+    def test_delete_account_route_gone(self):
+        res = self.client.delete("/api/account", headers=_auth(USER_A))
+        assert res.status_code in (404, 405)
 
     def test_export_includes_own_data(self):
         """Seeded rows appear in the export."""
@@ -336,7 +359,6 @@ class TestDataExport:
 
     def test_export_excludes_other_user_data(self):
         """Rows belonging to USER_B must not appear in USER_A's export."""
-        _seed_user(self.engine, USER_B, EMAIL_B, PASSWORD)
         _seed_unified_workout(self.engine, USER_B, "export-w-b1")
         _seed_unified_sleep(self.engine, USER_B, "2026-03-01")
 
@@ -421,158 +443,12 @@ class TestChangePassword:
         assert res.status_code == 401
 
 
-# ---------------------------------------------------------------------------
-# 4 + 5. Account deletion — removes all data; JWT invalidated
-# ---------------------------------------------------------------------------
-
-
-class TestDeleteAccount:
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        self.engine = _make_engine()
-        _seed_user(self.engine, USER_A, EMAIL_A, PASSWORD)
-        self.client = _make_client(self.engine)
-
-    def _seed_full_dataset(self, user_id: str) -> None:
-        """Seed one row into every table the delete endpoint touches."""
-        cycle_id = f"del-cycle-{user_id}"
-        _seed_whoop_token(self.engine, user_id)
-        _seed_garmin_token(self.engine, user_id)
-        _seed_garmin_credentials(self.engine, user_id)
-        _seed_sync_log(self.engine, user_id)
-        _seed_unified_workout(self.engine, user_id, f"del-w-{user_id}")
-        _seed_unified_sleep(self.engine, user_id, f"2026-04-0{user_id[-1]}")
-        _seed_unified_daily(self.engine, user_id, f"2026-04-0{user_id[-1]}")
-        _seed_whoop_cycle(self.engine, user_id, cycle_id)
-        _seed_whoop_recovery(self.engine, user_id, cycle_id)
-        _seed_whoop_sleep(self.engine, user_id, cycle_id)
-        _seed_whoop_workout(self.engine, user_id, cycle_id)
-
-    def test_delete_removes_user_row(self):
-        res = self.client.delete("/api/account", headers=_auth(USER_A))
-        assert res.status_code == 204
-
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT id FROM users WHERE id = :uid"), {"uid": USER_A}
-            ).one_or_none()
-        assert row is None
-
-    def test_delete_removes_all_table_data(self):
-        self._seed_full_dataset(USER_A)
-
-        self.client.delete("/api/account", headers=_auth(USER_A))
-
-        # Token store
-        assert not _token_exists(self.engine, f"whoop_{USER_A}")
-        assert not _token_exists(self.engine, f"garmin_{USER_A}")
-
-        # Credentials
-        assert _count(self.engine, "garmin_credentials", "user_id", USER_A) == 0
-
-        # Sync log
-        assert _count(self.engine, "sync_log", "user_id", USER_A) == 0
-
-        # Unified tables
-        assert _count(self.engine, "unified_workouts", "user_id", USER_A) == 0
-        assert _count(self.engine, "unified_sleep", "user_id", USER_A) == 0
-        assert _count(self.engine, "unified_daily", "user_id", USER_A) == 0
-
-        # Whoop source tables
-        assert _count(self.engine, "whoop_recovery", "user_id", USER_A) == 0
-        assert _count(self.engine, "whoop_sleep", "user_id", USER_A) == 0
-        assert _count(self.engine, "whoop_workouts", "user_id", USER_A) == 0
-        assert _count(self.engine, "whoop_cycles", "app_user_id", USER_A) == 0
-
-        # User row
-        assert _count(self.engine, "users", "id", USER_A) == 0
-
-    def test_delete_removes_exercise_summaries(self):
-        with self.engine.begin() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO garmin_activities (activity_id, fetched_at, user_id)"
-                    " VALUES ('act-1', '2026-01-01', :uid)"
-                ),
-                {"uid": USER_A},
-            )
-            conn.execute(
-                text(
-                    "INSERT INTO garmin_exercise_summaries (activity_id, fetched_at, user_id)"
-                    " VALUES ('act-1', '2026-01-01', :uid)"
-                ),
-                {"uid": USER_A},
-            )
-
-        res = self.client.delete("/api/account", headers=_auth(USER_A))
-
-        assert res.status_code == 204
-        assert _count(self.engine, "garmin_exercise_summaries", "user_id", USER_A) == 0
-        assert _count(self.engine, "garmin_activities", "user_id", USER_A) == 0
-
-    def test_delete_invalidates_refresh_token(self):
-        """After account deletion, the refresh endpoint must return 401."""
-        # Obtain a real refresh token before deletion
-        res = self.client.post(
-            "/api/auth/login", json={"email": EMAIL_A, "password": PASSWORD}
-        )
-        refresh_token = res.json()["refresh_token"]
-
-        self.client.delete("/api/account", headers=_auth(USER_A))
-
-        # Refresh must now fail because the user row no longer exists
-        res = self.client.post(
-            "/api/auth/refresh",
-            headers={"Authorization": f"Bearer {refresh_token}"},
-        )
-        assert res.status_code == 401
-
-    def test_delete_requires_auth(self):
-        res = self.client.delete("/api/account")
-        assert res.status_code == 401
-
-    def test_delete_is_idempotent_at_data_level(self):
-        """A second DELETE after the user is already gone still returns 204
-        (or at worst 404) — it must not raise an unhandled server error."""
-        self.client.delete("/api/account", headers=_auth(USER_A))
-        # Old JWT is still structurally valid even though user is gone
-        res = self.client.delete("/api/account", headers=_auth(USER_A))
-        assert res.status_code in (204, 404)
-
-
-# ---------------------------------------------------------------------------
-# 6. Cross-user isolation — deletion only touches the calling user's rows
-# ---------------------------------------------------------------------------
-
-
 class TestDeleteCrossUserIsolation:
     @pytest.fixture(autouse=True)
     def setup(self):
         self.engine = _make_engine()
         _seed_user(self.engine, USER_A, EMAIL_A, PASSWORD)
-        _seed_user(self.engine, USER_B, EMAIL_B, PASSWORD)
         self.client = _make_client(self.engine)
-
-    def test_delete_leaves_other_user_intact(self):
-        cycle_b = "iso-cycle-b"
-        _seed_whoop_token(self.engine, USER_A)
-        _seed_whoop_token(self.engine, USER_B)
-        _seed_sync_log(self.engine, USER_A)
-        _seed_sync_log(self.engine, USER_B)
-        _seed_whoop_cycle(self.engine, USER_B, cycle_b)
-        _seed_whoop_recovery(self.engine, USER_B, cycle_b)
-
-        self.client.delete("/api/account", headers=_auth(USER_A))
-
-        # USER_A's data is gone
-        assert not _token_exists(self.engine, f"whoop_{USER_A}")
-        assert _count(self.engine, "sync_log", "user_id", USER_A) == 0
-
-        # USER_B's data is untouched
-        assert _token_exists(self.engine, f"whoop_{USER_B}")
-        assert _count(self.engine, "sync_log", "user_id", USER_B) == 1
-        assert _count(self.engine, "whoop_recovery", "user_id", USER_B) == 1
-        assert _count(self.engine, "users", "id", USER_B) == 1
 
     def test_export_isolation(self):
         """USER_A's export contains only USER_A's workout, not USER_B's."""

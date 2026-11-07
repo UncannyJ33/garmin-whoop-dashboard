@@ -10,7 +10,6 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
-import { InstallPrompt } from '../InstallPrompt'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 
 // ── Offline banner ─────────────────────────────────────────────────────────
@@ -130,7 +129,7 @@ function BottomTabBar() {
 
 // ── Layout ─────────────────────────────────────────────────────────────────
 
-export function Layout({ children }: { children?: React.ReactNode } = {}) {
+export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const isOnline = useOnlineStatus()
 
@@ -147,14 +146,13 @@ export function Layout({ children }: { children?: React.ReactNode } = {}) {
         {/* Mobile-only header */}
         <Header onMenuClick={() => setSidebarOpen(true)} />
 
-        <InstallPrompt />
         {!isOnline && <OfflineBanner />}
 
         <main
           className="flex-1 overflow-y-auto"
           style={{ padding: '24px', maxWidth: '1200px', width: '100%', margin: '0 auto' }}
         >
-          {children ?? <Outlet />}
+          <Outlet />
         </main>
 
         {/* Mobile bottom tab bar */}

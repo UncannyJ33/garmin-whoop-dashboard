@@ -298,6 +298,13 @@ class Normalizer:
             self._upsert(UnifiedWorkout, "id", data)
             rows_written += 1
 
+            if result.matched and result.garmin_activity is not None:
+                # Garmin may have been normalized alone before this Whoop workout
+                # arrived; drop its Garmin-only row so the activity isn't counted twice.
+                stale = self._db.get(UnifiedWorkout, f"g_{result.garmin_activity.activity_id}")
+                if stale is not None:
+                    self._db.delete(stale)
+
         for garmin in unmatched_garmin:
             data = map_garmin_workout(garmin, self._mappings)
             data["last_updated"] = now

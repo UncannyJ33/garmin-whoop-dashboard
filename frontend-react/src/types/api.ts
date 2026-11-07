@@ -362,16 +362,6 @@ export interface WithWithoutResponse {
 // Garmin import / upload
 // ---------------------------------------------------------------------------
 
-// Backend: CSVImportResponse (POST /api/garmin/csv-import)
-export interface CSVImportResult {
-  imported: number
-  skipped_duplicates: number
-  skipped_errors: number
-  date_range: string | null
-  training_load_note: string
-  row_errors: string[]
-}
-
 // Backend: UploadResponse (POST /api/garmin/upload)
 export interface UploadResult {
   imported: number
@@ -383,16 +373,24 @@ export interface UploadResult {
   training_load_note: string | null
 }
 
+export interface ExerciseSummaryItem {
+  exercise_category: string | null
+  exercise_name: string | null
+  set_count: number | null
+  repetition_count: number | null
+  volume_kg: number | null
+  max_weight_kg: number | null
+  duration_seconds: number | null
+}
+
 // ---------------------------------------------------------------------------
 // Raw JSONResponse endpoints (/api/auth/*)
 // ---------------------------------------------------------------------------
 
-export interface FeatureFlags {
-  whoop_oauth_enabled: boolean
-}
-
 export interface WhoopStatus {
   connected: boolean
+  needs_reauth: boolean
+  error: string | null
 }
 
 export interface GarminStatus {
