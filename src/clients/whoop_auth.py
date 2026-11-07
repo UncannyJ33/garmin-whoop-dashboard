@@ -31,6 +31,11 @@ SCOPES = [
 TOKEN_EXPIRY_BUFFER_SECONDS = 300
 
 
+# Defense in depth: the pipeline's ``_RUN_LOCK`` already serialises in-process
+# pipeline runs, but this lock also covers non-pipeline callers (e.g. API routes).
+# It does NOT cover other processes (``make run-sync`` beside the server
+# scheduler); for those see the ``expected_refresh_token`` check in
+# ``set_whoop_auth_error``.
 # Serialises token refreshes across the scheduler thread (its own event loop via
 # asyncio.run) and the FastAPI loop. Must be a threading.Lock: an asyncio.Lock is
 # bound to one loop. Whoop rotates refresh tokens, so two concurrent refreshes
@@ -98,17 +103,35 @@ async def _acquire_refresh_lock() -> bool:
         raise
 
 
-def set_whoop_auth_error(user_id: str | None, message: str | None, db: Session) -> None:
+def set_whoop_auth_error(
+    user_id: str | None,
+    message: str | None,
+    db: Session,
+    *,
+    expected_refresh_token: str | None = None,
+) -> bool:
     """Set (or, with ``None``, clear) ``auth_error`` in the token row's JSON.
 
-    No token row means no-op. The message must never contain token values.
+    No token row means no-op (returns False). The message must never contain
+    token values.
+
+    Args:
+        user_id: App user UUID selecting the token row.
+        message: Error text to persist, or ``None`` to clear.
+        db: Active session.
+        expected_refresh_token: When given, the row is re-read and the flag is
+            only written if its ``refresh_token`` still equals this value;
+            otherwise another process rotated the token and nothing is written.
+
+    Returns:
+        True if the row was updated, False if skipped (no row, or the refresh
+        token no longer matches ``expected_refresh_token``).
     """
-    record = db.get(TokenStore, _service_key(user_id))
-    if record is not None:
-        db.expire(record)  # re-read before the read-modify-write
-        record = db.get(TokenStore, _service_key(user_id))
+    record = db.get(TokenStore, _service_key(user_id), populate_existing=True)
     if record is None:
-        return
+        return False
+    if expected_refresh_token is not None and record.refresh_token != expected_refresh_token:
+        return False
     try:
         data = json.loads(record.token_data_json) if record.token_data_json else {}
     except (ValueError, TypeError):
@@ -121,6 +144,7 @@ def set_whoop_auth_error(user_id: str | None, message: str | None, db: Session) 
         data["auth_error"] = message
     record.token_data_json = json.dumps(data)
     db.commit()
+    return True
 
 
 class WhoopAuth:
@@ -213,11 +237,8 @@ class WhoopAuth:
         if not acquired:
             raise WhoopAuthError("Timed out waiting for Whoop token refresh")
         try:
-            record = db.get(TokenStore, service_key)
-            if record is not None:
-                # Force a real SELECT: db.get alone returns the identity-map copy.
-                db.expire(record)
-                record = db.get(TokenStore, service_key)
+            # populate_existing forces a real SELECT instead of the identity-map copy.
+            record = db.get(TokenStore, service_key, populate_existing=True)
             if record is None:
                 raise WhoopAuthError("No refresh token available. Complete the OAuth flow first.")
             if not record.refresh_token:
@@ -243,18 +264,16 @@ class WhoopAuth:
                 except httpx.HTTPStatusError as e:
                     status = e.response.status_code
                     if status in (400, 401):
-                        current = db.get(TokenStore, service_key)
-                        if current is not None:
-                            db.expire(current)
-                            current = db.get(TokenStore, service_key)
-                        if current is None or current.refresh_token != sent_refresh_token:
-                            # A reconnect/rotation landed meanwhile; the rejection is stale.
+                        msg = f"Whoop rejected the token refresh ({status}); reconnect Whoop"
+                        logger.warning("Whoop token refresh rejected: %s", status)
+                        # Re-reads the row; skips the flag if another caller/process
+                        # rotated the refresh token while our POST was in flight.
+                        if not set_whoop_auth_error(
+                            user_id, msg, db, expected_refresh_token=sent_refresh_token
+                        ):
                             raise WhoopAuthError(
                                 "refresh token was rotated concurrently; retry"
                             ) from e
-                        msg = f"Whoop rejected the token refresh ({status}); reconnect Whoop"
-                        logger.warning("Whoop token refresh rejected: %s", status)
-                        set_whoop_auth_error(user_id, msg, db)
                         raise WhoopReauthRequired(msg) from e
                     raise WhoopAuthError(f"Token refresh failed: {status}") from e
 
@@ -276,7 +295,7 @@ class WhoopAuth:
         Raises:
             WhoopAuthError: If no token exists or refresh fails.
         """
-        service_key = f"whoop_{user_id}" if user_id else "whoop"
+        service_key = _service_key(user_id)
         record = db.get(TokenStore, service_key)
         if record is None:
             raise WhoopAuthError("Not authenticated. Visit /api/auth/whoop/url to authorize.")
@@ -297,7 +316,7 @@ class WhoopAuth:
         Returns:
             True if a TokenStore row with service key ``"whoop_{user_id}"`` exists.
         """
-        service_key = f"whoop_{user_id}"
+        service_key = _service_key(user_id)
         record = db.get(TokenStore, service_key)
         return record is not None
 
@@ -334,7 +353,7 @@ def _store_tokens(token_data: dict, db: Session, user_id: str | None = None) -> 
     Returns:
         The saved TokenStore record.
     """
-    service_key = f"whoop_{user_id}" if user_id else "whoop"
+    service_key = _service_key(user_id)
     now = datetime.now(tz=UTC)
     expires_at = now + timedelta(seconds=token_data.get("expires_in", 3600))
 

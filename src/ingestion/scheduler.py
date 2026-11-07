@@ -118,7 +118,7 @@ def _run_whoop_sync() -> None:
     sync holds the run lock.
     """
     from src.api.dependencies import _engine as app_engine
-    from src.clients.whoop_auth import WhoopReauthRequired, auth_error_from_json
+    from src.clients.whoop_auth import WhoopReauthRequired, _service_key, auth_error_from_json
     from src.ingestion.whoop_pipeline import WhoopPipeline
 
     owner = _resolve_owner(app_engine, "Whoop")
@@ -129,7 +129,7 @@ def _run_whoop_sync() -> None:
         with app_engine.connect() as conn:
             row = conn.execute(
                 text("SELECT token_data_json FROM token_store WHERE service = :key"),
-                {"key": f"whoop_{owner}"},
+                {"key": _service_key(owner)},
             ).first()
     except Exception:
         logger.exception("Whoop sync: could not check token — skipping run")

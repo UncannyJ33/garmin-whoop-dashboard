@@ -160,14 +160,15 @@ async def test_401_triggers_token_refresh_and_retries(client, mock_auth):
 
 
 @pytest.mark.asyncio
-async def test_client_persistent_401_raises_reauth(client, mock_auth):
-    """A 401 that recurs after a forced refresh raises WhoopReauthRequired and records it."""
+async def test_second_401_after_successful_refresh_does_not_flag_reauth(client, mock_auth):
+    """A 401 right after a successful forced refresh is a plain API error, not a re-auth flag."""
     with mock_http(make_response(401, {}), make_response(401, {})):
-        with patch("src.clients.whoop_client.set_whoop_auth_error") as mock_set:
-            with pytest.raises(WhoopReauthRequired, match="401"):
+        with patch("src.clients.whoop_auth.set_whoop_auth_error") as mock_set:
+            with pytest.raises(WhoopAPIError, match="401") as exc_info:
                 await client.get_profile()
+    assert not isinstance(exc_info.value, WhoopReauthRequired)
     mock_auth.refresh_access_token.assert_awaited_once()
-    mock_set.assert_called_once()
+    mock_set.assert_not_called()
     assert isinstance(WhoopReauthRequired("x"), WhoopAuthError)
 
 

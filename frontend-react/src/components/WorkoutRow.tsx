@@ -194,7 +194,7 @@ function ExerciseSummaryTable({ items }: { items: ExerciseSummaryItem[] }) {
             <td className="py-1.5 pr-4" style={cell}>{it.set_count ?? '—'}</td>
             <td className="py-1.5 pr-4" style={cell}>{it.repetition_count ?? '—'}</td>
             <td className="py-1.5 pr-4" style={cell}>
-              {it.max_weight_kg ? (it.max_weight_kg * KG_TO_LB).toFixed(1) : 'BW'}
+              {it.max_weight_kg == null ? '—' : it.max_weight_kg === 0 ? 'BW' : (it.max_weight_kg * KG_TO_LB).toFixed(1)}
             </td>
             <td className="py-1.5" style={cell}>
               {it.volume_kg ? (it.volume_kg * KG_TO_LB).toFixed(0) : '—'}

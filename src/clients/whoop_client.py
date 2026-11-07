@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 from sqlalchemy.orm import Session
 
-from src.clients.whoop_auth import WhoopAuth, WhoopReauthRequired, set_whoop_auth_error
+from src.clients.whoop_auth import WhoopAuth
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,6 @@ class WhoopClient:
 
         Raises:
             WhoopAPIError: After exhausting retries or on an unrecoverable error.
-            WhoopReauthRequired: A 401 persists after a forced token refresh.
         """
         url = f"{WHOOP_BASE_URL}{path}"
 
@@ -87,10 +86,11 @@ class WhoopClient:
             # 401 — refresh token once and retry
             if response.status_code == 401:
                 if _token_refreshed:
+                    # The refresh just succeeded, so the grant is valid: this is more
+                    # likely an endpoint/scope problem or a blip. Don't flag re-auth;
+                    # only a refresh-endpoint 400/401 does that (whoop_auth.py).
                     logger.error("401 on %s even after token refresh", path)
-                    msg = f"Whoop returned 401 on {path} after token refresh; reconnect Whoop"
-                    set_whoop_auth_error(self._user_id, msg, self._db)
-                    raise WhoopReauthRequired(msg)
+                    raise WhoopAPIError(f"Whoop returned 401 on {path} after a successful refresh")
                 logger.warning("401 on %s — refreshing token and retrying", path)
                 await self._auth.refresh_access_token(self._db, user_id=self._user_id, force=True)
                 return await self._request(path, params, _token_refreshed=True)

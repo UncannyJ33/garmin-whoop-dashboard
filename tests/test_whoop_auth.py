@@ -554,6 +554,32 @@ async def test_stale_rejection_does_not_flag_after_reconnect(auth, engine, db):
 
 
 @pytest.mark.asyncio
+async def test_rotation_between_400_and_flag_write_does_not_flag(auth, engine, db):
+    """Another process commits a new refresh token after the 400 but before the flag write."""
+    _seed(db, expired=True, refresh_token="old-refresh")
+    real_set = whoop_auth_mod.set_whoop_auth_error
+
+    def set_after_rotation(*args, **kwargs):
+        with get_session_factory(engine)() as other:  # other process rotates mid-way
+            other.get(TokenStore, "whoop").refresh_token = "rotated-refresh"
+            other.commit()
+        return real_set(*args, **kwargs)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    with (
+        _transport_client(handler),
+        patch.object(whoop_auth_mod, "set_whoop_auth_error", side_effect=set_after_rotation),
+    ):
+        with pytest.raises(WhoopAuthError, match="rotated concurrently") as exc_info:
+            await auth.refresh_access_token(db)
+    assert not isinstance(exc_info.value, WhoopReauthRequired)
+    assert whoop_auth_error(None, db) is None
+    assert db.get(TokenStore, "whoop", populate_existing=True).refresh_token == "rotated-refresh"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("empty", [None, ""])
 async def test_row_without_refresh_token_flags_reauth(auth, db, empty):
     _seed(db, expired=True)

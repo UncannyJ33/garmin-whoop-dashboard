@@ -9,10 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
-from src.api.dependencies import get_db
+from src.api.dependencies import get_db, get_engine_dep
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.auth.schemas import TokenResponse, UserLogin, UserResponse
@@ -23,7 +23,8 @@ from src.auth.security import (
     hash_password,
     verify_password,
 )
-from src.clients.whoop_auth import WhoopAuth, WhoopAuthError, whoop_auth_error
+from src.clients.whoop_auth import WhoopAuth, WhoopAuthError, _service_key, whoop_auth_error
+from src.database.owner import get_owner_user_id_cached
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -52,8 +53,24 @@ def _check_rate_limit(ip: str) -> None:
 # ── JWT endpoints ─────────────────────────────────────────────────────────────
 
 
+def _require_owner(user_id: str, engine: Engine) -> None:
+    """Raise 403 unless ``user_id`` is the single owner (every protected route is owner-only)."""
+    try:
+        owner_id = get_owner_user_id_cached(engine)
+    except RuntimeError:
+        logger.error("users table has more than one row; refusing to issue tokens")
+        owner_id = None
+    if user_id != owner_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not the owner account")
+
+
 @router.post("/login", response_model=TokenResponse, summary="Login and receive JWT tokens")
-def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+def login(
+    body: UserLogin,
+    request: Request,
+    db: Session = Depends(get_db),
+    engine: Engine = Depends(get_engine_dep),
+) -> TokenResponse:
     """Authenticate with email + password. Returns access + refresh tokens."""
     ip = request.client.host if request.client else "unknown"
     _check_rate_limit(ip)
@@ -71,6 +88,7 @@ def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> T
         )
     if not user["is_active"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled.")
+    _require_owner(user["id"], engine)
 
     access_token, access_expires = create_access_token(user["id"])
     refresh_token, _ = create_refresh_token(user["id"])
@@ -85,7 +103,11 @@ def login(body: UserLogin, request: Request, db: Session = Depends(get_db)) -> T
 @router.post(
     "/refresh", response_model=TokenResponse, summary="Exchange refresh token for new access token"
 )
-def refresh_token(request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+def refresh_token(
+    request: Request,
+    db: Session = Depends(get_db),
+    engine: Engine = Depends(get_engine_dep),
+) -> TokenResponse:
     """Pass a refresh token in the Authorization: Bearer header to get a new access token."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -112,6 +134,7 @@ def refresh_token(request: Request, db: Session = Depends(get_db)) -> TokenRespo
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise invalid
+    _require_owner(user.id, engine)
 
     access_token, access_expires = create_access_token(user.id)
     new_refresh, _ = create_refresh_token(user.id)
@@ -342,7 +365,7 @@ async def whoop_disconnect(
     """
     from src.database.models import TokenStore
 
-    record = db.get(TokenStore, f"whoop_{current_user.id}")
+    record = db.get(TokenStore, _service_key(current_user.id))
     if record:
         db.delete(record)
         db.commit()
