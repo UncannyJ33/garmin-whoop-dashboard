@@ -85,14 +85,22 @@ def whoop_windows(
 
 
 def api_running(port: int) -> bool:
-    """Return True if an API server answers on ``port``; a timeout counts as running."""
+    """Return True if this dashboard's API answers on ``port``; a timeout counts as running."""
     try:
-        httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=1.0)
-    except httpx.ConnectError:
-        return False
+        resp = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=1.0)
     except httpx.TimeoutException:
         return True
-    return True
+    except httpx.ConnectError:
+        return False
+    except httpx.HTTPError:
+        return False
+    try:
+        if resp.status_code == 200 and resp.json().get("app") == "pulse-dashboard":
+            return True
+    except (ValueError, AttributeError):
+        pass
+    print(f"Note: port {port} is used by another program (not this dashboard).")
+    return False
 
 
 def _resume_hint(source: str, chunk_start: date) -> str:

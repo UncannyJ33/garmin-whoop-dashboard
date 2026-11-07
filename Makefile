@@ -25,6 +25,8 @@ frontend-react/dist/index.html: $(FRONTEND_SRC) frontend-react/index.html \
 build-frontend: frontend-react/dist/index.html
 
 run: frontend-react/dist/index.html
+	@if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:$(PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
+		echo "Port $(PORT) is in use (try: make run PORT=8001; also set WHOOP_REDIRECT_URI to match)"; exit 1; fi
 	@echo "Open http://localhost:$(PORT)"
 	$(UVICORN) src.api.main:app --host $(BIND_HOST) --port $(PORT)
 

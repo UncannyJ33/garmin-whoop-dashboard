@@ -96,14 +96,42 @@ def test_backfill_refuses_when_api_up():
     env.garmin_cls.assert_called()
 
 
-def test_api_running_probe():
-    with patch("scripts.backfill.httpx.get", side_effect=httpx.ConnectError("x")):
-        assert api_running(8000) is False
-    with patch("scripts.backfill.httpx.get", return_value=MagicMock(status_code=200)) as g:
+def _resp(status=200, body=None, bad_json=False):
+    r = MagicMock(status_code=status)
+    if bad_json:
+        r.json.side_effect = ValueError("no json")
+    else:
+        r.json.return_value = body
+    return r
+
+
+def test_probe_true_for_this_app():
+    ok = _resp(200, {"status": "ok", "app": "pulse-dashboard"})
+    with patch("scripts.backfill.httpx.get", return_value=ok) as g:
         assert api_running(8123) is True
     assert "127.0.0.1:8123/api/health" in g.call_args.args[0]
+
+
+def test_probe_false_for_other_app(capsys):
+    for r in (
+        _resp(200, {"app": "zoncheck"}),
+        _resp(200, {"status": "ok"}),
+        _resp(200, bad_json=True),
+        _resp(404, {"detail": "nf"}),
+    ):
+        with patch("scripts.backfill.httpx.get", return_value=r):
+            assert api_running(8000) is False
+    assert "Note: port 8000 is used by another program (not this dashboard)." in capsys.readouterr().out
+
+
+def test_probe_true_on_timeout():
     with patch("scripts.backfill.httpx.get", side_effect=httpx.ReadTimeout("x")):
         assert api_running(8000) is True
+
+
+def test_probe_false_on_connect_error():
+    with patch("scripts.backfill.httpx.get", side_effect=httpx.ConnectError("x")):
+        assert api_running(8000) is False
 
 
 def test_backfill_chunks_oldest_first_and_end_today():

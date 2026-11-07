@@ -119,7 +119,7 @@ app.include_router(garmin_upload_router)
 @app.get("/api/health", tags=["health"])
 async def health() -> dict:
     """Basic health check."""
-    return {"status": "ok"}
+    return {"status": "ok", "app": "pulse-dashboard"}
 
 
 # Serve React frontend static files (production build)
