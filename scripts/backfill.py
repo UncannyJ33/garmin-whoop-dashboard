@@ -90,8 +90,6 @@ def api_running(port: int) -> bool:
         resp = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=1.0)
     except httpx.TimeoutException:
         return True
-    except httpx.ConnectError:
-        return False
     except httpx.HTTPError:
         return False
     try:
