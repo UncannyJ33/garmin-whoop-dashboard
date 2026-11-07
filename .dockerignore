@@ -34,3 +34,6 @@ tests/
 # Planning docs (not needed at runtime)
 opus_plan_src_files/
 Phase_Task_Breakdowns.md
+
+# Local tooling / agent scratch
+.superpowers/

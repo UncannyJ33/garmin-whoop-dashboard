@@ -24,7 +24,7 @@ run(**kwargs)
 # inserted with explicit IDs (e.g. during migrations on a fresh DB).
 if not settings.database_url.startswith('sqlite'):
     from sqlalchemy import text
-    tables = ['sync_log', 'garmin_exercise_sets']
+    tables = ['sync_log', 'garmin_exercise_sets', 'garmin_exercise_summaries']
     with engine.begin() as conn:
         for t in tables:
             conn.execute(text(
