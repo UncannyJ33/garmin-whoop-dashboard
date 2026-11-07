@@ -2,12 +2,19 @@
 
 ## Project
 Personal Garmin + Whoop fitness dashboard. Single user (SJ), self-hosted. Formerly PulseEngine, a multi-user SaaS (Jan–Apr 2026); that history is in `docs/history/build-log.md`.
-- Backend: Python 3.11+ / FastAPI / SQLAlchemy. SQLite locally (default), Postgres supported.
+- Backend: Python 3.12 (floor, `.python-version`; uv) / FastAPI / SQLAlchemy. SQLite locally (default), Postgres supported.
 - Frontend: React 18 + TypeScript + Vite + TailwindCSS + Recharts + TanStack Query (`frontend-react/`).
 
-## Status: relaunch in progress (started 2026-11-06)
-**Phases 2-4 done (2026-11-06), branch `feat/phase3-saas-cut`.** Garmin comes from the official Personal API. The SaaS cut is done: owner bootstrap via `make owner EMAIL=...` (registration closed), and the SaaS pages (Landing/Privacy/Onboarding/Showcase/ApiTest/Demo), PWA, `pulse-demo/`, webhook receiver and Streamlit are all removed. Whoop shows a "needs reconnect" state. Goal: a basic private dashboard. Tests: 946 passing (serial).
-The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs (nothing registers it).
+## Status: Relaunch complete (2026-11-07)
+Phases 0-7 done. Garmin comes from the official Personal API; the SaaS surface is removed (owner via `make owner EMAIL=...`, registration closed); runs locally on SQLite. Tests: 972 passing (serial). The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs.
+
+**Open items:**
+- SJ: run `make owner`, connect Whoop (redirect URI), run the first `make backfill`, optionally request a Garmin export.
+- Docker build unverified (Docker isn't installed on the dev machine).
+- Pending product decisions (`docs/reviews/2026-11-06-cleanup.md`): anomaly lookback/cache wipe, UTC vs local workout dates, auth refresh-on-401, Virtuoso workout-log scroll container (needs browser check), error-boundary placement, sleep-target setting, Today "last night" filter.
+- Parked: normalizer reverse-direction duplicate (see Known bug below).
+- Follow-up: remove `create_owner`'s `:memory:` test-only dispose guard, then drop the `sqlalchemy<2.1` pin.
+- Optimization: Garmin backfill makes 3 calls/day past the daily-history depth.
 
 Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan (done): `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
@@ -79,22 +86,22 @@ Whoop notes (Nov 2026; research §7):
 **Legacy garminconnect-era rows** (existing `raw_json`): sleep nested under `dailySleepDTO` with Unix-ms timestamps, HRV `lastNight`; set-level `garmin_exercise_sets` (weight in grams, exercise field `name`, order `messageIndex`). The transforms still accept both shapes.
 
 ## Conventions
-- Python 3.11+; type hints on all functions; docstrings on public functions
+- Python 3.12; type hints on all functions; docstrings on public functions
 - Tests in `tests/` with pytest
 - Secrets in `.env`, never hardcoded
 - Always use the venv: `source .venv/bin/activate`
-- Lint with `ruff`: `make lint`, auto-fix `make fmt`
+- Lint with `ruff`: `make lint` (check only); `make fmt` runs `ruff format` only, not lint fixes (use `.venv/bin/ruff check --fix .`)
 - `timezone.utc` → `datetime.UTC` (ruff UP017)
 - UI preference: no zoom on any chart (don't add `selection_interval` / brush; React charts currently have none)
 - **Never commit** `.env`, credentials, tokens, DB files, Garmin/Whoop exports, or personal health data. Raw API samples go in gitignored `data/`; test fixtures must be sanitized.
 
 ## Local dev
-A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As of 2026-11-06 the local `.venv` (Python 3.12) and `node_modules` exist, and `.env` exists (gitignored). Garmin sync needs `GARMIN_PERSONAL_API_KEY` in `.env` (optional `GARMIN_PERSONAL_API_BASE_URL`). `uv` is **not** installed globally (`brew install uv`); the old `/opt/homebrew/bin/uv` note is stale.
-- Backend (port 8000): `make run-api`
-- Frontend: `cd frontend-react && npm run dev` — Vite port **5173** (per `vite.config.ts`; old docs also said 5175, wrong), proxies `/api` → `VITE_API_URL` or `http://localhost:8000`
-- `make test` (pytest), `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`; exits 1 when there is no owner; runs Whoop and Garmin independently, logs each failure, and exits 1 at the end if any source failed)
+Fresh checkout: `brew install uv`, `uv sync --frozen`, `cp .env.example .env` (`make run` runs `npm ci` when the lockfile changes). `sqlalchemy<2.1` is pinned; `cryptography` is uncapped. Garmin sync needs `GARMIN_PERSONAL_API_KEY` in `.env` (optional `GARMIN_PERSONAL_API_BASE_URL`).
+- `make run`: build frontend if changed, serve on `BIND_HOST` (default `127.0.0.1`, use `BIND_HOST`, not `HOST`: zsh sets `HOST`) and `PORT` (8000); refuses if the port is in use. Open http://localhost:PORT (not 127.0.0.1: per-origin login). If 8000 is taken, `make run PORT=8001` and set `WHOOP_REDIRECT_URI` to the matching port in `.env` and the Whoop dashboard.
+- `make dev` (alias `run-api`): API with reload on :8000; with `cd frontend-react && npm run dev` (Vite :5173, proxies `/api`).
+- `make backfill START=YYYY-MM-DD [SOURCE=garmin|whoop|all] [CHUNK_DAYS=…] [PORT=…]`: chunks oldest first, end today; refuses (exit 3) while this dashboard's API runs (`/api/health` `app: "pulse-dashboard"`); `caffeinate` on macOS; resume hint `make backfill SOURCE=x START=y`; exit codes 0/1/2/3/130. Garmin dailies reach ~180-365 days, activities ~690; older data via `scripts/import_data.py`.
+- `make owner EMAIL=…`, `make build-frontend`, `make up`/`make down` (Compose, optional, `127.0.0.1` only), `make test`, `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`; exits 1 when there is no owner; runs Whoop and Garmin independently, logs each failure, exits 1 at the end if any source failed)
 - `cd frontend-react && npm run build` (tsc + vite build → `dist/`), `npm run typecheck`
-- Container: `docker compose up --build` → port 8000; needs `.env` (copy `.env.example`)
 - Local `.env`: `DATABASE_URL=sqlite:///data/fitness_dashboard.db`; `JWT_SECRET` must be set even locally.
 - Gotcha: Vite `/api` is a prefix match — dev-only routes must not start with `/api` (e.g. use `/dev/api-test`).
 
@@ -103,7 +110,7 @@ A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As 
 - Mock httpx: patch `httpx.AsyncClient` at module level; set `__aenter__`/`__aexit__` on the mock instance
 - Mock sleep: `patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock)`
 - Digit-prefixed migrations (`001_initial.py`) can't be imported directly; loaded via `importlib.util` in `migrations/__init__.py`
-- **938 passed** with serial `.venv/bin/pytest -q`. xdist (`-n auto`) is still **broken**; run serially. `make lint` is clean.
+- **972 passed** with serial `.venv/bin/pytest -q`. xdist (`-n auto`) is still **broken**; run serially. `make lint` is clean.
 - `tests/conftest.py` has an autouse fixture that blanks `GARMIN_PERSONAL_API_KEY` and points the base URL at `https://garmin.invalid`, so tests never reach Garmin with the real key.
 - Garmin fixtures: `tests/fixtures/garmin_personal/` (sanitized live shapes; `sleep.json` and `hrv.json` are synthetic, `"_synthetic": true`). Never commit real values. `scripts/garmin_personal_probe.py` is the spike probe; raw samples go to gitignored `data/garmin_personal_samples/`.
 
@@ -115,7 +122,7 @@ A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As 
 ### Deployment: local only
 - Railway (engine.pulsebuilt.net) is shut down, and the Supabase project and its data were deleted (2026-11-06). Don't try to reach either one.
 - FastAPI serves `frontend-react/dist/` (`/assets` StaticFiles + `spa_fallback`, which stays inside `dist/` and returns 404 for unknown `/api/*`) when `dist/` exists. Same-origin, so `VITE_API_URL` is unneeded.
-- Leftovers that Phase 5 removes or simplifies: `railway.toml` and Supabase tuning in `scripts/start.sh` (single-connection migrations, `sslmode=require`, sequence reset). Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
+- `railway.toml` is deleted; `scripts/start.sh` still forces `sslmode=require` for non-SQLite URLs. Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
 
 ## Environment
 - GitHub: https://github.com/UncannyJ33/garmin-whoop-dashboard (private); `gh` authenticated as UncannyJ33

@@ -214,6 +214,8 @@ backend route deleted in Phases 2–3 (grep `useApi.ts` against `src/api/routes`
 
 ## Phase 5: Local hosting + dependency refresh
 
+- [x] Done 2026-11-07 (branch `feat/phase5-6-local-run`). `make run` (localhost bind via `BIND_HOST`), `make dev`, `make up`/`down`, `make owner`; Python 3.12 floor; deps refreshed within current majors. The Docker build is unverified (Docker isn't installed on the dev machine).
+
 Note: Phase 4 already removed `pulse-demo` (and its Dockerfile steps) and `frontend-react/vercel.json`, so items 1 and 4 below no longer need those.
 
 1. **Dockerfile**: drop the pulse-demo stage, and move to `python:3.12-slim` and `node:22-slim`.
@@ -238,6 +240,8 @@ Note: Phase 4 already removed `pulse-demo` (and its Dockerfile steps) and `front
 
 ## Phase 6: Backfill from scratch
 
+- [x] Tooling done 2026-11-07: `make backfill START=... [SOURCE=garmin|whoop|all] [CHUNK_DAYS=...]` (`scripts/backfill.py`; chunks oldest first, ends today, refuses with exit 3 while the API runs). **The actual backfill run waits on SJ:** `make owner`, connect Whoop in Settings, then the first `make backfill`; optionally request a Garmin export for data older than ~365 days.
+
 Supabase was deleted (Q2), so there's nothing to migrate. The DB is a fresh SQLite file at
 `data/fitness_dashboard.db`, created by migrations on first start.
 
@@ -258,9 +262,22 @@ Supabase was deleted (Q2), so there's nothing to migrate. The DB is a fresh SQLi
 
 ## Phase 7: Docs final pass
 
+- [x] Done 2026-11-07. README getting-started flow, CLAUDE.md and `.env.example` updated.
+
 Update `README.md` (setup: key → `.env` → `make owner` → `make up`), `CLAUDE.md` (move the
 Garmin field-name section to the Personal API shapes, and remove the "relaunch in progress"
 banner) and `.env.example`. Fold any spike findings into the research doc.
+
+---
+
+## Open items (2026-11-07)
+
+- **SJ:** `make owner`, connect Whoop (redirect URI), first `make backfill`, optionally a Garmin export.
+- Docker build unverified (Docker not installed on the dev machine).
+- Pending product decisions from `docs/reviews/2026-11-06-cleanup.md`: anomaly lookback/cache wipe, UTC vs local workout dates, auth refresh-on-401, the Virtuoso workout-log scroll container (needs a browser check), error-boundary placement, the sleep-target setting, the Today "last night" filter.
+- Parked: normalizer reverse-direction duplicate.
+- Follow-up: remove `create_owner`'s `:memory:` test-only dispose guard, then drop the `sqlalchemy<2.1` pin.
+- Optimization: the Garmin backfill makes 3 calls per day past the daily-history depth.
 
 ---
 
