@@ -39,13 +39,11 @@ async def main() -> None:
     db = get_session_factory(engine)()
     owner = get_owner_user_id(engine)
 
-    if owner is None:
-        print("No owner account. Run `make owner EMAIL=...` first.")
-        db.close()
-        engine.dispose()
-        sys.exit(1)
-
     try:
+        if owner is None:
+            print("No owner account. Run `make owner EMAIL=...` first.")
+            sys.exit(1)
+
         now = datetime.now(tz=UTC)
         start = now - timedelta(days=30)
 
