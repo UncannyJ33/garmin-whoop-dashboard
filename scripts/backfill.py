@@ -14,6 +14,7 @@ Exit codes: 0 ok; 1 a source failed / no owner / several users / nothing ran;
 import argparse
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 
 import httpx
@@ -24,6 +25,7 @@ from src.analytics.anomaly_store import refresh_anomalies
 from src.clients.whoop_auth import WhoopAuth, WhoopReauthRequired, whoop_auth_error
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
+from src.database.models import SyncLog
 from src.database.owner import get_owner_user_id
 from src.ingestion.garmin_pipeline import GarminPipeline
 from src.ingestion.whoop_pipeline import WhoopPipeline
@@ -56,7 +58,7 @@ def _now() -> datetime:
     return datetime.now(tz=UTC)
 
 
-def garmin_chunks(start: date, today: date, chunk_days: int) -> list[tuple[date, date]]:
+def day_chunks(start: date, today: date, chunk_days: int) -> list[tuple[date, date]]:
     """Return inclusive, contiguous ``(start, end)`` day chunks, oldest first, ending today."""
     chunks: list[tuple[date, date]] = []
     s = start
@@ -87,55 +89,80 @@ def whoop_windows(
 def api_running(port: int) -> bool:
     """Return True if this dashboard's API answers on ``port``; a timeout counts as running."""
     try:
-        resp = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=1.0)
+        # trust_env=False: proxy env vars must not intercept a localhost probe.
+        resp = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=1.0, trust_env=False)
     except httpx.TimeoutException:
         return True
     except httpx.HTTPError:
         return False
     try:
-        if resp.status_code == 200 and resp.json().get("app") == "pulse-dashboard":
-            return True
+        if resp.status_code == 200:
+            body = resp.json()
+            if body.get("app") == "pulse-dashboard":
+                return True
+            if body.get("status") == "ok" and "app" not in body:
+                print(
+                    f"Note: port {port} answers /api/health like an older build of this "
+                    "dashboard; treating it as running."
+                )
+                return True
     except (ValueError, AttributeError):
         pass
     print(f"Note: port {port} is used by another program (not this dashboard).")
     return False
 
 
-def _resume_hint(source: str, chunk_start: date) -> str:
+ResumeHint = Callable[[str, date], str]
+
+
+def _resume_hint(source: str, chunk_start: date, port: int = 8000, chunk_days: int = 30) -> str:
+    """Return the ``make backfill`` command that resumes from ``chunk_start``.
+
+    ``PORT`` and ``CHUNK_DAYS`` are included only when they differ from the defaults.
+    """
+    extra = ""
+    if port != 8000:
+        extra += f" PORT={port}"
+    if chunk_days != DEFAULT_CHUNK_DAYS:
+        extra += f" CHUNK_DAYS={chunk_days}"
     return (
-        f"  Resume with: make backfill SOURCE={source} START={chunk_start}\n"
+        f"  Resume with: make backfill SOURCE={source} START={chunk_start}{extra}\n"
         "  Run it before starting the server."
     )
 
 
-def _print_chunk(source: str, s: date, e: date, log) -> None:
+def _print_chunk(source: str, s: date, e: date, log: SyncLog) -> None:
     print(
         f"  {source} {s} → {e}: {log.status} "
         f"(fetched {log.records_fetched}, stored {log.records_stored})"
     )
 
 
-def _run_garmin(db: Session, owner: str, chunks: list[tuple[date, date]]) -> tuple[str, int]:
+def _run_garmin(
+    db: Session, owner: str, chunks: list[tuple[date, date]], hint: ResumeHint
+) -> tuple[str, int]:
     """Run Garmin chunks oldest first; return ``(outcome, records_stored)``."""
     stored = 0
     for s, e in chunks:
         try:
             log = GarminPipeline(db, user_id=owner).run(start=s, end=e)
         except KeyboardInterrupt:
+            db.rollback()
             raise _Interrupted("garmin", s) from None
         except Exception as exc:
+            db.rollback()
             logger.exception("Garmin chunk %s → %s failed", s, e)
             print(f"  garmin {s} → {e}: FAILED {type(exc).__name__}: {exc}")
-            print(_resume_hint("garmin", s))
+            print(hint("garmin", s))
             return FAILED, stored
         if log is None:
             print(f"  garmin {s} → {e}: skipped, another Garmin sync is running")
-            print(_resume_hint("garmin", s))
+            print(hint("garmin", s))
             return FAILED, stored
         _print_chunk("garmin", s, e, log)
         if log.status == "error":
             print(f"    error: {log.error_message}")
-            print(_resume_hint("garmin", s))
+            print(hint("garmin", s))
             return FAILED, stored
         stored += log.records_stored or 0
     return OK, stored
@@ -146,6 +173,7 @@ def _run_whoop(
     owner: str,
     chunks: list[tuple[date, date]],
     windows: list[tuple[datetime, datetime]],
+    hint: ResumeHint,
 ) -> tuple[str, int]:
     """Run Whoop windows oldest first; return ``(outcome, records_stored)``."""
     stored = 0
@@ -153,22 +181,29 @@ def _run_whoop(
         try:
             log = asyncio.run(WhoopPipeline(db, user_id=owner).run(start=ws, end=we))
         except KeyboardInterrupt:
+            db.rollback()
             raise _Interrupted("whoop", s) from None
         except WhoopReauthRequired:
+            db.rollback()
             logger.exception("Whoop chunk %s → %s: token rejected", s, e)
             print("  Whoop rejected the token; reconnect in Settings, then resume.")
-            print(_resume_hint("whoop", s))
+            print(hint("whoop", s))
             return FAILED, stored
         except Exception as exc:
+            db.rollback()
             logger.exception("Whoop chunk %s → %s failed", s, e)
             print(f"  whoop {s} → {e}: FAILED {type(exc).__name__}: {exc}")
-            print(_resume_hint("whoop", s))
+            print(hint("whoop", s))
             return FAILED, stored
         if log is None:
             print(f"  whoop {s} → {e}: skipped, another Whoop sync is running")
-            print(_resume_hint("whoop", s))
+            print(hint("whoop", s))
             return FAILED, stored
         _print_chunk("whoop", s, e, log)
+        if log.status == "error":
+            print(f"    error: {log.error_message}")
+            print(hint("whoop", s))
+            return FAILED, stored
         stored += log.records_stored or 0
     return OK, stored
 
@@ -188,15 +223,34 @@ def _parse_args(argv: list[str] | None, today: date) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the backfill; return the process exit code."""
+    """Run the backfill; return the process exit code (130 on Ctrl-C, with a resume hint)."""
     today = _today()
     args = _parse_args(argv, today)
-
     port = settings.app_port
+
+    def hint(source: str, chunk_start: date) -> str:
+        return _resume_hint(source, chunk_start, port, args.chunk_days)
+
+    try:
+        return _run(args, today, port, hint)
+    except _Interrupted as intr:
+        print(f"\nInterrupted during {intr.source}.")
+        print(hint(intr.source, intr.chunk_start))
+        return 130
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        print(hint(args.source, args.start))
+        return 130
+
+
+def _run(argparse_args: argparse.Namespace, today: date, port: int, hint: ResumeHint) -> int:
+    """Do the backfill work for ``main``; may raise ``_Interrupted`` / ``KeyboardInterrupt``."""
+    args = argparse_args
     if api_running(port) and not args.force:
         print(
             f"The API server is running on port {port}; its scheduler would race the "
-            "backfill. Stop it (Ctrl-C / `make down`) or pass --force."
+            "backfill. Stop it (Ctrl-C / `make down`), or force it: `make backfill ... FORCE=1` "
+            "(`--force` when running the script directly)."
         )
         return 3
 
@@ -226,36 +280,31 @@ def main(argv: list[str] | None = None) -> int:
         outcomes: dict[str, str] = {}
         stored_total = 0
         try:
-            try:
-                if args.source in ("garmin", "all"):
-                    print("\nGarmin")
-                    if not settings.garmin_personal_api_key:
-                        print("  Skipped: GARMIN_PERSONAL_API_KEY is not set.")
-                        outcomes["garmin"] = SKIPPED
-                    else:
-                        chunk_days = min(args.chunk_days, GARMIN_MAX_CHUNK_DAYS)
-                        outcomes["garmin"], n = _run_garmin(
-                            db, owner, garmin_chunks(args.start, today, chunk_days)
-                        )
-                        stored_total += n
+            if args.source in ("garmin", "all"):
+                print("\nGarmin")
+                if not settings.garmin_personal_api_key:
+                    print("  Skipped: GARMIN_PERSONAL_API_KEY is not set.")
+                    outcomes["garmin"] = SKIPPED
+                else:
+                    chunk_days = min(args.chunk_days, GARMIN_MAX_CHUNK_DAYS)
+                    outcomes["garmin"], n = _run_garmin(
+                        db, owner, day_chunks(args.start, today, chunk_days), hint
+                    )
+                    stored_total += n
 
-                if args.source in ("whoop", "all"):
-                    print("\nWhoop")
-                    if not WhoopAuth.has_token(owner, db):
-                        print("  Skipped: connect Whoop in Settings first.")
-                        outcomes["whoop"] = SKIPPED
-                    elif whoop_auth_error(owner, db):
-                        print("  Skipped: Whoop needs reconnect; reconnect in Settings first.")
-                        outcomes["whoop"] = SKIPPED
-                    else:
-                        chunks = garmin_chunks(args.start, today, args.chunk_days)
-                        windows = whoop_windows(chunks, _now())
-                        outcomes["whoop"], n = _run_whoop(db, owner, chunks, windows)
-                        stored_total += n
-            except _Interrupted as intr:
-                print(f"\nInterrupted during {intr.source}.")
-                print(_resume_hint(intr.source, intr.chunk_start))
-                return 130
+            if args.source in ("whoop", "all"):
+                print("\nWhoop")
+                if not WhoopAuth.has_token(owner, db):
+                    print("  Skipped: connect Whoop in Settings first.")
+                    outcomes["whoop"] = SKIPPED
+                elif whoop_auth_error(owner, db):
+                    print("  Skipped: Whoop needs reconnect; reconnect in Settings first.")
+                    outcomes["whoop"] = SKIPPED
+                else:
+                    chunks = day_chunks(args.start, today, args.chunk_days)
+                    windows = whoop_windows(chunks, _now())
+                    outcomes["whoop"], n = _run_whoop(db, owner, chunks, windows, hint)
+                    stored_total += n
 
             if stored_total > 0:
                 count = refresh_anomalies(engine, owner, args.start, today)

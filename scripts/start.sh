@@ -10,12 +10,13 @@ from src.database.migrations import run
 kwargs = {}
 if not settings.database_url.startswith('sqlite'):
     from sqlalchemy import create_engine
+    from src.database.connection import pg_connect_args
     engine = create_engine(
         settings.database_url,
         pool_size=1,
         max_overflow=0,
         pool_timeout=30,
-        connect_args={'sslmode': 'require'},
+        connect_args=pg_connect_args(settings.database_url),
     )
     kwargs['engine'] = engine
 run(**kwargs)

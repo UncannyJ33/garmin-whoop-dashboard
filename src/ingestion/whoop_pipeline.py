@@ -210,27 +210,32 @@ class WhoopPipeline:
     def _get_sync_window(self) -> tuple[datetime, datetime]:
         """Return (start, end) for the next sync window.
 
-        Start is the last successful sync's ``sync_end`` minus the overlap, or 30 days ago
-        if no prior sync exists.
+        Start is the latest ``sync_end`` across successful Whoop syncs minus the
+        overlap (so an old backfill chunk logged last never moves the window
+        backward), or 30 days ago if no readable success exists.
         """
-        last = (
+        logs = (
             self._db.query(SyncLog)
             .filter_by(source="whoop", status="success")
             .filter(SyncLog.user_id == self.user_id)
-            .order_by(SyncLog.id.desc())
-            .first()
+            .all()
         )
         now = datetime.now(tz=UTC)
-        if last and last.metadata_json:
+        latest: datetime | None = None
+        for row in logs:
+            if not row.metadata_json:
+                continue
             try:
-                meta = json.loads(last.metadata_json)
-                start = datetime.fromisoformat(meta["sync_end"])
-                return start - timedelta(days=INCREMENTAL_OVERLAP_DAYS), now
-            except (KeyError, ValueError):
-                logger.warning(
-                    "Whoop sync: unreadable sync_log metadata (id=%s); using default lookback",
-                    last.id,
-                )
+                sync_end = datetime.fromisoformat(json.loads(row.metadata_json)["sync_end"])
+            except (KeyError, ValueError, TypeError):
+                logger.warning("Whoop sync: unreadable sync_log metadata (id=%s); skipping", row.id)
+                continue
+            if sync_end.tzinfo is None:
+                sync_end = sync_end.replace(tzinfo=UTC)
+            if latest is None or sync_end > latest:
+                latest = sync_end
+        if latest is not None:
+            return latest - timedelta(days=INCREMENTAL_OVERLAP_DAYS), now
         return now - timedelta(days=DEFAULT_LOOKBACK_DAYS), now
 
     async def run(

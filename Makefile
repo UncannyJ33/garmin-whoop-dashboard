@@ -58,4 +58,4 @@ owner:
 
 backfill:
 	$(if $(START),,$(error START=YYYY-MM-DD is required))
-	PORT=$(PORT) $(shell command -v caffeinate >/dev/null && echo caffeinate -i) $(PYTHON) scripts/backfill.py --source $(or $(SOURCE),all) --start $(START) $(if $(CHUNK_DAYS),--chunk-days $(CHUNK_DAYS),)
+	PORT=$(PORT) $(shell command -v caffeinate >/dev/null && echo caffeinate -i) $(PYTHON) scripts/backfill.py --source $(or $(SOURCE),all) --start $(START) $(if $(CHUNK_DAYS),--chunk-days $(CHUNK_DAYS),) $(if $(FORCE),--force,)
