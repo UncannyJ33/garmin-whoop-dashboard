@@ -136,6 +136,8 @@ The detailed plan is [`2026-11-06-garmin-personal-api-client.md`](2026-11-06-gar
 
 ## Phase 3: SaaS cut + Whoop fixes (backend)
 
+- [x] Done 2026-11-06 (branch `feat/phase3-saas-cut`).
+
 Scope for its detailed plan:
 1. **Owner bootstrap.** Add `scripts/create_owner.py --email you@x` (password via `getpass`) and
    delete `POST /api/auth/register`. Keep login, refresh and change-password. Refuse to create a
@@ -186,6 +188,8 @@ register, feature-flags or webhooks under `src/`, and the concurrent-refresh tes
 
 ## Phase 4: Frontend cleanup
 
+- [x] Done 2026-11-06 (branch `feat/phase3-saas-cut`).
+
 Scope for its detailed plan:
 1. Delete `Landing.tsx`, `Privacy.tsx`, `Onboarding.tsx`, `Showcase.tsx`, `ApiTest.tsx`, the
    unrouted `Demo.tsx`, and their routes in `App.tsx`. `/` goes to Today when authenticated and to
@@ -209,6 +213,8 @@ Scope for its detailed plan:
 backend route deleted in Phases 2–3 (grep `useApi.ts` against `src/api/routes`).
 
 ## Phase 5: Local hosting + dependency refresh
+
+Note: Phase 4 already removed `pulse-demo` (and its Dockerfile steps) and `frontend-react/vercel.json`, so items 1 and 4 below no longer need those.
 
 1. **Dockerfile**: drop the pulse-demo stage, and move to `python:3.12-slim` and `node:22-slim`.
    Update ruff's `target-version` and `requires-python` to match.

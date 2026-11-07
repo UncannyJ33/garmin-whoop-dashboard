@@ -82,9 +82,8 @@ make run-api                      # FastAPI on :8000 (docs at /docs)
 cd frontend-react && npm run dev  # Vite on :5173 (proxies /api to :8000)
 ```
 
-Open http://localhost:5173. **Register an account at `/login`** (open registration still exists;
-Phase 3 replaces it with `scripts/create_owner.py`). Register exactly one account: with a second
-user, background syncs stop and the Garmin owner check fails, then **Settings -> connect Whoop**
+Open http://localhost:5173. Create the single owner account with `make owner EMAIL=you@example.com`
+(prompts for a password; registration is closed), log in, then **Settings -> connect Whoop**
 (OAuth). To serve the built app from FastAPI instead: `cd frontend-react && npm run build`, then
 `make run-api` and open http://localhost:8000.
 
@@ -159,8 +158,8 @@ docker compose up --build        # http://localhost:8000
 
 **It runs locally only.** The old Railway + Supabase deployment (engine.pulsebuilt.net) is gone:
 Railway is shut down, and the Supabase project and its data were deleted. History gets
-re-pulled from the APIs (roadmap Phase 6). `railway.toml` and `frontend-react/vercel.json` are
-leftovers that Phase 5 deletes.
+re-pulled from the APIs (roadmap Phase 6). `railway.toml` is a
+leftover that Phase 5 deletes.
 
 ## Docs map
 

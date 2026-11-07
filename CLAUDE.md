@@ -6,11 +6,10 @@ Personal Garmin + Whoop fitness dashboard. Single user (SJ), self-hosted. Former
 - Frontend: React 18 + TypeScript + Vite + TailwindCSS + Recharts + TanStack Query (`frontend-react/`).
 
 ## Status: relaunch in progress (started 2026-11-06)
-**Phase 2 done (2026-11-06, branch `feat/garmin-personal-api`): Garmin now comes from the official Personal API.** Phases 3–4 (SaaS cut) are still pending. Goal: a basic private dashboard.
-Code that still exists but is **slated for removal. Don't extend it; don't add multi-user features**:
-- open registration, waitlist, `Landing`/`Privacy`/`Onboarding`/`Showcase`/`ApiTest`/`Demo` pages, `pulse-demo/`, `/demo` mount
+**Phases 2-4 done (2026-11-06), branch `feat/phase3-saas-cut`.** Garmin comes from the official Personal API. The SaaS cut is done: owner bootstrap via `make owner EMAIL=...` (registration closed), and the SaaS pages (Landing/Privacy/Onboarding/Showcase/ApiTest/Demo), PWA, `pulse-demo/`, webhook receiver and Streamlit are all removed. Whoop shows a "needs reconnect" state. Goal: a basic private dashboard. Tests: 946 passing (serial).
+The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs (nothing registers it).
+Still slated for removal (don't extend; don't add multi-user features):
 - Whoop allowlist + feature flags, account deletion
-- Whoop webhook receiver (`src/api/routes/webhooks.py`)
 
 Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan (done): `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
@@ -117,8 +116,8 @@ A fresh checkout needs `uv sync --frozen` and `cd frontend-react && npm ci`. As 
 
 ### Deployment: local only
 - Railway (engine.pulsebuilt.net) is shut down, and the Supabase project and its data were deleted (2026-11-06). Don't try to reach either one.
-- FastAPI serves `frontend-react/dist/` (`/assets` StaticFiles + `spa_fallback`, with a `/demo` special case) when `dist/` exists. Same-origin, so `VITE_API_URL` is unneeded.
-- Leftovers that Phase 5 removes or simplifies: `railway.toml`, `frontend-react/vercel.json`, and Supabase tuning in `scripts/start.sh` (single-connection migrations, `sslmode=require`, sequence reset). Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
+- FastAPI serves `frontend-react/dist/` (`/assets` StaticFiles + `spa_fallback`, which stays inside `dist/` and returns 404 for unknown `/api/*`) when `dist/` exists. Same-origin, so `VITE_API_URL` is unneeded.
+- Leftovers that Phase 5 removes or simplifies: `railway.toml` and Supabase tuning in `scripts/start.sh` (single-connection migrations, `sslmode=require`, sequence reset). Migration 009 (RLS) is a no-op on SQLite. Old deployment details are in `docs/history/build-log.md`.
 
 ## Environment
 - GitHub: https://github.com/UncannyJ33/garmin-whoop-dashboard (private); `gh` authenticated as UncannyJ33
