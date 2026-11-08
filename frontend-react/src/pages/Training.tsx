@@ -31,6 +31,7 @@ import { ACWRGauge } from '../components/ACWRGauge'
 import { ErrorState } from '../components/ErrorState'
 import { MetricCardSkeleton, NoDataState, WorkoutRowSkeleton } from '../components/LoadingState'
 import { useDateRangeContext } from '../context/DateRangeContext'
+import { useScrollContainer } from '../context/ScrollContainerContext'
 import {
   useWorkouts,
   useWorkoutSummary,
@@ -202,6 +203,7 @@ const BarTooltip = memo(function BarTooltip({
 
 export function Training() {
   const { days, setDays, start, end } = useDateRangeContext()
+  const scrollEl = useScrollContainer()
   const [filterType, setFilterType]       = useState<string | null>(null)
   const [advancedDyn, setAdvancedDyn]     = useState(false)
   const [dynMetricIdx, setDynMetricIdx]   = useState(0)
@@ -925,11 +927,15 @@ export function Training() {
           <div className="card text-center text-sm text-slate-400 py-8">
             No workouts in this period{filterType ? ` for ${activityLabel(filterType)}` : ''}.
           </div>
+        ) : scrollEl === null ? (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => <WorkoutRowSkeleton key={i} />)}
+          </div>
         ) : (
           <Virtuoso
             data={filtered}
             computeItemKey={(_, w) => w.id}
-            useWindowScroll
+            customScrollParent={scrollEl}
             increaseViewportBy={400}
             itemContent={(_, w) => (
               <div className="flex items-start gap-1.5 pb-2">

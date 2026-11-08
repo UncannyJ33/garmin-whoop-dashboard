@@ -6,13 +6,12 @@ Personal Garmin + Whoop fitness dashboard. Single user (SJ), self-hosted. Former
 - Frontend: React 18 + TypeScript + Vite + TailwindCSS + Recharts + TanStack Query (`frontend-react/`).
 
 ## Status: Relaunch complete (2026-11-07)
-Phases 0-8 done. Garmin comes from the official Personal API; the SaaS surface is removed (owner via `make owner EMAIL=...`, registration closed); runs locally on SQLite. Tests: 1022 passing (serial). The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs.
+Phases 0-9 done. Garmin comes from the official Personal API; the SaaS surface is removed (owner via `make owner EMAIL=...`, registration closed); runs locally on SQLite. Tests: 1041 passing (serial). The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs.
 
 **Open items:**
 - SJ: run `make owner`, connect Whoop (redirect URI), run the first `make backfill`, optionally request a Garmin export.
 - Docker build unverified (Docker isn't installed on the dev machine).
-- Pending product decision (`docs/reviews/2026-11-06-cleanup.md`): Virtuoso workout-log scroll container (needs browser check).
-- Parked: normalizer reverse-direction duplicate (see Known bug below).
+- QA: the API smoke test (`make smoke`) passed on 90 days of live Garmin-only data (report: `docs/reviews/2026-11-07-qa.md`). Browser visual checks are pending SJ's first login.
 
 Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan (done): `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
@@ -28,6 +27,8 @@ Decisions agents must respect:
 - `docs/research/2026-11-garmin-personal-api.md` — Personal API research (auth, endpoints, shape mapping, Whoop changes)
 - `docs/reference/garmin-personal-api-openapi.json` — Garmin's official spec; **check field names here**
 - `plans/` — roadmap + per-phase plans
+- `docs/reviews/2026-11-07-qa.md` — Phase 9 QA report (API smoke on live data)
+- `scripts/smoke_api.py` — in-process API smoke check against `DATABASE_URL`: `make smoke` (or `.venv/bin/python scripts/smoke_api.py [--json PATH]`)
 - `docs/history/` — `build-log.md` (old CLAUDE.md phase content), `OPTIMIZATION.md`, `FRONTEND_DESIGN.md`
 
 ## Architecture & data flow
@@ -43,7 +44,7 @@ Garmin/Whoop API → pipelines → raw tables (with `raw_json`) → normalizer +
 - Auth (`src/auth/`): JWT (HS256, `JWT_SECRET`), bcrypt; `get_current_user` on protected routes accepts the owner only, via a 60 s cached owner lookup (`get_owner_user_id_cached`).
 - API (`src/api/routes/`): readiness, workouts, sleep, recovery, training, trends, insights, sync, auth, account, garmin_upload (`POST /api/garmin/upload`, export import). Models in `src/api/models.py`; docs at `/docs`.
 - DB: `src/database/` (models, `connection.py`, `migrations/`; run at startup).
-- React (`frontend-react/src/`): pages Today `/`, Training, Recovery, Insights, Settings (+ Login, GarminHelp); legacy redirects `/readiness`→`/`, `/workouts`→`/training`, `/sleep`→`/recovery`, `/trends`→`/insights`, `/recovery-activities`→`/recovery`. Hooks in `src/hooks/useApi.ts`, client `src/api/client.ts`, auth token held in memory (`AuthContext`), `DateRangeContext`, routes lazy-loaded.
+- React (`frontend-react/src/`): pages Today `/`, Training, Recovery, Insights, Settings (+ Login, GarminHelp); legacy redirects `/readiness`→`/`, `/workouts`→`/training`, `/sleep`→`/recovery`, `/trends`→`/insights`, `/recovery-activities`→`/recovery`. Hooks in `src/hooks/useApi.ts`, client `src/api/client.ts`, auth tokens in `localStorage` key `pd_auth` (`AuthContext`); workout log (Virtuoso) uses `customScrollParent` = `<main>` via `ScrollContainerContext` (`Layout.tsx`), `DateRangeContext`, routes lazy-loaded.
 
 ## Key decisions & alignment rules
 - **Source of truth**: Whoop = recovery, sleep quality, body vitals. Garmin = workout detail, running dynamics.
@@ -59,7 +60,7 @@ Garmin/Whoop API → pipelines → raw tables (with `raw_json`) → normalizer +
 - **Backfill**: no per-chunk anomaly refresh. Garmin chunks ending before `today - 370 days` run activities-only (fixed `DAILY_HISTORY_DAYS`; no probe, since a watch-off streak could skip real data), or pass `--daily-from YYYY-MM-DD` to `scripts/backfill.py` (not exposed by `make backfill`). One final anomaly refresh runs over START..end of the last completed chunk, even after an interrupt or failed source. The double normalization is kept on purpose.
 - Garmin sleep/HRV rows are mostly missing (watch not worn at night; Whoop is). On no-watch nights sleep returns an all-null DTO and HRV returns 204, so `garmin_sleep`/`garmin_hrv` normally get no rows. That is normal.
 - No per-activity detail call: running dynamics, training load/effect and HR zones are in the activity list. `avg_ground_contact_balance` is unavailable and stored NULL.
-- **Known bug:** the normalizer leaves a stale `g_<garmin_activity_id>` `unified_workouts` row when a later Whoop match creates `w_<id>` for the same activity (duplicate workouts, double-counted strength volume). Roadmap Phase 3.
+- **Workout alignment rules (`normalize_workouts`)**: matching runs over a ±1-day candidate pool around the core window; writes are core-window only (an unmatched row when its own date is in the window, a matched pair when either side's is), so an edge row is never overwritten without its partner. A Whoop match deletes the `g_<aid>` row. `w_` rows of in-window Whoop workouts that no longer qualify (`strain IS NULL`, driving) are deleted before writing; their Garmin activity re-matches or is written as `g_<aid>`. Each Garmin activity is in at most one unified row (an activity held by a `w_` row whose Whoop workout is outside the pool is skipped and its `g_` row deleted). `normalize_all` is serialized by a module-level `_NORMALIZE_LOCK` because the Whoop and Garmin jobs run on separate scheduler threads.
 - **Field equivalencies**: Whoop `total_sws_ms` ≡ Garmin `deep_sleep_seconds`; Whoop `sleep_performance` ≠ Garmin `sleep_score` (not comparable); resting HR and SpO2 (`spo2_pct` ≡ `avg_spo2`) comparable.
 - Display: `whoop_skin_temp` °C shown as °F. Sleep metrics in minutes are converted to hours for display (`/60`). Whoop counts walks etc. as workouts (128 in a 30-day sample).
 
@@ -114,7 +115,7 @@ Fresh checkout: `brew install uv`, `uv sync --frozen`, `cp .env.example .env` (`
 - Mock httpx: patch `httpx.AsyncClient` at module level; set `__aenter__`/`__aexit__` on the mock instance
 - Mock sleep: `patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock)`
 - Digit-prefixed migrations (`001_initial.py`) can't be imported directly; loaded via `importlib.util` in `migrations/__init__.py`
-- **972 passed** with serial `.venv/bin/pytest -q`. xdist (`-n auto`) is still **broken**; run serially. `make lint` is clean.
+- **1041 passed** with serial `.venv/bin/pytest -q`. xdist (`-n auto`) is still **broken**; run serially. `make lint` is clean.
 - `tests/conftest.py` has an autouse fixture that blanks `GARMIN_PERSONAL_API_KEY` and points the base URL at `https://garmin.invalid`, so tests never reach Garmin with the real key.
 - Garmin fixtures: `tests/fixtures/garmin_personal/` (sanitized live shapes; `sleep.json` and `hrv.json` are synthetic, `"_synthetic": true`). Never commit real values. `scripts/garmin_personal_probe.py` is the spike probe; raw samples go to gitignored `data/garmin_personal_samples/`.
 

@@ -6,13 +6,14 @@ calls to the Whoop and Garmin mapper functions and the deduplication engine.
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from src.database.models import (
@@ -44,7 +45,24 @@ from src.normalization.whoop_mapper import (
 
 logger = logging.getLogger(__name__)
 
+# Whoop and Garmin pipelines run on separate scheduler threads (APScheduler
+# BackgroundScheduler, ThreadPoolExecutor) with separate _RUN_LOCKs, so their
+# normalize steps could overlap; serialize them.
+_NORMALIZE_LOCK = threading.Lock()
+
 _DEFAULT_MAPPINGS_PATH = Path(__file__).parent.parent.parent / "config" / "field_mappings.yaml"
+
+
+def _whoop_workout_qualifies(user_id: str | None) -> list[Any]:
+    """Return the SQLAlchemy conditions a Whoop workout must meet to be unified.
+
+    Shared by the window query and the stale-row cleanup so they cannot drift.
+    ``!= 'driving'`` also excludes NULL ``sport_name`` (SQL NULL semantics).
+    """
+    conds: list[Any] = [WhoopWorkout.strain.isnot(None), WhoopWorkout.sport_name != "driving"]
+    if user_id is not None:
+        conds.append(WhoopWorkout.user_id == user_id)
+    return conds
 
 
 def _date_range(start: date, end: date) -> list[date]:
@@ -158,51 +176,67 @@ class Normalizer:
         )
 
     def normalize_workouts(self, start: date, end: date) -> int:
-        """Deduplicate and upsert unified_workout rows for the date range.
+        """Deduplicate and upsert unified_workout rows for the core window.
 
-        Loads Whoop strain workouts (excluding driving) and Garmin activities,
-        runs the matching algorithm, and upserts one row per workout.
+        Matching runs over a candidate pool widened one day each side of
+        ``[start, end]`` (UTC bounds; row dates are local), so a pair straddling
+        a window edge is always seen whole. Writes are core-only: an unmatched
+        row is written when its own date is in ``[start, end]``; a matched pair
+        when either side's date is. Nothing else is written or deleted, so an
+        edge row whose true partner lies outside the pool is never overwritten.
 
-        Query bounds are UTC and unwidened; row dates are local. A local-``end``
-        evening workout (UTC ``end + 1``) is normalized by the next window:
-        incremental windows end at the UTC date, which is already the next local
-        day after about 19:00 US local, and backfill chunks are contiguous. Its
-        matched Garmin activity sits at the same instant, so the pair is always
-        normalized together.
+        Before writing, ``w_`` rows of core-window Whoop workouts that no longer
+        qualify (strain NULL or driving) are deleted; their Garmin activity is in
+        the pool and flows through normal matching. A Garmin activity already held
+        by a ``w_`` row whose Whoop workout is outside this run's pool is taken:
+        it is not matched or written as ``g_<aid>``, and any ``g_<aid>`` is
+        deleted, so each activity is in at most one unified row.
 
         Args:
-            start: Range start date (inclusive).
-            end: Range end date (inclusive).
+            start: Core range start date (inclusive).
+            end: Core range end date (inclusive).
 
         Returns:
             Total number of rows written.
         """
         start_str = start.isoformat()
         end_str = end.isoformat()
+        pool_start = (start - timedelta(days=1)).isoformat()
+        pool_end = (end + timedelta(days=1)).isoformat()
 
-        wk_start_ts = start_str + "T00:00:00"
-        wk_end_ts = end_str + "T23:59:59"
-        whoop_workouts_query = self._db.query(WhoopWorkout).filter(
-            WhoopWorkout.start_time >= wk_start_ts,
-            WhoopWorkout.start_time <= wk_end_ts,
-            WhoopWorkout.strain.isnot(None),
-            WhoopWorkout.sport_name != "driving",
-        )
-        if self.user_id is not None:
-            whoop_workouts_query = whoop_workouts_query.filter(WhoopWorkout.user_id == self.user_id)
-        whoop_workouts = whoop_workouts_query.all()
+        def in_core(ts: str | None) -> bool:
+            return ts is not None and start_str <= ts[:10] <= end_str
 
-        ga_start_ts = start_str + " 00:00:00"
-        ga_end_ts = end_str + " 23:59:59"
-        garmin_activities_query = self._db.query(GarminActivity).filter(
-            GarminActivity.start_time_gmt >= ga_start_ts,
-            GarminActivity.start_time_gmt <= ga_end_ts,
-        )
-        if self.user_id is not None:
-            garmin_activities_query = garmin_activities_query.filter(
-                GarminActivity.user_id == self.user_id
+        removed = self._remove_stale_whoop_rows(start_str, end_str)
+
+        whoop_workouts = (
+            self._db.query(WhoopWorkout)
+            .filter(
+                WhoopWorkout.start_time >= pool_start + "T00:00:00",
+                WhoopWorkout.start_time <= pool_end + "T23:59:59",
+                *_whoop_workout_qualifies(self.user_id),
             )
-        garmin_activities = garmin_activities_query.all()
+            .all()
+        )
+
+        garmin_query = self._db.query(GarminActivity).filter(
+            GarminActivity.start_time_gmt >= pool_start + " 00:00:00",
+            GarminActivity.start_time_gmt <= pool_end + " 23:59:59",
+        )
+        if self.user_id is not None:
+            garmin_query = garmin_query.filter(GarminActivity.user_id == self.user_id)
+        garmin_activities = garmin_query.all()
+
+        # One row per Garmin activity: drop activities held by a w_ row whose
+        # Whoop workout is outside this run's pool.
+        taken = self._garmin_ids_held_outside_pool(
+            [g.activity_id for g in garmin_activities], {w.id for w in whoop_workouts}
+        )
+        for aid in taken:
+            stale_g = self._db.get(UnifiedWorkout, f"g_{aid}")
+            if stale_g is not None:
+                self._db.delete(stale_g)
+        garmin_activities = [g for g in garmin_activities if g.activity_id not in taken]
 
         results, unmatched_garmin = match_workouts(whoop_workouts, garmin_activities)
 
@@ -211,10 +245,14 @@ class Normalizer:
 
         for result in results:
             whoop = result.whoop_workout
+            garmin = result.garmin_activity if result.matched else None
+            if not (
+                in_core(whoop.start_time) or (garmin is not None and in_core(garmin.start_time_gmt))
+            ):
+                continue
             data = map_whoop_workout(whoop, self._mappings)
 
-            if result.matched and result.garmin_activity is not None:
-                garmin = result.garmin_activity
+            if garmin is not None:
                 garmin_data = map_garmin_workout(garmin, self._mappings)
 
                 # Overlay Garmin-specific fields onto the Whoop base row
@@ -242,14 +280,16 @@ class Normalizer:
             self._upsert(UnifiedWorkout, "id", data)
             rows_written += 1
 
-            if result.matched and result.garmin_activity is not None:
+            if garmin is not None:
                 # Garmin may have been normalized alone before this Whoop workout
                 # arrived; drop its Garmin-only row so the activity isn't counted twice.
-                stale = self._db.get(UnifiedWorkout, f"g_{result.garmin_activity.activity_id}")
+                stale = self._db.get(UnifiedWorkout, f"g_{garmin.activity_id}")
                 if stale is not None:
                     self._db.delete(stale)
 
         for garmin in unmatched_garmin:
+            if not in_core(garmin.start_time_gmt):
+                continue
             data = map_garmin_workout(garmin, self._mappings)
             data["last_updated"] = now
             data["user_id"] = self.user_id
@@ -258,14 +298,75 @@ class Normalizer:
 
         self._db.commit()
         logger.info(
-            "normalize_workouts %s→%s: %d whoop, %d garmin-only, %d total rows",
+            "normalize_workouts %s→%s: %d whoop in pool, %d garmin-only in pool, "
+            "%d total rows, %d stale w_ rows deleted, %d garmin activities held elsewhere",
             start_str,
             end_str,
             len(results),
             len(unmatched_garmin),
             rows_written,
+            removed,
+            len(taken),
         )
         return rows_written
+
+    def _remove_stale_whoop_rows(self, start_str: str, end_str: str) -> int:
+        """Delete ``w_`` rows of core-window Whoop workouts that no longer qualify.
+
+        A workout is stale when it was re-scored to NULL strain or re-labelled
+        driving. Only workouts whose UTC start date is in ``[start_str, end_str]``
+        are considered. The Garmin activity such a row held is within minutes of
+        it, so it is in the match pool and is re-matched or written as ``g_<aid>``.
+
+        Args:
+            start_str: Core window start (ISO date).
+            end_str: Core window end (ISO date).
+
+        Returns:
+            Number of unified rows deleted.
+        """
+        qualifies = and_(*_whoop_workout_qualifies(self.user_id))
+        stale_ids = self._db.query(WhoopWorkout.id).filter(
+            WhoopWorkout.start_time >= start_str + "T00:00:00",
+            WhoopWorkout.start_time <= end_str + "T23:59:59",
+            ~qualifies,
+        )
+        if self.user_id is not None:
+            stale_ids = stale_ids.filter(WhoopWorkout.user_id == self.user_id)
+        rows_query = self._db.query(UnifiedWorkout).filter(
+            UnifiedWorkout.whoop_workout_id.in_(stale_ids.scalar_subquery())
+        )
+        if self.user_id is not None:
+            rows_query = rows_query.filter(UnifiedWorkout.user_id == self.user_id)
+        rows = rows_query.all()
+        for row in rows:
+            self._db.delete(row)
+        self._db.flush()
+        return len(rows)
+
+    def _garmin_ids_held_outside_pool(
+        self, activity_ids: list[str], pool_whoop_ids: set[str]
+    ) -> set[str]:
+        """Return pool Garmin activity ids held by a ``w_`` row whose Whoop workout is not in the pool.
+
+        Args:
+            activity_ids: Garmin activity ids in this run's pool.
+            pool_whoop_ids: Ids of the Whoop workouts in this run's pool.
+
+        Returns:
+            The subset of ``activity_ids`` that is already taken.
+        """
+        if not activity_ids:
+            return set()
+        query = self._db.query(UnifiedWorkout.garmin_activity_id).filter(
+            UnifiedWorkout.garmin_activity_id.in_(activity_ids),
+            UnifiedWorkout.whoop_workout_id.isnot(None),
+        )
+        if pool_whoop_ids:
+            query = query.filter(UnifiedWorkout.whoop_workout_id.notin_(pool_whoop_ids))
+        if self.user_id is not None:
+            query = query.filter(UnifiedWorkout.user_id == self.user_id)
+        return {r[0] for r in query.all()}
 
     def normalize_all(
         self, start: date, end: date, *, refresh_anomalies: bool = True
@@ -285,6 +386,13 @@ class Normalizer:
         Returns:
             Dict with keys "daily", "sleep", "workouts" and row counts.
         """
+        with _NORMALIZE_LOCK:
+            return self._normalize_all_locked(start, end, refresh_anomalies=refresh_anomalies)
+
+    def _normalize_all_locked(
+        self, start: date, end: date, *, refresh_anomalies: bool
+    ) -> dict[str, int]:
+        """Body of :meth:`normalize_all`; the caller holds ``_NORMALIZE_LOCK``."""
         counts = {"daily": 0, "sleep": 0, "workouts": 0}
 
         dates = _date_range(start, end)
@@ -393,8 +501,10 @@ class Normalizer:
             if not d:
                 continue
             prev = cycles_by_date.get(d)
-            if prev is not None and _has_scored_recovery(prev, recoveries_by_cycle) and not (
-                _has_scored_recovery(c, recoveries_by_cycle)
+            if (
+                prev is not None
+                and _has_scored_recovery(prev, recoveries_by_cycle)
+                and not (_has_scored_recovery(c, recoveries_by_cycle))
             ):
                 continue
             cycles_by_date[d] = c

@@ -150,7 +150,8 @@ Whoop data is polling only (no webhooks); do not set up ngrok.
 | `make backfill START=YYYY-MM-DD` | chunked history backfill (server stopped) |
 | `make run-sync` | `scripts/initial_sync.py` (Whoop, then Garmin, 30 days) |
 | `make up` / `make down` | Docker Compose |
-| `make test` | `pytest -q` (1022 pass, serial; xdist is broken) |
+| `make test` | `pytest -q` (1041 pass, serial; xdist is broken) |
+| `make smoke` | in-process API smoke check against `DATABASE_URL` (`scripts/smoke_api.py`) |
 | `make lint` / `make fmt` | `ruff check .` / `ruff format .` |
 | `cd frontend-react && npm run typecheck` | `tsc --noEmit` |
 | `.venv/bin/python scripts/schema_review.py --days 14` | side-by-side Whoop/Garmin review; CSVs to `data/review/` |

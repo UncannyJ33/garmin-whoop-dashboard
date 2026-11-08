@@ -43,7 +43,8 @@ def _to_response(r: ReadinessResult) -> ReadinessResponse:
 
 @router.get(
     "/today",
-    response_model=None,
+    response_model=ReadinessResponse,
+    responses={204: {"description": "No readiness data for the date"}},
     summary="Today's readiness score",
 )
 async def readiness_today(

@@ -368,6 +368,212 @@ def test_matched_workout_removes_garmin_only_row(db):
     assert db.get(UnifiedWorkout, "g_g-late-001") is None
 
 
+def _seed_matched_pair(db, *, day="2024-03-07", user_id=None, suffix="x"):
+    """Add a Whoop strain workout + Garmin activity that match, and normalize day D."""
+    db.add(
+        GarminActivity(
+            activity_id=f"ga-{suffix}",
+            activity_type="running",
+            start_time=f"{day} 07:00:00",
+            start_time_gmt=f"{day} 14:02:00",
+            duration_seconds=3600.0,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id=user_id,
+        )
+    )
+    db.add(
+        WhoopWorkout(
+            id=f"wx-{suffix}",
+            start_time=f"{day}T14:00:00Z",
+            end_time=f"{day}T15:00:00Z",
+            sport_name="running",
+            strain=13.5,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id=user_id,
+        )
+    )
+    db.commit()
+    d = date.fromisoformat(day)
+    Normalizer(db, user_id=user_id).normalize_workouts(d, d)
+    assert db.get(UnifiedWorkout, f"w_wx-{suffix}") is not None
+    assert db.get(UnifiedWorkout, f"g_ga-{suffix}") is None
+
+
+def _ids_for_activity(db, aid):
+    return sorted(
+        r[0]
+        for r in db.execute(
+            text("SELECT id FROM unified_workouts WHERE garmin_activity_id = :a"), {"a": aid}
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"strain": None}, {"sport_name": "driving"}],
+    ids=["strain-null", "driving"],
+)
+def test_rescored_whoop_workout_removes_stale_w_row(db, change):
+    """Whoop workout stops qualifying: w_ row dropped, activity counted once as g_."""
+    _seed_matched_pair(db)
+    wk = db.get(WhoopWorkout, "wx-x")
+    for k, v in change.items():
+        setattr(wk, k, v)
+    db.commit()
+
+    d = date(2024, 3, 7)
+    Normalizer(db).normalize_workouts(d, d)
+
+    assert _ids_for_activity(db, "ga-x") == ["g_ga-x"]
+    assert db.get(UnifiedWorkout, "w_wx-x") is None
+
+
+def test_rescored_in_core_releases_garmin(db):
+    """W re-scored to strain NULL inside the window: w_ gone, G exactly once as g_G."""
+    _seed_matched_pair(db)
+    db.get(WhoopWorkout, "wx-x").strain = None
+    db.commit()
+
+    d = date(2024, 3, 7)
+    Normalizer(db).normalize_workouts(d, d)
+
+    assert db.get(UnifiedWorkout, "w_wx-x") is None
+    assert _ids_for_activity(db, "ga-x") == ["g_ga-x"]
+
+
+def _add_straddle_pair(db):
+    """Whoop 23:58Z on D=2024-03-07, Garmin 00:03Z on D+1 (5 min apart, within threshold)."""
+    db.add(
+        WhoopWorkout(
+            id="wx-s",
+            start_time="2024-03-07T23:58:00Z",
+            end_time="2024-03-08T00:58:00Z",
+            sport_name="running",
+            strain=10.0,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+        )
+    )
+    db.add(
+        GarminActivity(
+            activity_id="ga-s",
+            activity_type="running",
+            start_time="2024-03-07 16:03:00",
+            start_time_gmt="2024-03-08 00:03:00",
+            duration_seconds=3600.0,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+        )
+    )
+    db.commit()
+
+
+@pytest.mark.parametrize("d_first", [True, False], ids=["D-first", "D+1-first"])
+def test_utc_midnight_straddle_contiguous_windows(db, d_first):
+    """A pair split by UTC midnight ends as one w_ row, never a g_ row, in any order."""
+    _add_straddle_pair(db)
+    d0, d1 = date(2024, 3, 7), date(2024, 3, 8)
+    n = Normalizer(db)
+    for d in (d0, d1) if d_first else (d1, d0):
+        n.normalize_workouts(d, d)
+
+    assert _ids_for_activity(db, "ga-s") == ["w_wx-s"]
+
+
+def test_edge_row_not_overwritten(db):
+    """A later window seeing the Whoop workout but not its partner keeps the Garmin fields."""
+    _add_straddle_pair(db)
+    db.get(GarminActivity, "ga-s").distance_meters = 5000.0
+    db.commit()
+    Normalizer(db).normalize_workouts(date(2024, 3, 7), date(2024, 3, 8))
+    assert db.get(UnifiedWorkout, "w_wx-s").garmin_distance_m == pytest.approx(5000.0)
+
+    # Garmin partner moved out of this pool's reach (+2 days); Whoop at D is in
+    # the pool of window [D-1, D-1] but its own date is D, outside core.
+    ga = db.get(GarminActivity, "ga-s")
+    ga.start_time_gmt = "2024-03-20 00:03:00"
+    db.commit()
+    Normalizer(db).normalize_workouts(date(2024, 3, 6), date(2024, 3, 6))
+
+    row = db.get(UnifiedWorkout, "w_wx-s")
+    assert row.garmin_activity_id == "ga-s"
+    assert row.garmin_distance_m == pytest.approx(5000.0)
+
+
+def test_held_garmin_activity_not_duplicated(db):
+    """G held by w_W1 (W1 outside the pool): no g_G written, a pre-existing g_G is deleted."""
+    _seed_matched_pair(db, day="2024-03-07", suffix="h")  # w_wx-h holds ga-h
+    now = datetime.now(tz=UTC).isoformat()
+    db.add(
+        UnifiedWorkout(
+            id="g_ga-h",
+            date="2024-03-07",
+            start_time="2024-03-07 14:02:00",
+            garmin_activity_id="ga-h",
+            last_updated=now,
+        )
+    )
+    db.commit()
+
+    # Pool whoop set excludes wx-h: move wx-h far away so it is outside the pool.
+    db.get(WhoopWorkout, "wx-h").start_time = "2024-06-01T14:00:00Z"
+    db.commit()
+    d = date(2024, 3, 7)
+    Normalizer(db).normalize_workouts(d, d)
+
+    assert _ids_for_activity(db, "ga-h") == ["w_wx-h"]
+    assert db.get(UnifiedWorkout, "g_ga-h") is None
+
+
+def test_qualifying_w_rows_untouched(db):
+    """Qualifying matched/unmatched w_ rows outside the window survive; other users' too."""
+    _seed_matched_pair(db, suffix="m", user_id="u1")
+    db.add(
+        WhoopWorkout(
+            id="wx-solo",
+            start_time="2024-03-08T10:00:00Z",
+            end_time="2024-03-08T11:00:00Z",
+            sport_name="cycling",
+            strain=8.0,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id="u1",
+        )
+    )
+    db.commit()
+    Normalizer(db, user_id="u1").normalize_workouts(date(2024, 3, 8), date(2024, 3, 8))
+    assert db.get(UnifiedWorkout, "w_wx-solo") is not None
+
+    # u2 owns a stale-looking w_ row (its Whoop workout has strain NULL)
+    db.add(
+        WhoopWorkout(
+            id="wx-u2",
+            start_time="2024-03-09T10:00:00Z",
+            end_time="2024-03-09T11:00:00Z",
+            sport_name="running",
+            strain=None,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id="u2",
+        )
+    )
+    db.commit()
+    db.add(
+        UnifiedWorkout(
+            id="w_wx-u2",
+            date="2024-03-09",
+            start_time="2024-03-09T10:00:00Z",
+            whoop_workout_id="wx-u2",
+            user_id="u2",
+            last_updated=datetime.now(tz=UTC).isoformat(),
+        )
+    )
+    db.commit()
+
+    far = date(2025, 1, 1)
+    Normalizer(db, user_id="u1").normalize_workouts(far, far)
+
+    assert db.get(UnifiedWorkout, "w_wx-m") is not None
+    assert db.get(UnifiedWorkout, "w_wx-solo") is not None
+    assert db.get(UnifiedWorkout, "w_wx-u2") is not None
+
+
 def test_unmatched_garmin_activity_stored_as_garmin_only(db):
     """Garmin activity with no nearby Whoop workout → Garmin-only unified row."""
     garmin_a = GarminActivity(
@@ -481,3 +687,36 @@ def test_csv_import_normalize_false_skips_unified(db, tmp_path):
     assert db.get(GarminActivity, "csv-no-norm-001") is not None
     # Unified table NOT populated
     assert db.get(UnifiedWorkout, "g_csv-no-norm-001") is None
+
+
+def test_normalize_all_serializes_across_threads(db, monkeypatch):
+    """Two concurrent normalize_all calls never overlap (module-level lock)."""
+    import threading
+
+    active = 0
+    max_active = 0
+    guard = threading.Lock()
+    first_in = threading.Event()
+    release = threading.Event()
+
+    def fake_locked(self, start, end, *, refresh_anomalies):
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        first_in.set()
+        release.wait(timeout=0.3)
+        with guard:
+            active -= 1
+        return {"daily": 0, "sleep": 0, "workouts": 0}
+
+    monkeypatch.setattr(Normalizer, "_normalize_all_locked", fake_locked)
+    d = date(2024, 3, 7)
+    threads = [threading.Thread(target=Normalizer(db).normalize_all, args=(d, d)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    first_in.wait(timeout=2)
+    for t in threads:
+        t.join(timeout=5)
+
+    assert max_active == 1
