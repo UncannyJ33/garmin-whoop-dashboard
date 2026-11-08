@@ -685,3 +685,28 @@ class TestGetSleepConsistency:
         result = get_sleep_consistency(engine, days=14, end_date=anchor)
         assert result["sleep_debt_trend"] == "improving"
         assert result["sleep_debt_trend_slope_min_per_day"] > 0
+
+
+def test_sleep_consistency_uses_local_hours(engine):
+    """23:00 local bedtime in UTC-5 is 04:00Z; it must not average as a 4 am bedtime."""
+    anchor = date(2029, 1, 20)
+    with Session(engine) as s:
+        for i in range(7):
+            wake = anchor - timedelta(days=6 - i)
+            s.merge(
+                WhoopSleep(
+                    id=f"tzloc_{i}",
+                    cycle_id=None,
+                    start_time=f"{wake.isoformat()}T04:00:00Z",
+                    end_time=f"{wake.isoformat()}T12:00:00Z",
+                    timezone_offset="-05:00",
+                    nap=0,
+                    score_state="SCORED",
+                    fetched_at=NOW_ISO,
+                )
+            )
+        s.commit()
+    result = get_sleep_consistency(engine, days=7, end_date=anchor)
+    assert result["insufficient_data"] is False
+    assert result["avg_bedtime_hour"] == pytest.approx(23.0)
+    assert result["avg_wake_hour"] == pytest.approx(7.0)

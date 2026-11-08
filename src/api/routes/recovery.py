@@ -1,8 +1,9 @@
 """Recovery Activities API routes.
 
-SQL uses only portable constructs (SUBSTR for date extraction) so it runs
-on both SQLite and PostgreSQL.  Duration and next-day date arithmetic is
-done in Python to avoid dialect-specific functions (strftime, interval).
+SQL uses only portable constructs so it runs on both SQLite and PostgreSQL.
+Whoop timestamps are UTC, so activity dates are derived in Python from each
+row's ``timezone_offset`` (local dates); duration and next-day date arithmetic
+is also done in Python to avoid dialect-specific functions (strftime, interval).
 """
 
 from datetime import date, timedelta
@@ -14,14 +15,16 @@ from src.api.dependencies import DateRangeParams, get_engine_dep
 from src.api.models import RecoveryActivityItem, WithWithoutResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.normalization.whoop_mapper import local_date
 
 router = APIRouter(prefix="/api/recovery", tags=["recovery"])
 
-# Fetch raw activity rows — portable SQL (SUBSTR works on SQLite + PostgreSQL)
+# Fetch raw activity rows — portable SQL; local dates are computed in Python
 _ACTIVITY_QUERY = """
 SELECT
     ww.start_time,
     ww.end_time,
+    ww.timezone_offset,
     COALESCE(ww.sport_name, 'Unknown') AS activity
 FROM whoop_workouts ww
 WHERE ww.strain IS NULL
@@ -47,7 +50,7 @@ WHERE date BETWEEN :start AND :end
 """
 
 _ALL_RECOVERY_DATES_QUERY = """
-SELECT DISTINCT SUBSTR(start_time, 1, 10) AS date
+SELECT DISTINCT start_time, timezone_offset
 FROM whoop_workouts
 WHERE strain IS NULL AND end_time IS NOT NULL
   AND user_id = :uid
@@ -87,7 +90,10 @@ async def list_recovery(
     """Return Whoop recovery activities (strain IS NULL) for the date range."""
     start, end = dates.validated()
 
-    end_exclusive = (end + timedelta(days=1)).isoformat()
+    # UTC bounds are widened by one day each side: a local date can sit on the
+    # neighbouring UTC date. Rows are filtered on the local date in Python below.
+    fetch_start = (start - timedelta(days=1)).isoformat()
+    fetch_end = (end + timedelta(days=2)).isoformat()
     # Fetch window: start – (end + 1 day) for activities; need next-day data too
     lookup_end = (end + timedelta(days=1)).isoformat()
 
@@ -95,7 +101,7 @@ async def list_recovery(
         act_rows = (
             conn.execute(
                 text(_ACTIVITY_QUERY),
-                {"start": str(start), "end": end_exclusive, "uid": current_user.id},
+                {"start": fetch_start, "end": fetch_end, "uid": current_user.id},
             )
             .mappings()
             .all()
@@ -124,7 +130,9 @@ async def list_recovery(
 
     results = []
     for row in act_rows:
-        act_date = row["start_time"][:10]
+        act_date = local_date(row["start_time"], row["timezone_offset"])
+        if act_date is None or not (start.isoformat() <= act_date <= end.isoformat()):
+            continue
         next_date = (date.fromisoformat(act_date) + timedelta(days=1)).isoformat()
 
         same_day = daily_by_date.get(act_date, {})
@@ -160,7 +168,7 @@ async def with_without(
     start, end = dates.validated()
     with engine.connect() as conn:
         rec_dates = {
-            r[0]
+            local_date(r[0], r[1])
             for r in conn.execute(
                 text(_ALL_RECOVERY_DATES_QUERY), {"uid": current_user.id}
             ).fetchall()
