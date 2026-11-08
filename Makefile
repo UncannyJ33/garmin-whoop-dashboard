@@ -3,7 +3,7 @@ UVICORN   = .venv/bin/uvicorn
 PYTEST    = .venv/bin/pytest
 RUFF      = .venv/bin/ruff
 
-.PHONY: run dev run-api build-frontend up down run-sync test lint fmt owner backfill
+.PHONY: run dev run-api build-frontend up down run-sync test lint fmt owner backfill smoke
 
 # Bind host is BIND_HOST (not HOST: zsh sets HOST to the machine hostname).
 # Default is localhost-only; LAN exposure is an explicit opt-in: make run BIND_HOST=0.0.0.0
@@ -46,6 +46,9 @@ run-sync:
 
 test:
 	$(PYTEST) -q
+
+smoke:
+	$(PYTHON) scripts/smoke_api.py
 
 lint:
 	$(RUFF) check .
