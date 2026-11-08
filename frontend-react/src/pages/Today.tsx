@@ -54,12 +54,6 @@ function stripFactorPrefix(explanation: string, factorName: string): string {
 // Use shared formatter — import at top of file
 // (local fmtDuration removed; using fmtDuration from utils/formatters)
 
-function yesterdayISO(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 1)
-  return d.toLocaleDateString('en-CA')
-}
-
 function toCardSeverity(severity: LimitingFactorSeverity): 'alert' | 'caution' {
   return severity === 'significant' ? 'alert' : 'caution'
 }
@@ -100,7 +94,6 @@ type SparklineKey = 'hrv' | 'sleep_duration' | 'daily_strain'
 
 export function Today() {
   const today     = todayISO()
-  const yesterday = yesterdayISO()
   const range30   = useDateRange(30)
   const range7    = useDateRange(7)
   const range3    = useDateRange(3)
@@ -125,7 +118,7 @@ export function Today() {
   // ── Derived ────────────────────────────────────────────────────────────
   const readinessData  = readiness.data
   const limitersList   = limiters.data ?? []
-  const sleepArr       = (sleepData.data ?? []).filter(s => s.date <= yesterday)
+  const sleepArr       = sleepData.data ?? []
   const lastSleep      = sleepArr[sleepArr.length - 1] ?? null
   const lastWorkout    = [...(recentWorkouts.data ?? [])]
     .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
