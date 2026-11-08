@@ -37,6 +37,7 @@ from src.analytics.trends import (
     _z_score,
     calculate_trend_direction,
     detect_anomalies,
+    get_batch_metric_trends,
     get_metric_series,
     get_metric_trend,
     get_monthly_rollup,
@@ -814,3 +815,32 @@ class TestGetWeeklySummary:
         # Use a period with no previous-week data → comparison values are None
         s = get_weekly_summary(engine, date(2031, 8, 7))
         assert s["comparison"]["avg_recovery"] is None
+
+
+class TestTrendAnomalyLookback:
+    """Anomalies are detected over the 29-day lookback, then trimmed to the range."""
+
+    _LAST = date(2034, 3, 30)
+    _JITTER = (60.0, 62.0, 58.0)
+
+    @pytest.fixture(scope="class", autouse=True)
+    def seed(self, engine):
+        with Session(engine) as session:
+            for i in range(30):
+                d = self._LAST - timedelta(days=29 - i)
+                value = 20.0 if d == self._LAST else self._JITTER[i % 3]
+                session.merge(_make_daily(d.isoformat(), whoop_recovery_score=value))
+            session.commit()
+
+    def test_trend_anomalies_use_lookback(self, engine):
+        start = self._LAST - timedelta(days=2)
+        trend = get_metric_trend(engine, "recovery_score", start, self._LAST)
+        assert self._LAST.isoformat() in {a["date"] for a in trend.anomalies}
+
+    def test_trend_anomalies_within_range(self, engine):
+        start = self._LAST - timedelta(days=2)
+        single = get_metric_trend(engine, "recovery_score", start, self._LAST)
+        batch = get_batch_metric_trends(engine, ["recovery_score"], start, self._LAST)
+        for trend in (single, batch["recovery_score"]):
+            assert trend.anomalies
+            assert all(a["date"] >= start.isoformat() for a in trend.anomalies)

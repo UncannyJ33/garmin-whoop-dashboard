@@ -744,7 +744,9 @@ def _build_trend_from_calendar(
     rolling_30d = rolling_30d_full[start_idx:]
     rolling_std_7d = rolling_std_7d_full[start_idx:]
 
-    anomalies = detect_anomalies(values, dates)
+    # Detect over the full calendar so the lookback supplies the baseline, then
+    # keep only anomalies inside the requested range.
+    anomalies = [a for a in detect_anomalies(all_values, all_dates) if a["date"] >= start_iso]
     trend_direction = calculate_trend_direction(rolling_7d)
 
     return MetricTrend(
