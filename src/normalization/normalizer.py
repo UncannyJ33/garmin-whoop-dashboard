@@ -35,6 +35,7 @@ from src.normalization.garmin_mapper import (
     seconds_to_minutes,
 )
 from src.normalization.whoop_mapper import (
+    cycle_wake_date,
     local_date,
     map_whoop_daily,
     map_whoop_sleep,
@@ -72,6 +73,12 @@ def upsert_row[M](db: Session, model_cls: type[M], pk_field: str, data: dict[str
         for k, v in data.items():
             setattr(row, k, v)
     return row
+
+
+def _has_scored_recovery(cycle: WhoopCycle, recoveries: dict[str, WhoopRecovery]) -> bool:
+    """Return True when the cycle has a recovery row with a non-null score."""
+    rec = recoveries.get(cycle.id)
+    return rec is not None and rec.recovery_score is not None
 
 
 @dataclass
@@ -343,12 +350,7 @@ class Normalizer:
         )
         if uid is not None:
             q = q.filter(WhoopCycle.app_user_id == uid)
-        cycles = q.all()
-        cycles_by_date: dict[str, WhoopCycle] = {}
-        for c in cycles:
-            d = local_date(c.start_time, c.timezone_offset) if c.start_time else None
-            if d:
-                cycles_by_date[d] = c
+        cycles = q.order_by(WhoopCycle.start_time, WhoopCycle.id).all()
 
         # 2. Whoop recoveries for those cycles
         cycle_ids = [c.id for c in cycles]
@@ -380,6 +382,22 @@ class Normalizer:
             if end_date:
                 sleep_by_end_date[end_date] = s
             sleep_by_id[s.id] = s
+
+        # Daily key = local WAKE date (see cycle_wake_date). When two cycles map to the
+        # same key, prefer one with a scored recovery, then the latest start_time.
+        cycles_by_date: dict[str, WhoopCycle] = {}
+        for c in cycles:  # ordered by start_time ascending, so later wins ties
+            rec = recoveries_by_cycle.get(c.id)
+            sl = sleep_by_id.get(rec.sleep_id) if rec and rec.sleep_id else None
+            d = cycle_wake_date(c, rec, sl)
+            if not d:
+                continue
+            prev = cycles_by_date.get(d)
+            if prev is not None and _has_scored_recovery(prev, recoveries_by_cycle) and not (
+                _has_scored_recovery(c, recoveries_by_cycle)
+            ):
+                continue
+            cycles_by_date[d] = c
 
         # 4. Garmin daily summaries
         q = self._db.query(GarminDailySummary).filter(

@@ -475,3 +475,85 @@ def test_normalize_all_skips_anomaly_refresh_when_disabled(session, mappings_pat
         refresh.assert_not_called()
         n.normalize_all(date(2026, 1, 1), date(2026, 1, 2))
         refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Daily key = local WAKE date
+# ---------------------------------------------------------------------------
+
+
+def _wake_cycle(cid: str, start: str, offset: str = "-06:00") -> WhoopCycle:
+    return WhoopCycle(
+        id=cid,
+        user_id=1,
+        start_time=start,
+        end_time=None,
+        timezone_offset=offset,
+        strain=8.0,
+        fetched_at=FETCHED,
+    )
+
+
+def test_daily_key_is_local_wake_date(session, mappings_path):
+    """Realistic cycle: onset 21:50 local 03-02, sleep ends 06:30 local 03-03 -> row 03-03."""
+    session.add_all(
+        [
+            _wake_cycle("wk1", "2027-03-03T03:50:00Z"),  # 21:50 local on 03-02
+            WhoopSleep(
+                id="wk1_sleep",
+                cycle_id="wk1",
+                start_time="2027-03-03T03:50:00Z",
+                end_time="2027-03-03T12:30:00Z",  # 06:30 local on 03-03
+                timezone_offset="-06:00",
+                nap=0,
+                total_in_bed_ms=28_800_000,
+                fetched_at=FETCHED,
+            ),
+            _make_recovery("wk1", "wk1_sleep"),
+        ]
+    )
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 3, 1), date(2027, 3, 5))
+    row = session.get(UnifiedDaily, "2027-03-03")
+    assert row is not None
+    assert row.whoop_recovery_score == pytest.approx(78.5)
+    assert session.get(UnifiedDaily, "2027-03-02") is None
+
+
+def test_daily_key_fallback_without_sleep(session, mappings_path):
+    """No sleep: onset 22:00 local -> next date; onset 01:30 local -> same date."""
+    session.add_all(
+        [
+            _wake_cycle("fb1", "2027-04-11T04:00:00Z"),  # 22:00 local 04-10 -> 04-11
+            _wake_cycle("fb2", "2027-04-20T07:30:00Z"),  # 01:30 local 04-20 -> 04-20
+        ]
+    )
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 4, 9), date(2027, 4, 22))
+    assert session.get(UnifiedDaily, "2027-04-11") is not None
+    assert session.get(UnifiedDaily, "2027-04-10") is None
+    assert session.get(UnifiedDaily, "2027-04-20") is not None
+
+
+def test_two_cycles_same_wake_date_deterministic(session, mappings_path):
+    """Both cycles map to 05-06: scored recovery wins over a later unscored cycle."""
+    scored = _wake_cycle("tb1", "2027-05-06T03:00:00Z")  # 21:00 local 05-05 -> 05-06
+    scored.strain = 11.0
+    later_unscored = _wake_cycle("tb2", "2027-05-06T08:00:00Z")  # 02:00 local 05-06 -> 05-06
+    later_unscored.strain = 3.0
+    session.add_all([scored, later_unscored, _make_recovery("tb1")])
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 5, 5), date(2027, 5, 7))
+    row = session.get(UnifiedDaily, "2027-05-06")
+    assert row.whoop_strain == pytest.approx(11.0)
+    assert row.whoop_recovery_score == pytest.approx(78.5)
+
+    # Neither scored: the latest start_time wins.
+    a = _wake_cycle("tb3", "2027-06-06T03:00:00Z")
+    a.strain = 1.0
+    b = _wake_cycle("tb4", "2027-06-06T08:00:00Z")
+    b.strain = 2.0
+    session.add_all([a, b])
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 6, 5), date(2027, 6, 7))
+    assert session.get(UnifiedDaily, "2027-06-06").whoop_strain == pytest.approx(2.0)

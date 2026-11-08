@@ -352,6 +352,23 @@ class TestDetectAnomalies:
         for d in self._DATES[:7]:
             assert d not in flagged
 
+    def test_null_day_in_baseline_still_flags_spike(self):
+        # One missing day inside the baseline no longer blocks detection.
+        dates = [(date(2035, 1, 1) + timedelta(days=i)).isoformat() for i in range(12)]
+        values: list[float | None] = [65.0 if i % 2 == 0 else 75.0 for i in range(10)] + [100.0, 30.0]
+        values[8] = None
+        flagged = {a["date"] for a in detect_anomalies(values, dates)}
+        assert dates[10] in flagged
+
+    def test_fewer_than_window_in_28_day_lookback_not_flagged(self):
+        # 30 days: only 6 non-null values within the 28 days before the spike.
+        dates = [(date(2035, 2, 1) + timedelta(days=i)).isoformat() for i in range(30)]
+        values: list[float | None] = [None] * 30
+        for k, i in enumerate([5, 8, 12, 15, 20, 25]):
+            values[i] = 65.0 if k % 2 == 0 else 75.0
+        values[29] = 100.0
+        assert detect_anomalies(values, dates) == []
+
     def test_custom_threshold_suppresses_outlier(self):
         anomalies = detect_anomalies(self._VALUES, self._DATES, threshold=10.0)
         assert anomalies == []

@@ -83,6 +83,7 @@ _MIN_ANOMALY_SAMPLE: int = 7
 _DEFAULT_Z_THRESHOLD: float = 2.0
 # Relative slope threshold for trend direction: 0.2% per day vs mean value
 _TREND_DIRECTION_THRESHOLD: float = 0.002
+_ANOMALY_LOOKBACK_DAYS: int = 28  # calendar days searched for the anomaly baseline
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -514,17 +515,19 @@ def detect_anomalies(
     threshold: float = 2.0,
 ) -> list[dict]:
     """Flag days whose value deviates ≥ ``threshold`` std devs from the
-    rolling mean of the preceding ``window`` non-None values.
+    mean of the most recent ``window`` non-None values within the preceding
+    ``_ANOMALY_LOOKBACK_DAYS`` (28) calendar days.
 
-    Requires at least ``window`` non-None *prior* values before a day can
-    be flagged, so the first ``window`` calendar positions are never flagged
-    regardless of their value.
+    Gaps are tolerated: a missing day inside the baseline just reaches one day
+    further back. A day is skipped (never flagged) when fewer than ``window``
+    non-None values exist in that 28-day lookback.
 
     Args:
-        values: Daily metric values (None for missing days), aligned with dates.
+        values: Daily metric values (None for missing days), aligned with dates
+            as consecutive calendar days.
         dates: ISO date strings aligned with ``values``.
-        window: Minimum prior non-None values required; also the rolling
-            window size (default 7).
+        window: Number of baseline values used (and the minimum required);
+            default 7.
         threshold: Minimum |severity| to flag a day (default 2.0).
 
     Returns:
@@ -535,7 +538,10 @@ def detect_anomalies(
     for i, (d, v) in enumerate(zip(dates, values)):
         if v is None:
             continue
-        prior = [values[j] for j in range(max(0, i - window), i) if values[j] is not None]
+        candidates = [
+            values[j] for j in range(max(0, i - _ANOMALY_LOOKBACK_DAYS), i) if values[j] is not None
+        ]
+        prior = candidates[-window:]
         if len(prior) < window:
             continue
         mean = sum(prior) / len(prior)

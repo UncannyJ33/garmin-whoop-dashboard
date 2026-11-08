@@ -327,8 +327,12 @@ class WhoopPipeline:
             logger.info("Whoop sync complete — %d fetched, %d stored", records_fetched, stored)
 
             normalizer = Normalizer(self._db, user_id=self.user_id)
+            # Unified keys are LOCAL dates but the sync window is UTC: widen one day each
+            # side so a +09:00 user's local "today" is normalized now (idempotent).
             norm_counts = normalizer.normalize_all(
-                sync_start.date(), sync_end.date(), refresh_anomalies=refresh_anomalies
+                sync_start.date() - timedelta(days=1),
+                sync_end.date() + timedelta(days=1),
+                refresh_anomalies=refresh_anomalies,
             )
             logger.info("Normalization complete: %s", norm_counts)
 

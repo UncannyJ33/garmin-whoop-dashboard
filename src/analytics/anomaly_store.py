@@ -42,8 +42,9 @@ def refresh_anomalies(
 ) -> int:
     """Recompute anomalies for [start_date, end_date] and upsert into anomaly_cache.
 
-    Detection uses the 29-day lookback inside ``get_batch_metric_trends``, so
-    a one-day window is scored against its full history. Only rows inside
+    Detection uses the 29-day lookback inside ``get_batch_metric_trends``; the
+    baseline is the latest 7 non-null values within the preceding 28 days
+    (gaps tolerated), so a one-day window is scored against its full history. Only rows inside
     ``[start_date, end_date]`` are deleted and rewritten, so resolved anomalies
     in the window disappear and earlier rows are untouched.
 

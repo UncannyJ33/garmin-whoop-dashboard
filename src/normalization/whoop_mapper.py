@@ -65,6 +65,39 @@ def local_date(ts_iso: str, tz_offset: str | None) -> str | None:
     return dt.date().isoformat() if dt is not None else None
 
 
+def cycle_wake_date(
+    cycle: WhoopCycle,
+    recovery: WhoopRecovery | None,
+    sleep: WhoopSleep | None,
+) -> str | None:
+    """Return the local WAKE date (YYYY-MM-DD) a Whoop cycle belongs to.
+
+    A Whoop cycle starts at sleep onset, so the cycle's own start date can be the
+    previous evening. The daily key is the local date of the morning the user woke:
+
+    1. If ``sleep`` (the sleep linked from the cycle's recovery) has an ``end_time``,
+       use its local date (sleep offset, falling back to the cycle's offset).
+    2. Otherwise use the cycle's local start datetime, plus one day when the local
+       hour is >= 12 (onset after noon means the wake day is tomorrow; onset after
+       midnight is the same day).
+
+    Returns:
+        ISO date string, or None when no timestamp can be parsed.
+    """
+    if sleep is not None and sleep.end_time:
+        d = local_date(sleep.end_time, sleep.timezone_offset or cycle.timezone_offset)
+        if d:
+            return d
+    if not cycle.start_time:
+        return None
+    dt = local_datetime(cycle.start_time, cycle.timezone_offset)
+    if dt is None:
+        return None
+    if dt.hour >= 12:
+        dt = dt + timedelta(days=1)
+    return dt.date().isoformat()
+
+
 def ms_to_minutes(ms: int | None) -> float | None:
     """Convert milliseconds to minutes.
 

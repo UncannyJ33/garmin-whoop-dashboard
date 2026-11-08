@@ -603,3 +603,28 @@ async def test_run_lock_released_after_exception(db):
         await WhoopPipeline(db, client=client).run()
     assert whoop_pipeline._RUN_LOCK.acquire(blocking=False)
     whoop_pipeline._RUN_LOCK.release()
+
+
+@pytest.mark.asyncio
+async def test_normalize_window_widened_one_day_each_side(db, monkeypatch):
+    """Normalize range is the UTC window +/- 1 day so east-of-UTC local dates are covered."""
+    from datetime import date
+
+    from src.normalization.normalizer import Normalizer
+
+    calls: list[tuple[date, date]] = []
+
+    def fake_normalize_all(self, start, end, *, refresh_anomalies=True):
+        calls.append((start, end))
+        return {"daily": 0, "sleep": 0, "workouts": 0}
+
+    monkeypatch.setattr(Normalizer, "normalize_all", fake_normalize_all)
+    mock_client = MagicMock()
+    for name in ("get_cycles", "get_recovery", "get_sleep", "get_workouts"):
+        setattr(mock_client, name, AsyncMock(return_value=[]))
+
+    pipeline = WhoopPipeline(db, client=mock_client)
+    await pipeline.run(
+        start=datetime(2024, 3, 5, tzinfo=UTC), end=datetime(2024, 3, 7, tzinfo=UTC)
+    )
+    assert calls == [(date(2024, 3, 4), date(2024, 3, 8))]
