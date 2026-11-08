@@ -396,6 +396,24 @@ def test_sync_window_overlaps_2_days(db):
     assert start == sync_end - timedelta(days=2)
 
 
+def test_sync_window_uses_max_sync_end_not_newest_log(db):
+    """A later-logged old backfill chunk must not move the window backward."""
+    newest = datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC)
+    for end in (newest, newest - timedelta(days=200)):
+        db.add(
+            SyncLog(
+                source="whoop",
+                sync_type="manual",
+                started_at="2024-03-01T11:00:00+00:00",
+                status="success",
+                metadata_json=json.dumps({"sync_end": end.isoformat()}),
+            )
+        )
+    db.commit()
+    start, _ = WhoopPipeline(db, client=MagicMock())._get_sync_window()
+    assert start == newest - timedelta(days=2)
+
+
 def test_sync_window_ignores_failed_syncs(db):
     """A failed sync must not affect the window — falls back to 30 days ago."""
     log = SyncLog(

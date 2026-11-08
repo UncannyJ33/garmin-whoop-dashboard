@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 import yaml
 from sqlalchemy import func
@@ -44,8 +44,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MAPPINGS_PATH = Path(__file__).parent.parent.parent / "config" / "field_mappings.yaml"
 
-_M = TypeVar("_M")
-
 
 def _date_range(start: date, end: date) -> list[date]:
     """Return every calendar date from start to end inclusive."""
@@ -53,7 +51,7 @@ def _date_range(start: date, end: date) -> list[date]:
     return [start + timedelta(days=i) for i in range(days)]
 
 
-def upsert_row(db: Session, model_cls: type[_M], pk_field: str, data: dict[str, Any]) -> _M:
+def upsert_row[M](db: Session, model_cls: type[M], pk_field: str, data: dict[str, Any]) -> M:
     """Insert or update a single row identified by ``data[pk_field]`` (not committed).
 
     Args:
@@ -605,6 +603,6 @@ class Normalizer:
         values = [r[0] for r in rows if r[0] is not None]
         return max(values) if values else None
 
-    def _upsert(self, model_cls: type[_M], pk_field: str, data: dict[str, Any]) -> _M:
+    def _upsert[M](self, model_cls: type[M], pk_field: str, data: dict[str, Any]) -> M:
         """Insert or update a single row identified by its primary key."""
         return upsert_row(self._db, model_cls, pk_field, data)

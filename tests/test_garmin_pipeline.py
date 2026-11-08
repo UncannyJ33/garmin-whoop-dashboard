@@ -436,6 +436,24 @@ def test_sync_window_overlaps_previous_end(db):
     assert end == datetime.now(tz=UTC).date()
 
 
+def test_sync_window_uses_max_sync_end_not_newest_log(db):
+    """A later-logged old backfill chunk must not move the window backward."""
+    d = datetime.now(tz=UTC).date() - timedelta(days=1)
+    for end in (d, d - timedelta(days=200)):
+        db.add(
+            SyncLog(
+                source="garmin",
+                sync_type="manual",
+                started_at="2024-03-04T00:00:00+00:00",
+                status="success",
+                metadata_json=json.dumps({"sync_end": end.isoformat()}),
+            )
+        )
+    db.commit()
+    start, _ = GarminPipeline(db, client=MagicMock())._get_sync_window()
+    assert start == d - timedelta(days=2)
+
+
 def test_sync_window_ignores_failed_syncs(db):
     """A failed sync entry must not be used to compute the next window."""
     log = SyncLog(

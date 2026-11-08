@@ -487,30 +487,33 @@ class GarminPipeline:
     def _get_sync_window(self) -> tuple[date, date]:
         """Return (start, end) dates for the next sync window.
 
-        Start is the ``sync_end`` of the last successful Garmin sync minus
-        ``INCREMENTAL_OVERLAP_DAYS``, or 30 days ago if no prior sync exists.
+        Start is the latest ``sync_end`` across successful Garmin syncs minus
+        ``INCREMENTAL_OVERLAP_DAYS`` (so an old backfill chunk logged last never
+        moves the window backward), or 30 days ago if no readable success exists.
         End is always today.
         """
-        last = (
+        logs = (
             self._db.query(SyncLog)
             .filter_by(source="garmin", status="success")
             .filter(SyncLog.user_id == self.user_id)
-            .order_by(SyncLog.id.desc())
-            .first()
+            .all()
         )
         today = datetime.now(tz=UTC).date()
-        if last and last.metadata_json:
+        latest: date | None = None
+        for row in logs:
+            if not row.metadata_json:
+                continue
             try:
-                meta = json.loads(last.metadata_json)
-                start = date.fromisoformat(meta["sync_end"]) - timedelta(
-                    days=INCREMENTAL_OVERLAP_DAYS
-                )
-                return start, today
-            except (KeyError, ValueError):
+                sync_end = date.fromisoformat(json.loads(row.metadata_json)["sync_end"])
+            except (KeyError, ValueError, TypeError):
                 logger.warning(
-                    "Garmin sync: unreadable sync_log metadata (id=%s); using default lookback",
-                    last.id,
+                    "Garmin sync: unreadable sync_log metadata (id=%s); skipping", row.id
                 )
+                continue
+            if latest is None or sync_end > latest:
+                latest = sync_end
+        if latest is not None:
+            return latest - timedelta(days=INCREMENTAL_OVERLAP_DAYS), today
         return today - timedelta(days=DEFAULT_LOOKBACK_DAYS), today
 
     def _sync_activities(self, start: date, end: date, fetched_at: str) -> tuple[int, int]:

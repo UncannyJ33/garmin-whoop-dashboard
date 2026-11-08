@@ -8,13 +8,10 @@ Tailwind / Recharts.
 
 This README is internal documentation for the owner (SJ) and Claude agents.
 
-> **Status: relaunch in progress (Nov 2026).** **Phase 2 is done** (branch
-> `feat/garmin-personal-api`, 2026-11-06): Garmin now comes from the official Personal API, and
-> the unofficial `garminconnect` password login is gone. **The SaaS cut (roadmap Phases 3-4) is
-> still pending**: the landing page and the other SaaS-era frontend pages still exist.
-> Plan: [`plans/2026-11-06-personal-relaunch-roadmap.md`](plans/2026-11-06-personal-relaunch-roadmap.md).
+> **Status: relaunch complete (2026-11-07).** Garmin comes from the official Personal API, the
+> SaaS surface is gone, and it runs locally with SQLite. Plan:
+> [`plans/2026-11-06-personal-relaunch-roadmap.md`](plans/2026-11-06-personal-relaunch-roadmap.md).
 > Research: [`docs/research/2026-11-garmin-personal-api.md`](docs/research/2026-11-garmin-personal-api.md).
-> Sections below are marked **(current code)** or **(after relaunch)**.
 
 ## How it works
 
@@ -46,48 +43,52 @@ src/
   normalization/  mappers, deduplication, normalizer
 config/           settings.py (env vars), field_mappings.yaml
 frontend-react/   React app (src/pages, components, hooks/useApi.ts)
-scripts/          initial_sync.py, import_data.py, schema_review.py, start.sh, ...
+scripts/          create_owner.py, backfill.py, initial_sync.py, import_data.py, schema_review.py, start.sh, ...
 landing/          pulsebuilt.net studio page (not part of the dashboard; leave alone)
 tests/            pytest suite
 ```
 
-## Running it locally (current code)
+## Getting started
 
-Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node 20+. A fresh checkout has
-no `.venv` or `node_modules`; the Makefile expects `.venv/`.
+1. Install tools: `brew install uv`, plus Node 20+.
+2. `uv sync`, then `cp .env.example .env` and fill in `JWT_SECRET`
+   (`python -c "import secrets; print(secrets.token_hex(32))"`), `WHOOP_CLIENT_ID`,
+   `WHOOP_CLIENT_SECRET` and `GARMIN_PERSONAL_API_KEY` (see Garmin data and Whoop below).
+3. Create the single owner account: `make owner EMAIL=you@example.com` (prompts for a password;
+   registration is closed).
+4. `make run`, then open <http://localhost:8000> and log in. It builds the frontend only when
+   sources changed, and binds to `127.0.0.1`. Use `localhost` consistently: the Whoop callback
+   lands there, and the login lives in per-origin `localStorage`, so `127.0.0.1` is a separate,
+   logged-out session.
+5. Settings -> Connect Whoop. `http://localhost:8000/api/auth/whoop/callback` must be registered in
+   the Whoop developer dashboard and match `WHOOP_REDIRECT_URI`.
+6. **Stop the server (Ctrl-C)**, then backfill history: `make backfill START=2024-11-01`
+   (optional `SOURCE=garmin|whoop`, default `all`; `CHUNK_DAYS=`).
+   - Chunks run oldest first and end today (no `--end`). It refuses (exit 3) while this
+     dashboard's API is running, and uses `caffeinate` on macOS.
+   - Garmin daily data reaches only about 180-365 days back; activities about 690 days. Older
+     Garmin data comes from an account export via `scripts/import_data.py` (see below).
+   - Expect about 40 min for 2 years. If it stops, run the printed resume command
+     (`make backfill SOURCE=x START=y`) **before** restarting the server.
+   - Exit codes: 0 done, 1 error, 2 usage, 3 API running, 130 interrupted.
+7. `make run` again. The scheduler then keeps both sources current.
 
-```bash
-uv sync                          # creates .venv, installs deps (incl. dev group)
-cd frontend-react && npm ci && cd ..
-cp .env.example .env
-```
+**Ports.** If 8000 is taken (`make run` refuses with a hint), use `make run PORT=8001`, and set
+`WHOOP_REDIRECT_URI=http://localhost:8001/api/auth/whoop/callback` in `.env` and in the Whoop
+developer dashboard. Pass the same `PORT=` to `make backfill`.
 
-Edit `.env`; these matter locally:
+**Development.** `make dev` (API on :8000 with reload) plus `cd frontend-react && npm run dev`
+(Vite on :5173, proxies `/api`); open <http://localhost:5173>.
 
-| Var | Value |
-|---|---|
-| `DATABASE_URL` | `sqlite:///data/fitness_dashboard.db` (default) |
-| `JWT_SECRET` | required, even locally: `python -c "import secrets; print(secrets.token_hex(32))"` |
-| `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | from your Whoop app (see Whoop below) |
-| `WHOOP_REDIRECT_URI` | `http://localhost:8000/api/auth/whoop/callback` |
-| `GARMIN_PERSONAL_API_KEY` | Garmin Personal API key (see Garmin data below); optional `GARMIN_PERSONAL_API_BASE_URL` |
-| `GARMIN_POLL_INTERVAL_MINUTES` | optional, default 30 |
+**Optional: Docker Compose.** `make up` / `make down` run the container, published on
+`127.0.0.1:8000` only, using `.env` and `./data`. The Docker build is not verified yet.
 
-Without a Garmin key the app still runs; Garmin data then comes only from the export import.
+**Optional: remote access.** `tailscale serve 8000` keeps the localhost bind. `make run
+BIND_HOST=0.0.0.0` exposes it to the LAN (opt-in; use `BIND_HOST`, not `HOST`, because zsh sets
+`HOST` to the hostname).
 
-Two terminals (migrations run automatically on API startup):
-
-```bash
-make run-api                      # FastAPI on :8000 (docs at /docs)
-cd frontend-react && npm run dev  # Vite on :5173 (proxies /api to :8000)
-```
-
-Open http://localhost:5173. Create the single owner account with `make owner EMAIL=you@example.com`
-(prompts for a password; registration is closed), log in, then **Settings -> connect Whoop**
-(OAuth). To serve the built app from FastAPI instead: `cd frontend-react && npm run build`, then
-`make run-api` and open http://localhost:8000.
-
-Initial Whoop backfill: Settings -> Sync Now, or `make run-sync` (runs `scripts/initial_sync.py`).
+Troubleshooting: "Port in use" -> `PORT=` above. Whoop "needs reconnect" -> Settings -> Connect
+Whoop. Backfill exit 3 -> stop the server first. Garmin "Key rejected" -> create a new key.
 
 ## Garmin data
 
@@ -125,7 +126,7 @@ import and fills the unified tables.
 
 1. Create an app at <https://developer.whoop.com>. New apps start on the Sandbox tier (10 members),
    which is enough for one person.
-2. Redirect URI: `http://localhost:8000/api/auth/whoop/callback` (must match `WHOOP_REDIRECT_URI`).
+2. Redirect URI: `http://localhost:8000/api/auth/whoop/callback` (must match `WHOOP_REDIRECT_URI`; change both if you use another port).
 3. Scopes requested by the code: `read:recovery`, `read:cycles`, `read:workout`, `read:sleep`,
    `read:body_measurement`, `read:profile`, `offline` (needed for refresh tokens).
 4. Data is polled every 30 min. Refresh tokens rotate; a known bug can force re-auth (fix planned
@@ -137,33 +138,27 @@ Whoop data is polling only (no webhooks); do not set up ngrok.
 
 | Command | Does |
 |---|---|
-| `make run-api` | FastAPI on :8000 with reload |
-| `make run-sync` | `scripts/initial_sync.py` (Whoop, then Garmin) |
-| `make test` | `pytest tests/ -v` |
+| `make run` | build frontend if changed, serve on `BIND_HOST:PORT` (127.0.0.1:8000) |
+| `make dev` (alias `run-api`) | FastAPI with reload, for `npm run dev` |
+| `make build-frontend` | production React build to `dist/` |
+| `make owner EMAIL=...` | create the single owner |
+| `make backfill START=YYYY-MM-DD` | chunked history backfill (server stopped) |
+| `make run-sync` | `scripts/initial_sync.py` (Whoop, then Garmin, 30 days) |
+| `make up` / `make down` | Docker Compose |
+| `make test` | `pytest -q` (972 pass, serial; xdist is broken) |
 | `make lint` / `make fmt` | `ruff check .` / `ruff format .` |
-| `cd frontend-react && npm run dev` | Vite dev server, :5173 |
 | `cd frontend-react && npm run typecheck` | `tsc --noEmit` |
-| `cd frontend-react && npm run build` | typecheck + production build to `dist/` |
 | `.venv/bin/python scripts/schema_review.py --days 14` | side-by-side Whoop/Garmin review; CSVs to `data/review/` |
 
 ## Deployment
 
-`Dockerfile` is multi-stage (Node builds React, Python 3.11 runs FastAPI and serves `dist/`),
-single container on port 8000. `docker-compose.yml` runs it with `.env` and mounts `./data` (SQLite)
-and `./config`:
-
-```bash
-docker compose up --build        # http://localhost:8000
-```
-
-**It runs locally only.** The old Railway + Supabase deployment (engine.pulsebuilt.net) is gone:
-Railway is shut down, and the Supabase project and its data were deleted. History gets
-re-pulled from the APIs (roadmap Phase 6). `railway.toml` is a
-leftover that Phase 5 deletes.
+It runs locally only. The old Railway + Supabase deployment is gone, and its data was deleted.
+`Dockerfile` is multi-stage (Node builds React, Python runs FastAPI and serves `dist/`);
+`docker-compose.yml` is the optional way to run it (see Getting started).
 
 ## Docs map
 
-- `CLAUDE.md`: agent context (some SaaS-era content is stale until the Phase 7 docs pass)
+- `CLAUDE.md`: agent context (architecture, decisions, open items)
 - `plans/`: relaunch roadmap and per-phase plans
 - `docs/research/`: Garmin Personal API and Whoop research
 - `docs/reference/garmin-personal-api-openapi.json`: vendored Garmin Personal API spec

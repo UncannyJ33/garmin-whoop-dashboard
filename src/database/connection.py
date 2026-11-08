@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from sqlalchemy import Engine, create_engine, event
 
@@ -17,6 +18,20 @@ def _ensure_data_dir(database_url: str) -> None:
 
 def _is_sqlite(database_url: str) -> bool:
     return database_url.startswith("sqlite")
+
+
+def pg_connect_args(url: str) -> dict[str, str]:
+    """Return psycopg connect args: ``sslmode=require`` unless the URL sets ``sslmode=``.
+
+    Args:
+        url: The PostgreSQL DATABASE_URL.
+
+    Returns:
+        ``{"sslmode": "require"}`` or ``{}`` when the URL already carries ``sslmode``.
+    """
+    if "sslmode" in parse_qs(urlsplit(url).query):
+        return {}
+    return {"sslmode": "require"}
 
 
 def get_engine(database_url: str | None = None) -> Engine:
@@ -65,8 +80,9 @@ def get_engine(database_url: str | None = None) -> Engine:
             pool_pre_ping=True,
             pool_recycle=1800,
             pool_timeout=30,
-            # sslmode=require: required by hosted Postgres behind a pooler.
-            connect_args={"sslmode": "require"},
+            # sslmode=require by default (hosted Postgres behind a pooler); a URL
+            # with its own ?sslmode=... (e.g. disable for local Postgres) wins.
+            connect_args=pg_connect_args(url),
         )
 
     return engine
