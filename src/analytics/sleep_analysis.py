@@ -27,6 +27,7 @@ from typing import Any, Literal
 from sqlalchemy import Engine, text
 
 from src.analytics.training_load import user_clause
+from src.normalization.whoop_mapper import local_date, local_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,16 @@ def _linear_slope(ys: list[float]) -> float | None:
         return None
     cov = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in range(n))
     return cov / ss_x
+
+
+def _local_hours(ts_iso: str | None, tz_offset: str | None) -> float | None:
+    """Fractional local clock hours of a UTC timestamp shifted by a Whoop offset."""
+    if not ts_iso:
+        return None
+    dt = local_datetime(ts_iso, tz_offset)
+    if dt is None:
+        return None
+    return _time_str_to_fractional_hours(dt.isoformat())
 
 
 def _time_str_to_fractional_hours(iso_str: str | None) -> float | None:
@@ -265,14 +276,15 @@ def _fetch_whoop_sleep_times(
 ) -> list[dict]:
     """Fetch non-nap whoop_sleep rows with start/end timestamps.
 
-    Filters by DATE(end_time) (wake-up date) within the given range.
-    Returns rows sorted by end_time ascending.
+    Filters by the LOCAL wake-up date (``end_time`` shifted by the row's
+    ``timezone_offset``) within the given range. Returns rows sorted by
+    end_time ascending, each with ``start_time``, ``end_time`` and
+    ``timezone_offset``.
     """
-    # Use range comparison on end_time instead of SUBSTR() to enable index usage.
-    # Append 'T00:00:00' / 'T23:59:59' to turn date strings into timestamp bounds
-    # that capture all ISO-formatted timestamps on the start and end dates.
-    start_ts = start + "T00:00:00"
-    end_ts = end + "T23:59:59"
+    # UTC bounds are widened by one day each side (a local date can sit on the
+    # neighbouring UTC date); the exact filter on the local date is done in Python.
+    start_ts = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
+    end_ts = (date.fromisoformat(end) + timedelta(days=2)).isoformat()
     params: dict = {"start_ts": start_ts, "end_ts": end_ts}
     uid_clause = user_clause(user_id, params)
     with engine.connect() as conn:
@@ -280,11 +292,11 @@ def _fetch_whoop_sleep_times(
             conn.execute(
                 text(
                     f"""
-                SELECT start_time, end_time
+                SELECT start_time, end_time, timezone_offset
                 FROM whoop_sleep
                 WHERE nap = false
                   AND end_time >= :start_ts
-                  AND end_time <= :end_ts {uid_clause}
+                  AND end_time < :end_ts {uid_clause}
                 ORDER BY end_time
                 """
                 ),
@@ -293,7 +305,11 @@ def _fetch_whoop_sleep_times(
             .mappings()
             .all()
         )
-    return [dict(r) for r in rows]
+    return [
+        dict(r)
+        for r in rows
+        if r["end_time"] and start <= (local_date(r["end_time"], r["timezone_offset"]) or "") <= end
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +492,8 @@ def get_sleep_consistency(
 ) -> dict[str, Any]:
     """Summarise sleep schedule consistency over the most recent N days.
 
-    Bedtime and wake time are extracted from ``whoop_sleep`` timestamps.
+    Bedtime and wake time are extracted from ``whoop_sleep`` timestamps,
+    converted to local clock time with each row's ``timezone_offset``.
     Times before noon are assumed to be early-morning (post-midnight) and are
     offset by +24 h for averaging, so midnight-crossing schedules compute
     correctly.
@@ -511,11 +528,11 @@ def get_sleep_consistency(
         }
 
     # Bedtime (start_time): offset times before noon by +24 so midnight averages work
-    bed_hours_raw = [_time_str_to_fractional_hours(r["start_time"]) for r in whoop_rows]
+    bed_hours_raw = [_local_hours(r["start_time"], r["timezone_offset"]) for r in whoop_rows]
     bed_hours = [h + 24.0 if (h is not None and h < 12.0) else h for h in bed_hours_raw]
 
     # Wake time (end_time): typically 5–10 AM, no offset needed
-    wake_hours = [_time_str_to_fractional_hours(r["end_time"]) for r in whoop_rows]
+    wake_hours = [_local_hours(r["end_time"], r["timezone_offset"]) for r in whoop_rows]
 
     avg_bed = _avg_nonull(bed_hours)
     # Normalise back to 0–24 range for display
@@ -538,6 +555,8 @@ def get_sleep_consistency(
         last_7 = [_net_sleep(sleep_all.get(_add_days(d, -i), {})) for i in range(7)]
         avg_sleep = _avg_nonull(last_7)
         if avg_sleep is not None:
+            # No user target passed: the only output of this series is the OLS slope,
+            # which is invariant to subtracting a constant.
             debt_series.append(avg_sleep - DEFAULT_TARGET_SLEEP_MINUTES)
         current += timedelta(days=1)
 

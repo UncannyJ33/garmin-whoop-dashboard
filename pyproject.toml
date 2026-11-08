@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "sqlalchemy>=2.0.0,<2.1",
+    "sqlalchemy>=2.0.0",
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "apscheduler>=3.10.0",
@@ -29,6 +29,11 @@ packages = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    # starlette 0.52.1 TestClient on anyio 4.16.0 (third-party): uses the deprecated anyio.abc.BlockingPortal alias.
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning:starlette.testclient",
+]
 
 [dependency-groups]
 dev = [

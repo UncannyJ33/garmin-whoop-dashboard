@@ -167,11 +167,12 @@ class TestSweetSpot:
     ANCHOR = date(2040, 1, 28)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Seed 34 days so the full 33-day trend lookback is all 10 strain
             for i in range(34):
-                d = (self.ANCHOR - timedelta(days=33 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=33 - i)).isoformat()
                 s.merge(_workout(d, 10.0))
             s.commit()
 
@@ -211,15 +212,16 @@ class TestDetraining:
     ANCHOR = date(2040, 3, 1)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Last 7 days: strain 2
             for i in range(7):
-                d = (self.ANCHOR - timedelta(days=6 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=6 - i)).isoformat()
                 s.merge(_workout(d, 2.0, "user_detr"))
             # Prior 21 days: strain 10
             for i in range(21):
-                d = (self.ANCHOR - timedelta(days=27 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=27 - i)).isoformat()
                 s.merge(_workout(d, 10.0, "user_detr"))
             s.commit()
 
@@ -241,13 +243,14 @@ class TestDanger:
     ANCHOR = date(2040, 4, 5)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             for i in range(7):
-                d = (self.ANCHOR - timedelta(days=6 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=6 - i)).isoformat()
                 s.merge(_workout(d, 20.0, "user_dngr"))
             for i in range(21):
-                d = (self.ANCHOR - timedelta(days=27 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=27 - i)).isoformat()
                 s.merge(_workout(d, 5.0, "user_dngr"))
             s.commit()
 
@@ -293,10 +296,11 @@ class TestPartialHistory:
     ANCHOR = date(2040, 6, 15)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             for i in range(14):
-                d = (self.ANCHOR - timedelta(days=13 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=13 - i)).isoformat()
                 s.merge(_workout(d, 10.0, "user_part"))
             s.commit()
 
@@ -320,17 +324,18 @@ class TestTrendComputed:
     ANCHOR = date(2040, 7, 20)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Build a scenario where ACWR rises over the last 7 days:
             # Prior 21 days: constant 5 strain (chronic baseline)
             # Last 7 days: ramp from 5 up to 20 strain
             for i in range(21):
-                d = (self.ANCHOR - timedelta(days=27 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=27 - i)).isoformat()
                 s.merge(_workout(d, 5.0, "user_trnd"))
             ramp = [5, 7, 9, 12, 15, 18, 20]
             for i, strain in enumerate(ramp):
-                d = (self.ANCHOR - timedelta(days=6 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=6 - i)).isoformat()
                 s.merge(_workout(d, float(strain), "user_trnd"))
             s.commit()
 
@@ -345,7 +350,8 @@ class TestWeeklyLoads:
     ANCHOR = date(2040, 8, 25)  # Monday
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Seed 28 days: 4 complete weeks ending on ANCHOR (Sunday 8/25 is day 28)
             # Week 1 (oldest): 7 workouts × 5 strain = 35
@@ -357,7 +363,7 @@ class TestWeeklyLoads:
                 for day in range(7):
                     # ANCHOR is the last day (day 27 from start)
                     offset = 27 - (week_idx * 7) - day
-                    d = (self.ANCHOR - timedelta(days=offset)).isoformat()
+                    d = (cls.ANCHOR - timedelta(days=offset)).isoformat()
                     s.merge(_workout(d, strain, "user_wkly"))
             s.commit()
 
@@ -390,11 +396,12 @@ class TestLoadHistory:
     START = date(2040, 9, 25)  # 7-day history window
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Seed 34 days so every day in [START, ANCHOR] has a full 28-day window
             for i in range(34):
-                d = (self.ANCHOR - timedelta(days=33 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=33 - i)).isoformat()
                 s.merge(_workout(d, 10.0, "user_hist"))
             s.commit()
 
@@ -433,18 +440,19 @@ class TestMultipleWorkoutsPerDay:
     ANCHOR = date(2040, 11, 10)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # 28 days of single 5-strain workouts as baseline
             for i in range(28):
-                d = (self.ANCHOR - timedelta(days=27 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=27 - i)).isoformat()
                 s.merge(_workout(d, 5.0, "user_multi"))
             # On ANCHOR day: add a second workout (total for that day = 10)
             s.merge(
                 UnifiedWorkout(
-                    id=f"w_{self.ANCHOR.isoformat()}_5.0_user_multi_b",
-                    date=self.ANCHOR.isoformat(),
-                    start_time=f"{self.ANCHOR.isoformat()}T10:00:00",
+                    id=f"w_{cls.ANCHOR.isoformat()}_5.0_user_multi_b",
+                    date=cls.ANCHOR.isoformat(),
+                    start_time=f"{cls.ANCHOR.isoformat()}T10:00:00",
                     whoop_strain=5.0,
                     primary_source="whoop",
                     last_updated=NOW_ISO,

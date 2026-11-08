@@ -2,10 +2,18 @@
 
 Usage (from project root, venv active):
     python scripts/backfill.py --source {garmin,whoop,all} --start YYYY-MM-DD
-        [--chunk-days N] [--force]
+        [--chunk-days N] [--daily-from YYYY-MM-DD] [--force]
 
 The range always ends today. Both pipelines resume from the latest successful
 SyncLog, so re-running after a failure continues where it stopped.
+
+Garmin daily summaries only exist about a year back. Chunks ending before
+``today - 370 days`` run activities-only (no per-day calls); ``--daily-from`` overrides
+that boundary. The cutoff is fixed because probing for it can be fooled by a watch-off
+streak, which would permanently skip real daily data (those chunks log success).
+
+A final anomaly refresh runs over ``[start, end of the last completed chunk]`` even after
+an interrupt or a failed source, whenever any chunk stored data.
 
 Exit codes: 0 ok; 1 a source failed / no owner / several users / nothing ran;
 2 usage error; 3 API server running and --force not given; 130 interrupted.
@@ -15,9 +23,11 @@ import argparse
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 
 import httpx
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from config.settings import settings
@@ -34,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 GARMIN_MAX_CHUNK_DAYS = 31
 DEFAULT_CHUNK_DAYS = 30
+DAILY_HISTORY_DAYS = 370  # chunks ending before today - 370 run activities-only
 
 # Per-source outcomes.
 OK, FAILED, SKIPPED = "ok", "failed", "skipped"
@@ -138,14 +149,41 @@ def _print_chunk(source: str, s: date, e: date, log: SyncLog) -> None:
     )
 
 
+@dataclass
+class _Progress:
+    """Completed-chunk bookkeeping shared by the runners, for the final anomaly refresh."""
+
+    stored: int = 0
+    last_end: date | None = None
+
+    def done(self, chunk_end: date, records_stored: int | None) -> None:
+        """Record a completed chunk ending ``chunk_end``."""
+        self.stored += records_stored or 0
+        if self.last_end is None or chunk_end > self.last_end:
+            self.last_end = chunk_end
+
+
 def _run_garmin(
-    db: Session, owner: str, chunks: list[tuple[date, date]], hint: ResumeHint
+    db: Session,
+    owner: str,
+    chunks: list[tuple[date, date]],
+    hint: ResumeHint,
+    daily_from: date | None = None,
+    progress: _Progress | None = None,
 ) -> tuple[str, int]:
-    """Run Garmin chunks oldest first; return ``(outcome, records_stored)``."""
+    """Run Garmin chunks oldest first; return ``(outcome, records_stored)``.
+
+    Chunks ending before ``daily_from`` run activities-only (``daily=False``).
+    The anomaly refresh is skipped per chunk; ``_run`` refreshes once at the end
+    over the chunks recorded in ``progress``.
+    """
     stored = 0
     for s, e in chunks:
+        daily = daily_from is None or e >= daily_from
         try:
-            log = GarminPipeline(db, user_id=owner).run(start=s, end=e)
+            log = GarminPipeline(db, user_id=owner).run(
+                start=s, end=e, daily=daily, refresh_anomalies=False
+            )
         except KeyboardInterrupt:
             db.rollback()
             raise _Interrupted("garmin", s) from None
@@ -165,6 +203,8 @@ def _run_garmin(
             print(hint("garmin", s))
             return FAILED, stored
         stored += log.records_stored or 0
+        if progress is not None:
+            progress.done(e, log.records_stored)
     return OK, stored
 
 
@@ -174,12 +214,15 @@ def _run_whoop(
     chunks: list[tuple[date, date]],
     windows: list[tuple[datetime, datetime]],
     hint: ResumeHint,
+    progress: _Progress | None = None,
 ) -> tuple[str, int]:
     """Run Whoop windows oldest first; return ``(outcome, records_stored)``."""
     stored = 0
     for (s, e), (ws, we) in zip(chunks, windows, strict=True):
         try:
-            log = asyncio.run(WhoopPipeline(db, user_id=owner).run(start=ws, end=we))
+            log = asyncio.run(
+                WhoopPipeline(db, user_id=owner).run(start=ws, end=we, refresh_anomalies=False)
+            )
         except KeyboardInterrupt:
             db.rollback()
             raise _Interrupted("whoop", s) from None
@@ -205,6 +248,8 @@ def _run_whoop(
             print(hint("whoop", s))
             return FAILED, stored
         stored += log.records_stored or 0
+        if progress is not None:
+            progress.done(e, log.records_stored)
     return OK, stored
 
 
@@ -213,6 +258,12 @@ def _parse_args(argv: list[str] | None, today: date) -> argparse.Namespace:
     parser.add_argument("--source", choices=["garmin", "whoop", "all"], default="all")
     parser.add_argument("--start", required=True, type=date.fromisoformat, help="YYYY-MM-DD")
     parser.add_argument("--chunk-days", type=int, default=DEFAULT_CHUNK_DAYS)
+    parser.add_argument(
+        "--daily-from",
+        type=date.fromisoformat,
+        default=None,
+        help="YYYY-MM-DD: Garmin chunks ending before this run activities-only (no probe)",
+    )
     parser.add_argument("--force", action="store_true", help="run even if the API is up")
     args = parser.parse_args(argv)
     if args.start > today:
@@ -220,6 +271,42 @@ def _parse_args(argv: list[str] | None, today: date) -> argparse.Namespace:
     if args.chunk_days < 1:
         parser.error("--chunk-days must be >= 1")
     return args
+
+
+def _resolve_daily_from(
+    args: argparse.Namespace, today: date, chunks: list[tuple[date, date]]
+) -> date:
+    """Return the date daily summaries start from (earlier chunks run activities-only).
+
+    ``--daily-from`` wins; otherwise ``today - DAILY_HISTORY_DAYS``. Prints one note when
+    any chunk is affected.
+    """
+    daily_from = args.daily_from or today - timedelta(days=DAILY_HISTORY_DAYS)
+    skipped = [c for c in chunks if c[1] < daily_from]
+    if skipped:
+        print(
+            f"  Garmin daily summaries are only kept about a year; {len(skipped)} chunks "
+            f"ending before {daily_from} run activities-only (override with --daily-from)."
+        )
+    return daily_from
+
+
+def _final_anomaly_refresh(engine: Engine, owner: str, start: date, progress: _Progress) -> None:
+    """Refresh anomalies over ``[start, last completed chunk end]`` if any chunk stored data.
+
+    Failures are logged and printed but never raised, so they cannot mask the run's
+    exit code; Ctrl-C still propagates.
+    """
+    if progress.stored <= 0 or progress.last_end is None:
+        return
+    end = progress.last_end
+    try:
+        count = refresh_anomalies(engine, owner, start, end)
+    except Exception as exc:
+        logger.exception("Final anomaly refresh over %s → %s failed", start, end)
+        print(f"\nAnomaly refresh over {start} → {end} FAILED {type(exc).__name__}: {exc}")
+        return
+    print(f"\nAnomaly refresh over {start} → {end}: {count} stored.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -271,14 +358,13 @@ def _run(argparse_args: argparse.Namespace, today: date, port: int, hint: Resume
             f"Backfilling {days} days ({args.start} → {today}). Garmin makes about 3 calls "
             "per day at >= 1 s each, so 2 years takes about 40 min.\n"
             "Don't start the server until this finishes.\n"
-            "Garmin daily summaries stop somewhere between 180 and 365 days back; older days "
-            "log 'daily summary unavailable' and only activities come through. For older daily "
-            "data, use a Garmin account export with `scripts/import_data.py`."
+            "Garmin daily summaries reach about a year back; older chunks skip per-day calls. "
+            "For older daily data, use a Garmin account export with `scripts/import_data.py`."
         )
 
         db = get_session_factory(engine)()
         outcomes: dict[str, str] = {}
-        stored_total = 0
+        progress = _Progress()
         try:
             if args.source in ("garmin", "all"):
                 print("\nGarmin")
@@ -287,10 +373,11 @@ def _run(argparse_args: argparse.Namespace, today: date, port: int, hint: Resume
                     outcomes["garmin"] = SKIPPED
                 else:
                     chunk_days = min(args.chunk_days, GARMIN_MAX_CHUNK_DAYS)
-                    outcomes["garmin"], n = _run_garmin(
-                        db, owner, day_chunks(args.start, today, chunk_days), hint
+                    chunks = day_chunks(args.start, today, chunk_days)
+                    daily_from = _resolve_daily_from(args, today, chunks)
+                    outcomes["garmin"], _ = _run_garmin(
+                        db, owner, chunks, hint, daily_from, progress
                     )
-                    stored_total += n
 
             if args.source in ("whoop", "all"):
                 print("\nWhoop")
@@ -303,14 +390,13 @@ def _run(argparse_args: argparse.Namespace, today: date, port: int, hint: Resume
                 else:
                     chunks = day_chunks(args.start, today, args.chunk_days)
                     windows = whoop_windows(chunks, _now())
-                    outcomes["whoop"], n = _run_whoop(db, owner, chunks, windows, hint)
-                    stored_total += n
-
-            if stored_total > 0:
-                count = refresh_anomalies(engine, owner, args.start, today)
-                print(f"\nAnomaly refresh over {args.start} → {today}: {count} stored.")
+                    outcomes["whoop"], _ = _run_whoop(db, owner, chunks, windows, hint, progress)
         finally:
-            db.close()
+            # Runs on normal completion, failed sources, and _Interrupted / Ctrl-C alike.
+            try:
+                _final_anomaly_refresh(engine, owner, args.start, progress)
+            finally:
+                db.close()
     finally:
         engine.dispose()
 

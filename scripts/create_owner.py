@@ -63,9 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Owner created: {email}")
         return 0
     finally:
-        # Tests patch get_engine with a shared in-memory engine; only dispose real ones.
-        if not str(engine.url).endswith(":memory:"):
-            engine.dispose()
+        engine.dispose()
 
 
 if __name__ == "__main__":

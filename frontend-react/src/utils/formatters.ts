@@ -23,3 +23,8 @@ export function fmtDateFull(iso: string | null): string {
   const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso)
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
+
+/** Hours with at most one decimal and a unit, e.g. 7.8 -> "7.8h", 8 -> "8h". */
+export function fmtTargetHours(hours: number): string {
+  return `${parseFloat(hours.toFixed(1))}h`
+}

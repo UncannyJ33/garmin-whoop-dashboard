@@ -28,6 +28,7 @@ import {
 import {
   useSleepConsistency,
   useSleepInsights,
+  useSleepTarget,
   useRecovery,
   useRecoveryWithWithout,
 } from '../hooks/useApi'
@@ -38,7 +39,7 @@ import { MetricCard } from '../components/MetricCard'
 import { SleepStageBar } from '../components/SleepStageBar'
 import type { SleepInsight } from '../types/api'
 import { DayButton } from '../components/DayButton'
-import { fmtDate } from '../utils/formatters'
+import { fmtDate, fmtTargetHours } from '../utils/formatters'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -206,6 +207,8 @@ export function Recovery() {
   const [showDeep, setShowDeep] = useState(false)
 
   const insightsQ     = useSleepInsights(start, end)
+  const sleepTargetQ  = useSleepTarget()
+  const sleepTargetLabel = sleepTargetQ.data != null ? fmtTargetHours(sleepTargetQ.data / 60) : null
   const consistencyQ  = useSleepConsistency(days)
   const activitiesQ   = useRecovery(start, end)
   const withWithoutQ  = useRecoveryWithWithout(start, end)
@@ -413,7 +416,7 @@ export function Recovery() {
                     : `${fmtDebt(lastNight.sleep_debt_estimate)} ahead`
                   }{' '}
                   <span className="font-normal opacity-80">
-                    of the 8h/night target this week
+                    {sleepTargetLabel ? `of the ${sleepTargetLabel}/night target this week` : 'of your nightly sleep target this week'}
                   </span>
                 </p>
                 {cons?.sleep_debt_trend && (

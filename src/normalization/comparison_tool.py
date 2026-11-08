@@ -9,6 +9,9 @@ Alignment rules (Whoop is source of truth):
               matched to garmin_activities by start-time diff ≤5 min AND
               duration diff ≤20% of the longer activity
 
+Note: dev-only; keeps UTC DATE(...) keys, whereas the production normalizer keys
+Whoop dates by local time (see whoop_mapper.local_date).
+
 Output: formatted table to stdout + CSV files saved to data/review/.
 """
 

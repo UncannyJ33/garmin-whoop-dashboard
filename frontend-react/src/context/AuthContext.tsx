@@ -16,7 +16,7 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { setAuthToken } from '../api/client'
+import { setAuthToken, setRefreshHandler } from '../api/client'
 
 const STORAGE_KEY = 'pd_auth'
 
@@ -93,6 +93,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigateRef = useRef(navigate)
   navigateRef.current = navigate
   const queryClient = useQueryClient()
+  // Auth epoch: bumped on logout so a refresh already in flight cannot re-authenticate.
+  const authEpochRef = useRef(0)
 
   const login = useCallback((t: AuthTokens) => {
     void queryClient.cancelQueries()
@@ -103,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [queryClient])
 
   const logout = useCallback(() => {
+    authEpochRef.current += 1
     localStorage.removeItem(STORAGE_KEY)
     setAuthToken(null)
     setTokens(null)
@@ -110,6 +113,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     queryClient.clear()
     navigateRef.current('/login')
   }, [queryClient])
+
+  // Exchange the stored refresh token for new tokens. Deliberately does not call login(),
+  // which clears the query cache and would drop queries awaiting a retry.
+  const refreshTokens = useCallback(async (): Promise<string | null> => {
+    const stored = loadFromStorage()
+    if (!stored?.refresh_token) return null
+    const epoch = authEpochRef.current
+    try {
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${stored.refresh_token}` },
+      })
+      if (!res.ok) return null
+      const newTokens = (await res.json()) as AuthTokens
+      // Logged out (or tokens cleared) while the request was in flight: discard the result.
+      if (epoch !== authEpochRef.current || loadFromStorage() === null) return null
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newTokens))
+      setAuthToken(newTokens.access_token)
+      setTokens(newTokens)
+      return newTokens.access_token
+    } catch {
+      return null
+    }
+  }, [])
+
+  useEffect(() => {
+    setRefreshHandler(refreshTokens)
+    return () => setRefreshHandler(null)
+  }, [refreshTokens])
 
   // On mount: if stored tokens exist but access token is expired, attempt silent refresh
   useEffect(() => {
@@ -121,28 +153,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    fetch('/api/auth/refresh', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${stored.refresh_token}` },
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('refresh failed')
-        return res.json() as Promise<AuthTokens>
-      })
-      .then(newTokens => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newTokens))
-        setAuthToken(newTokens.access_token)
-        setTokens(newTokens)
-      })
-      .catch(() => {
-        // Refresh token is also expired or invalid — clear everything and go to login
-        localStorage.removeItem(STORAGE_KEY)
-        setAuthToken(null)
-        setTokens(null)
-        navigateRef.current('/login')
+    void refreshTokens()
+      .then(access => {
+        if (access === null) {
+          // Refresh token is also expired or invalid — clear everything and go to login
+          localStorage.removeItem(STORAGE_KEY)
+          setAuthToken(null)
+          setTokens(null)
+          navigateRef.current('/login')
+        }
       })
       .finally(() => setIsInitializing(false))
-  }, [isInitializing])
+  }, [isInitializing, refreshTokens])
 
   // Listen for 401s dispatched by the API client
   useEffect(() => {
@@ -156,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         token: tokens?.access_token ?? null,
         userId: tokens ? extractUserId(tokens.access_token) : null,
-        isAuthenticated: tokens !== null && !isAccessTokenExpired(tokens),
+        isAuthenticated: tokens !== null,
         isInitializing,
         login,
         logout,

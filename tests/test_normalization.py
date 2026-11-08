@@ -1,19 +1,24 @@
 """Tests for normalization mapper functions and the Normalizer class."""
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
+from src.analytics.training_load import fetch_daily_strain
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
 from src.database.models import (
+    GarminActivity,
     GarminDailySummary,
     UnifiedDaily,
     UnifiedSleep,
+    UnifiedWorkout,
     WhoopCycle,
     WhoopRecovery,
     WhoopSleep,
+    WhoopWorkout,
 )
 from src.normalization.garmin_mapper import (
     mps_to_pace,
@@ -23,6 +28,7 @@ from src.normalization.garmin_mapper import (
 from src.normalization.normalizer import Normalizer
 from src.normalization.whoop_mapper import (
     kj_to_kcal,
+    local_date,
     ms_to_minutes,
     normalize_whoop_sport,
     parse_zone_durations,
@@ -85,6 +91,34 @@ def test_ms_to_minutes():
 
 def test_ms_to_minutes_none():
     assert ms_to_minutes(None) is None
+
+
+@pytest.mark.parametrize(
+    ("ts", "offset", "expected"),
+    [
+        ("2026-11-07T02:00:00Z", "-05:00", "2026-11-06"),
+        ("2026-11-07T02:00:00Z", "+09:00", "2026-11-07"),
+        ("2026-11-07T02:00:00Z", "+0900", "2026-11-07"),
+        ("2026-11-07T02:00:00Z", "Z", "2026-11-07"),
+        ("2026-11-07T02:00:00Z", None, "2026-11-07"),
+        ("2026-11-07T02:00:00+00:00", "-05:00", "2026-11-06"),
+        ("2024-03-03T03:50:11.610Z", "-06:00", "2024-03-02"),
+    ],
+)
+def test_local_date_helper(ts, offset, expected):
+    assert local_date(ts, offset) == expected
+
+
+def test_local_date_garbage_offset_warns(caplog):
+    with caplog.at_level("WARNING"):
+        assert local_date("2026-11-07T02:00:00Z", "abc") == "2026-11-07"
+    assert any(r.levelname == "WARNING" and "abc" in r.getMessage() for r in caplog.records)
+
+
+def test_local_date_unparseable_timestamp_returns_none(caplog):
+    with caplog.at_level("WARNING"):
+        assert local_date("not-a-date", "-05:00") is None
+    assert any(r.levelname == "WARNING" for r in caplog.records)
 
 
 def test_seconds_to_minutes():
@@ -168,6 +202,7 @@ def _make_cycle(date_str: str = DATE_STR, strain: float = 12.5) -> WhoopCycle:
         user_id=1,
         start_time=f"{date_str}T12:00:00Z",
         end_time=f"{date_str}T23:59:00Z",
+        timezone_offset="-06:00",
         strain=strain,
         fetched_at=FETCHED,
     )
@@ -297,6 +332,7 @@ def test_normalize_sleep_whoop_primary(session, mappings_path):
         cycle_id=None,
         start_time="2026-02-14T22:00:00Z",
         end_time=f"{date_str}T06:30:00Z",
+        timezone_offset="-06:00",
         nap=0,
         total_in_bed_ms=30_600_000,  # 510 min
         total_sws_ms=5_400_000,  # 90 min
@@ -325,3 +361,199 @@ def test_normalize_sleep_whoop_primary(session, mappings_path):
     # Garmin fields should be None (no Garmin sleep on this date)
     assert row.garmin_sleep_score is None
     assert row.garmin_avg_spo2_sleep is None
+
+
+# ---------------------------------------------------------------------------
+# Local-time keys (Phase 8 task 2)
+# ---------------------------------------------------------------------------
+
+
+def test_prefetch_keys_daily_and_sleep_by_local_date(session, mappings_path):
+    """06:00 local on 11-07 in UTC+9 is 21:00Z on 11-06: keys must be the local date."""
+    cycle = WhoopCycle(
+        id="cycle_tz",
+        user_id=1,
+        start_time="2026-11-06T21:00:00Z",
+        end_time="2026-11-07T10:00:00Z",
+        timezone_offset="+09:00",
+        strain=10.0,
+        fetched_at=FETCHED,
+    )
+    sleep = WhoopSleep(
+        id="sleep_tz",
+        cycle_id=None,
+        start_time="2026-11-06T13:00:00Z",
+        end_time="2026-11-06T21:30:00Z",
+        timezone_offset="+09:00",
+        nap=0,
+        total_in_bed_ms=28_800_000,
+        fetched_at=FETCHED,
+    )
+    session.add_all([cycle, _make_recovery("cycle_tz", "sleep_tz"), sleep])
+    session.commit()
+
+    counts = Normalizer(session, mappings_path).normalize_all(date(2026, 11, 7), date(2026, 11, 7))
+
+    assert counts["daily"] == 1
+    assert counts["sleep"] == 1
+    assert session.get(UnifiedDaily, "2026-11-07") is not None
+    assert session.get(UnifiedSleep, "2026-11-07") is not None
+    assert session.get(UnifiedDaily, "2026-11-06") is None
+    assert session.get(UnifiedSleep, "2026-11-06") is None
+
+
+def _evening_workout_rows(session, whoop: bool, local_day: date, tag: str) -> None:
+    """Garmin 21:00 local (UTC-5) on local_day == 02:00Z next day; optional matching Whoop row."""
+    nxt = local_day + timedelta(days=1)
+    session.add(
+        GarminActivity(
+            activity_id=f"ga_{tag}",
+            activity_type="running",
+            start_time=f"{local_day} 21:00:00",
+            start_time_gmt=f"{nxt} 02:00:00",
+            duration_seconds=1800.0,
+            fetched_at=FETCHED,
+        )
+    )
+    if whoop:
+        session.add(
+            WhoopWorkout(
+                id=f"ww_{tag}",
+                start_time=f"{nxt}T02:00:00Z",
+                end_time=f"{nxt}T02:30:00Z",
+                timezone_offset="-05:00",
+                sport_name="running",
+                strain=11.0,
+                fetched_at=FETCHED,
+            )
+        )
+    session.commit()
+
+
+def test_evening_workout_local_date_whoop_matched(session, mappings_path):
+    _evening_workout_rows(session, True, date(2026, 11, 7), "m")
+    Normalizer(session, mappings_path).normalize_workouts(date(2026, 11, 7), date(2026, 11, 8))
+
+    rows = session.query(UnifiedWorkout).filter(UnifiedWorkout.date.in_(["2026-11-07"])).all()
+    assert len(rows) == 1
+    assert rows[0].matched is True
+    assert session.query(UnifiedWorkout).filter(UnifiedWorkout.date == "2026-11-08").count() == 0
+    strain = fetch_daily_strain(session.get_bind(), date(2026, 11, 7), date(2026, 11, 7))
+    assert strain.get("2026-11-07") == pytest.approx(11.0)
+
+
+def test_evening_workout_local_date_garmin_only(session, mappings_path):
+    _evening_workout_rows(session, False, date(2026, 11, 14), "g")
+    Normalizer(session, mappings_path).normalize_workouts(date(2026, 11, 14), date(2026, 11, 15))
+
+    rows = session.query(UnifiedWorkout).filter(UnifiedWorkout.garmin_activity_id == "ga_g")
+    assert [r.date for r in rows] == ["2026-11-14"]
+
+
+def test_vo2_max_keyed_by_local_date(session, mappings_path):
+    """vo2_by_date groups on the activity's local date, not its GMT date."""
+    session.add(
+        GarminActivity(
+            activity_id="ga_vo2",
+            activity_type="running",
+            start_time="2026-12-07 21:00:00",
+            start_time_gmt="2026-12-08 02:00:00",
+            vo2_max=55.0,
+            fetched_at=FETCHED,
+        )
+    )
+    session.commit()
+    n = Normalizer(session, mappings_path)
+    cache = n._prefetch_range(date(2026, 12, 7), date(2026, 12, 7))
+    assert cache.vo2_by_date == {"2026-12-07": 55.0}
+
+
+def test_normalize_all_skips_anomaly_refresh_when_disabled(session, mappings_path):
+    n = Normalizer(session, mappings_path, user_id="u-anom")
+    with patch("src.analytics.anomaly_store.refresh_anomalies") as refresh:
+        n.normalize_all(date(2026, 1, 1), date(2026, 1, 2), refresh_anomalies=False)
+        refresh.assert_not_called()
+        n.normalize_all(date(2026, 1, 1), date(2026, 1, 2))
+        refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Daily key = local WAKE date
+# ---------------------------------------------------------------------------
+
+
+def _wake_cycle(cid: str, start: str, offset: str = "-06:00") -> WhoopCycle:
+    return WhoopCycle(
+        id=cid,
+        user_id=1,
+        start_time=start,
+        end_time=None,
+        timezone_offset=offset,
+        strain=8.0,
+        fetched_at=FETCHED,
+    )
+
+
+def test_daily_key_is_local_wake_date(session, mappings_path):
+    """Realistic cycle: onset 21:50 local 03-02, sleep ends 06:30 local 03-03 -> row 03-03."""
+    session.add_all(
+        [
+            _wake_cycle("wk1", "2027-03-03T03:50:00Z"),  # 21:50 local on 03-02
+            WhoopSleep(
+                id="wk1_sleep",
+                cycle_id="wk1",
+                start_time="2027-03-03T03:50:00Z",
+                end_time="2027-03-03T12:30:00Z",  # 06:30 local on 03-03
+                timezone_offset="-06:00",
+                nap=0,
+                total_in_bed_ms=28_800_000,
+                fetched_at=FETCHED,
+            ),
+            _make_recovery("wk1", "wk1_sleep"),
+        ]
+    )
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 3, 1), date(2027, 3, 5))
+    row = session.get(UnifiedDaily, "2027-03-03")
+    assert row is not None
+    assert row.whoop_recovery_score == pytest.approx(78.5)
+    assert session.get(UnifiedDaily, "2027-03-02") is None
+
+
+def test_daily_key_fallback_without_sleep(session, mappings_path):
+    """No sleep: onset 22:00 local -> next date; onset 01:30 local -> same date."""
+    session.add_all(
+        [
+            _wake_cycle("fb1", "2027-04-11T04:00:00Z"),  # 22:00 local 04-10 -> 04-11
+            _wake_cycle("fb2", "2027-04-20T07:30:00Z"),  # 01:30 local 04-20 -> 04-20
+        ]
+    )
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 4, 9), date(2027, 4, 22))
+    assert session.get(UnifiedDaily, "2027-04-11") is not None
+    assert session.get(UnifiedDaily, "2027-04-10") is None
+    assert session.get(UnifiedDaily, "2027-04-20") is not None
+
+
+def test_two_cycles_same_wake_date_deterministic(session, mappings_path):
+    """Both cycles map to 05-06: scored recovery wins over a later unscored cycle."""
+    scored = _wake_cycle("tb1", "2027-05-06T03:00:00Z")  # 21:00 local 05-05 -> 05-06
+    scored.strain = 11.0
+    later_unscored = _wake_cycle("tb2", "2027-05-06T08:00:00Z")  # 02:00 local 05-06 -> 05-06
+    later_unscored.strain = 3.0
+    session.add_all([scored, later_unscored, _make_recovery("tb1")])
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 5, 5), date(2027, 5, 7))
+    row = session.get(UnifiedDaily, "2027-05-06")
+    assert row.whoop_strain == pytest.approx(11.0)
+    assert row.whoop_recovery_score == pytest.approx(78.5)
+
+    # Neither scored: the latest start_time wins.
+    a = _wake_cycle("tb3", "2027-06-06T03:00:00Z")
+    a.strain = 1.0
+    b = _wake_cycle("tb4", "2027-06-06T08:00:00Z")
+    b.strain = 2.0
+    session.add_all([a, b])
+    session.commit()
+    Normalizer(session, mappings_path).normalize_all(date(2027, 6, 5), date(2027, 6, 7))
+    assert session.get(UnifiedDaily, "2027-06-06").whoop_strain == pytest.approx(2.0)

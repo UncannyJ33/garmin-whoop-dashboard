@@ -37,6 +37,7 @@ from src.analytics.trends import (
     _z_score,
     calculate_trend_direction,
     detect_anomalies,
+    get_batch_metric_trends,
     get_metric_series,
     get_metric_trend,
     get_monthly_rollup,
@@ -220,7 +221,8 @@ class TestGetMetricSeries:
     """Uses recovery data in 2029-02 (28 days) and 2029-07 (gap days)."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # 28 days of recovery, values 50..77
             for i in range(28):
@@ -350,6 +352,23 @@ class TestDetectAnomalies:
         for d in self._DATES[:7]:
             assert d not in flagged
 
+    def test_null_day_in_baseline_still_flags_spike(self):
+        # One missing day inside the baseline no longer blocks detection.
+        dates = [(date(2035, 1, 1) + timedelta(days=i)).isoformat() for i in range(12)]
+        values: list[float | None] = [65.0 if i % 2 == 0 else 75.0 for i in range(10)] + [100.0, 30.0]
+        values[8] = None
+        flagged = {a["date"] for a in detect_anomalies(values, dates)}
+        assert dates[10] in flagged
+
+    def test_fewer_than_window_in_28_day_lookback_not_flagged(self):
+        # 30 days: only 6 non-null values within the 28 days before the spike.
+        dates = [(date(2035, 2, 1) + timedelta(days=i)).isoformat() for i in range(30)]
+        values: list[float | None] = [None] * 30
+        for k, i in enumerate([5, 8, 12, 15, 20, 25]):
+            values[i] = 65.0 if k % 2 == 0 else 75.0
+        values[29] = 100.0
+        assert detect_anomalies(values, dates) == []
+
     def test_custom_threshold_suppresses_outlier(self):
         anomalies = detect_anomalies(self._VALUES, self._DATES, threshold=10.0)
         assert anomalies == []
@@ -395,10 +414,11 @@ class TestWeeklyRollup:
     _END = date(2029, 10, 28)  # Sunday of W43
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             for i in range(7):
-                d = self._START + timedelta(days=i)
+                d = cls._START + timedelta(days=i)
                 session.merge(_daily(d.isoformat(), 70.0 + i))
             for i in range(7):
                 d = date(2029, 10, 15) + timedelta(days=i)
@@ -451,7 +471,8 @@ class TestMonthlyRollup:
     """Uses recovery data for 2029-11 (all=60) and 2029-12 (all=70)."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # November: 30 days at 60
             for i in range(30):
@@ -589,7 +610,8 @@ class TestGetMetricTrend:
     _END = date(2031, 1, 31)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # 40 days ascending 50..89 — trend should be "improving"
             for i in range(40):
@@ -690,11 +712,12 @@ class TestGetWeeklySummary:
     _PREV_END = date(2031, 6, 7)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # Previous week: recovery=70, hrv=50, rhr=55, strain=10
             for i in range(7):
-                d = self._PREV_START + timedelta(days=i)
+                d = cls._PREV_START + timedelta(days=i)
                 session.merge(
                     _make_daily(
                         d.isoformat(),
@@ -714,7 +737,7 @@ class TestGetWeeklySummary:
                 session.merge(_make_workout(f"ws_prev_{i}", d.isoformat(), duration_minutes=60.0))
             # Current week: recovery=80, strain=12; more workouts
             for i in range(7):
-                d = self._CURR_START + timedelta(days=i)
+                d = cls._CURR_START + timedelta(days=i)
                 session.merge(
                     _make_daily(
                         d.isoformat(),
@@ -814,3 +837,33 @@ class TestGetWeeklySummary:
         # Use a period with no previous-week data → comparison values are None
         s = get_weekly_summary(engine, date(2031, 8, 7))
         assert s["comparison"]["avg_recovery"] is None
+
+
+class TestTrendAnomalyLookback:
+    """Anomalies are detected over the 29-day lookback, then trimmed to the range."""
+
+    _LAST = date(2034, 3, 30)
+    _JITTER = (60.0, 62.0, 58.0)
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def seed(cls, engine):
+        with Session(engine) as session:
+            for i in range(30):
+                d = cls._LAST - timedelta(days=29 - i)
+                value = 20.0 if d == cls._LAST else cls._JITTER[i % 3]
+                session.merge(_make_daily(d.isoformat(), whoop_recovery_score=value))
+            session.commit()
+
+    def test_trend_anomalies_use_lookback(self, engine):
+        start = self._LAST - timedelta(days=2)
+        trend = get_metric_trend(engine, "recovery_score", start, self._LAST)
+        assert self._LAST.isoformat() in {a["date"] for a in trend.anomalies}
+
+    def test_trend_anomalies_within_range(self, engine):
+        start = self._LAST - timedelta(days=2)
+        single = get_metric_trend(engine, "recovery_score", start, self._LAST)
+        batch = get_batch_metric_trends(engine, ["recovery_score"], start, self._LAST)
+        for trend in (single, batch["recovery_score"]):
+            assert trend.anomalies
+            assert all(a["date"] >= start.isoformat() for a in trend.anomalies)

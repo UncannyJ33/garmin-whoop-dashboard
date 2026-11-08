@@ -369,16 +369,17 @@ class TestRecoveryDecline:
     ANCHOR = date(2043, 3, 10)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Prior week: recovery=80
-            prev_end = self.ANCHOR - timedelta(days=7)
+            prev_end = cls.ANCHOR - timedelta(days=7)
             for i in range(7):
                 d = (prev_end - timedelta(days=6 - i)).isoformat()
                 s.merge(_daily(d, recovery=80.0))
             # Current week: recovery=48
             for i in range(7):
-                d = (self.ANCHOR - timedelta(days=6 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=6 - i)).isoformat()
                 s.merge(_daily(d, recovery=48.0))
             s.commit()
 
@@ -410,16 +411,17 @@ class TestOverreachingWarning:
     ANCHOR = date(2043, 5, 1)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # 21 low-strain days (chronic baseline): strain=5 each
             for i in range(21):
-                d = (self.ANCHOR - timedelta(days=27 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=27 - i)).isoformat()
                 s.merge(_workout(d, strain=5.0, uid=i))
             # 7 high-strain days (current week): strain=15 each
             # ACWR ≈ 15 / 7.5 = 2.0 → "danger"
             for i in range(7):
-                d = (self.ANCHOR - timedelta(days=6 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=6 - i)).isoformat()
                 s.merge(_workout(d, strain=15.0, uid=100 + i))
             s.commit()
 
@@ -471,3 +473,21 @@ class TestMetricsSnapshot:
         result = get_weekly_digest(engine, None, self.ANCHOR)
         delta = result.week_end - result.week_start
         assert delta.days == 6  # 7 days inclusive = 6-day span
+
+
+class TestSleepDebtRelativeToTarget:
+    def test_default_target_thresholds(self):
+        assert _sleep_debt_status(7.6) == "in good shape"
+        assert _sleep_debt_status(6.5) == "manageable"
+        assert _sleep_debt_status(6.0) == "accumulating"
+
+    def test_nine_hour_target_7_6_avg_not_good(self):
+        assert _sleep_debt_status(7.6, 9.0) == "manageable"
+        assert _sleep_debt_status(7.4, 9.0) == "accumulating"
+
+    def test_candidate_wording_uses_target(self):
+        # 7.6h avg (456 min), down 20% vs last week, 9h target
+        c = _sleep_candidate(456.0, None, -20.0, target_hours=9.0)
+        assert c is not None
+        assert "Sleep debt is manageable" in c.text
+        assert "in good shape" not in c.text

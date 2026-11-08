@@ -19,7 +19,12 @@ def engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    with patch("scripts.create_owner.get_engine", return_value=eng):
+    # dispose() would drop the shared in-memory DB between main() calls in one test
+    with (
+        patch("scripts.create_owner.get_engine", return_value=eng),
+        patch.object(eng, "dispose") as dispose,
+    ):
+        eng.dispose_mock = dispose
         yield eng
 
 
@@ -32,6 +37,7 @@ def test_create_owner_creates_user(engine):
     with patch("getpass.getpass", side_effect=[PW, PW]):
         assert main(["--email", "a@b.com"]) == 0
     assert _count(engine) == 1
+    engine.dispose_mock.assert_called_once()
     with engine.connect() as conn:
         hashed = conn.execute(text("SELECT hashed_password FROM users")).scalar_one()
     assert verify_password(PW, hashed)

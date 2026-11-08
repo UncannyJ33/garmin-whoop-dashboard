@@ -6,8 +6,10 @@
  * - Mobile: bottom tab bar 56px, 5 items, icons only, teal active fill
  */
 
-import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Suspense, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { ErrorBoundary } from '../ErrorBoundary'
+import { PageSkeleton } from '../LoadingState'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
@@ -132,6 +134,7 @@ function BottomTabBar() {
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const isOnline = useOnlineStatus()
+  const { pathname } = useLocation()
 
   return (
     <div
@@ -152,7 +155,12 @@ export function Layout() {
           className="flex-1 overflow-y-auto"
           style={{ padding: '24px', maxWidth: '1200px', width: '100%', margin: '0 auto' }}
         >
-          <Outlet />
+          {/* key remounts the boundary on navigation, clearing any error */}
+          <ErrorBoundary key={pathname}>
+            <Suspense fallback={<PageSkeleton />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
 
         {/* Mobile bottom tab bar */}

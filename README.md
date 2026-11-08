@@ -68,10 +68,17 @@ tests/            pytest suite
      dashboard's API is running, and uses `caffeinate` on macOS.
    - Garmin daily data reaches only about 180-365 days back; activities about 690 days. Older
      Garmin data comes from an account export via `scripts/import_data.py` (see below).
+   - Garmin chunks ending before `today - 370 days` run activities-only (fixed cutoff;
+     `scripts/backfill.py --daily-from YYYY-MM-DD` overrides it). Anomalies are refreshed once
+     at the end (also after an interrupt or failed source), not per chunk.
    - Expect about 40 min for 2 years. If it stops, run the printed resume command
      (`make backfill SOURCE=x START=y`) **before** restarting the server.
    - Exit codes: 0 done, 1 error, 2 usage, 3 API running, 130 interrupted.
 7. `make run` again. The scheduler then keeps both sources current.
+
+**Local time and settings.** Whoop dates and clock times are local (the record's own offset).
+The sleep target (300-720 min) is stored server-side (`GET`/`PUT /api/settings`, Settings page)
+and drives sleep debt. `/api/*` responses are `no-store`.
 
 **Ports.** Default port is 8001; override with `PORT=` (also for `make backfill`).
 
@@ -107,7 +114,7 @@ Connected / Key not set / Key rejected / Can't reach Garmin. Manual sync
 - Strength: no per-set endpoint. Per-exercise summaries land in `garmin_exercise_summaries`;
   older set-level rows from an export still win when present.
 
-**Backfill past ~180 days: Garmin export import.** Garmin Connect -> Settings -> Data Management ->
+**Backfill past ~1 year: Garmin export import.** Garmin Connect -> Settings -> Data Management ->
 Export Your Data (ZIP), or Activities -> Export CSV.
 
 ```bash
@@ -143,7 +150,7 @@ Whoop data is polling only (no webhooks); do not set up ngrok.
 | `make backfill START=YYYY-MM-DD` | chunked history backfill (server stopped) |
 | `make run-sync` | `scripts/initial_sync.py` (Whoop, then Garmin, 30 days) |
 | `make up` / `make down` | Docker Compose |
-| `make test` | `pytest -q` (972 pass, serial; xdist is broken) |
+| `make test` | `pytest -q` (1022 pass, serial; xdist is broken) |
 | `make lint` / `make fmt` | `ruff check .` / `ruff format .` |
 | `cd frontend-react && npm run typecheck` | `tsc --noEmit` |
 | `.venv/bin/python scripts/schema_review.py --days 14` | side-by-side Whoop/Garmin review; CSVs to `data/review/` |

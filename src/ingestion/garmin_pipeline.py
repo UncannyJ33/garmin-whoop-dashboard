@@ -398,6 +398,9 @@ class GarminPipeline:
         self,
         start: date | None = None,
         end: date | None = None,
+        *,
+        daily: bool = True,
+        refresh_anomalies: bool = True,
     ) -> SyncLog | None:
         """Fetch and store Garmin data for the given window.
 
@@ -405,6 +408,10 @@ class GarminPipeline:
             start: Sync window start date. Defaults to the last successful sync's
                    end date minus the overlap (or 30 days ago if none exists).
             end: Sync window end date. Defaults to today.
+            daily: When False, skip the per-day summary/sleep/HRV loop (activities
+                   and strength summaries only). The SyncLog still records the window.
+            refresh_anomalies: Passed to ``Normalizer.normalize_all``; the backfill
+                   disables it per chunk and refreshes once at the end.
 
         Returns:
             The completed SyncLog entry, or None if another run holds the lock
@@ -414,11 +421,13 @@ class GarminPipeline:
             logger.info("Garmin sync already running — skipping this run")
             return None
         try:
-            return self._run_locked(start, end)
+            return self._run_locked(start, end, daily, refresh_anomalies)
         finally:
             _RUN_LOCK.release()
 
-    def _run_locked(self, start: date | None, end: date | None) -> SyncLog:
+    def _run_locked(
+        self, start: date | None, end: date | None, daily: bool, refresh_anomalies: bool
+    ) -> SyncLog:
         """Body of :meth:`run`; the caller holds ``_RUN_LOCK``."""
         auto_start, auto_end = self._get_sync_window()
         sync_start = start or auto_start
@@ -445,10 +454,11 @@ class GarminPipeline:
             records_stored += n_stored
 
             # Daily data — iterate one day at a time
-            for d in _date_range(sync_start, sync_end):
-                n_fetched, n_stored = self._sync_daily(d, fetched_at)
-                records_fetched += n_fetched
-                records_stored += n_stored
+            if daily:
+                for d in _date_range(sync_start, sync_end):
+                    n_fetched, n_stored = self._sync_daily(d, fetched_at)
+                    records_fetched += n_fetched
+                    records_stored += n_stored
 
             log.records_fetched = records_fetched
             log.records_stored = records_stored
@@ -462,7 +472,9 @@ class GarminPipeline:
             )
 
             normalizer = Normalizer(self._db, user_id=self.user_id)
-            norm_counts = normalizer.normalize_all(sync_start, sync_end)
+            norm_counts = normalizer.normalize_all(
+                sync_start, sync_end, refresh_anomalies=refresh_anomalies
+            )
             logger.info("Normalization complete: %s", norm_counts)
 
         except GarminPersonalApiError as exc:

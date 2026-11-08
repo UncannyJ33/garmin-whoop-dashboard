@@ -398,3 +398,7 @@ export interface GarminStatus {
   configured: boolean
   error: string | null
 }
+
+export interface SleepSettings {
+  sleep_target_minutes: number
+}

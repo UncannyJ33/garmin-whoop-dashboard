@@ -35,6 +35,8 @@ from src.normalization.garmin_mapper import (
     seconds_to_minutes,
 )
 from src.normalization.whoop_mapper import (
+    cycle_wake_date,
+    local_date,
     map_whoop_daily,
     map_whoop_sleep,
     map_whoop_workout,
@@ -71,6 +73,12 @@ def upsert_row[M](db: Session, model_cls: type[M], pk_field: str, data: dict[str
         for k, v in data.items():
             setattr(row, k, v)
     return row
+
+
+def _has_scored_recovery(cycle: WhoopCycle, recoveries: dict[str, WhoopRecovery]) -> bool:
+    """Return True when the cycle has a recovery row with a non-null score."""
+    rec = recoveries.get(cycle.id)
+    return rec is not None and rec.recovery_score is not None
 
 
 @dataclass
@@ -129,55 +137,9 @@ class Normalizer:
         Returns:
             1 if a row was written, 0 if neither source had data.
         """
-        date_str = target_date.isoformat()
-
-        # --- Whoop data ---
-        # Use range comparison instead of SUBSTR() to enable index usage
-        date_start = date_str + "T00:00:00"
-        date_end = date_str + "T23:59:59"
-        cycle_query = self._db.query(WhoopCycle).filter(
-            WhoopCycle.start_time >= date_start,
-            WhoopCycle.start_time <= date_end,
+        return self._normalize_daily_from_cache(
+            target_date, self._prefetch_range(target_date, target_date)
         )
-        if self.user_id is not None:
-            cycle_query = cycle_query.filter(WhoopCycle.app_user_id == self.user_id)
-        cycle = cycle_query.first()
-        recovery: WhoopRecovery | None = None
-        sleep: WhoopSleep | None = None
-        if cycle:
-            recovery_query = self._db.query(WhoopRecovery).filter(
-                WhoopRecovery.cycle_id == cycle.id
-            )
-            if self.user_id is not None:
-                recovery_query = recovery_query.filter(WhoopRecovery.user_id == self.user_id)
-            recovery = recovery_query.first()
-            if recovery and recovery.sleep_id:
-                sleep = self._db.get(WhoopSleep, recovery.sleep_id)
-
-        # --- Garmin data ---
-        garmin_summary_query = self._db.query(GarminDailySummary).filter(
-            GarminDailySummary.date == date_str
-        )
-        if self.user_id is not None:
-            garmin_summary_query = garmin_summary_query.filter(
-                GarminDailySummary.user_id == self.user_id
-            )
-        garmin_summary: GarminDailySummary | None = garmin_summary_query.first()
-
-        if cycle is None and garmin_summary is None:
-            return 0
-
-        data = self._build_daily_row(
-            date_str,
-            cycle,
-            recovery,
-            sleep,
-            garmin_summary,
-            self._daily_vo2_max(date_str) if garmin_summary is not None else None,
-        )
-        self._upsert(UnifiedDaily, "date", data)
-        self._db.commit()
-        return 1
 
     def normalize_sleep(self, target_date: date) -> int:
         """Upsert one unified_sleep row for the given wake-up date.
@@ -191,38 +153,22 @@ class Normalizer:
         Returns:
             1 if a row was written, 0 if no data found.
         """
-        date_str = target_date.isoformat()
-
-        # Use range comparison instead of SUBSTR() to enable index usage
-        sleep_date_start = date_str + "T00:00:00"
-        sleep_date_end = date_str + "T23:59:59"
-        whoop_sleep_query = self._db.query(WhoopSleep).filter(
-            WhoopSleep.end_time >= sleep_date_start,
-            WhoopSleep.end_time <= sleep_date_end,
-            WhoopSleep.nap.is_(False),
+        return self._normalize_sleep_from_cache(
+            target_date, self._prefetch_range(target_date, target_date)
         )
-        if self.user_id is not None:
-            whoop_sleep_query = whoop_sleep_query.filter(WhoopSleep.user_id == self.user_id)
-        whoop_sleep: WhoopSleep | None = whoop_sleep_query.first()
-
-        garmin_sleep_query = self._db.query(GarminSleep).filter(GarminSleep.date == date_str)
-        if self.user_id is not None:
-            garmin_sleep_query = garmin_sleep_query.filter(GarminSleep.user_id == self.user_id)
-        garmin_sleep: GarminSleep | None = garmin_sleep_query.first()
-
-        if whoop_sleep is None and garmin_sleep is None:
-            return 0
-
-        data = self._build_sleep_row(date_str, whoop_sleep, garmin_sleep)
-        self._upsert(UnifiedSleep, "date", data)
-        self._db.commit()
-        return 1
 
     def normalize_workouts(self, start: date, end: date) -> int:
         """Deduplicate and upsert unified_workout rows for the date range.
 
         Loads Whoop strain workouts (excluding driving) and Garmin activities,
         runs the matching algorithm, and upserts one row per workout.
+
+        Query bounds are UTC and unwidened; row dates are local. A local-``end``
+        evening workout (UTC ``end + 1``) is normalized by the next window:
+        incremental windows end at the UTC date, which is already the next local
+        day after about 19:00 US local, and backfill chunks are contiguous. Its
+        matched Garmin activity sits at the same instant, so the pair is always
+        normalized together.
 
         Args:
             start: Range start date (inclusive).
@@ -321,7 +267,9 @@ class Normalizer:
         )
         return rows_written
 
-    def normalize_all(self, start: date, end: date) -> dict[str, int]:
+    def normalize_all(
+        self, start: date, end: date, *, refresh_anomalies: bool = True
+    ) -> dict[str, int]:
         """Run all three normalizers over the date range.
 
         Uses batch-prefetch for daily and sleep to avoid N+1 query patterns.
@@ -330,6 +278,9 @@ class Normalizer:
         Args:
             start: Range start date (inclusive).
             end: Range end date (inclusive).
+            refresh_anomalies: Recompute the anomaly cache for the range (default).
+                The backfill passes False per chunk and refreshes once at the end;
+                analytics-cache invalidation stays unconditional.
 
         Returns:
             Dict with keys "daily", "sleep", "workouts" and row counts.
@@ -357,12 +308,15 @@ class Normalizer:
                 analytics_cache.invalidate_user(self.user_id)
             except Exception:  # noqa: BLE001
                 logger.warning("normalize_all: analytics cache invalidation failed", exc_info=True)
-            try:
-                from src.analytics.anomaly_store import refresh_anomalies
+            if refresh_anomalies:
+                try:
+                    from src.analytics.anomaly_store import (
+                        refresh_anomalies as _refresh_anomalies,
+                    )
 
-                refresh_anomalies(self._db.get_bind(), self.user_id, start, end)
-            except Exception:  # noqa: BLE001
-                logger.warning("normalize_all: anomaly refresh failed", exc_info=True)
+                    _refresh_anomalies(self._db.get_bind(), self.user_id, start, end)
+                except Exception:  # noqa: BLE001
+                    logger.warning("normalize_all: anomaly refresh failed", exc_info=True)
 
         return counts
 
@@ -382,22 +336,21 @@ class Normalizer:
         # since "2024-03-05" <= "2024-03-05 ..." and "2024-03-05 ..." < "2024-03-06"
         start_ts = start_str
         end_ts = (end + timedelta(days=1)).isoformat()
+        # Whoop timestamps are UTC but keys are local dates, so a local date can sit
+        # on the neighbouring UTC date: widen Whoop cycle/sleep bounds by a day each side.
+        wk_start_ts = (start - timedelta(days=1)).isoformat()
+        wk_end_ts = (end + timedelta(days=2)).isoformat()
 
         uid = self.user_id
 
         # 1. Whoop cycles in range
         q = self._db.query(WhoopCycle).filter(
-            WhoopCycle.start_time >= start_ts,
-            WhoopCycle.start_time < end_ts,
+            WhoopCycle.start_time >= wk_start_ts,
+            WhoopCycle.start_time < wk_end_ts,
         )
         if uid is not None:
             q = q.filter(WhoopCycle.app_user_id == uid)
-        cycles = q.all()
-        cycles_by_date: dict[str, WhoopCycle] = {}
-        for c in cycles:
-            d = c.start_time[:10] if c.start_time else None
-            if d:
-                cycles_by_date[d] = c
+        cycles = q.order_by(WhoopCycle.start_time, WhoopCycle.id).all()
 
         # 2. Whoop recoveries for those cycles
         cycle_ids = [c.id for c in cycles]
@@ -418,17 +371,33 @@ class Normalizer:
                 sleep_by_id[s.id] = s
         # Also fetch non-nap sleep for sleep normalization
         q = self._db.query(WhoopSleep).filter(
-            WhoopSleep.end_time >= start_ts,
-            WhoopSleep.end_time < end_ts,
+            WhoopSleep.end_time >= wk_start_ts,
+            WhoopSleep.end_time < wk_end_ts,
             WhoopSleep.nap.is_(False),
         )
         if uid is not None:
             q = q.filter(WhoopSleep.user_id == uid)
         for s in q.all():
-            end_date = s.end_time[:10] if s.end_time else None
+            end_date = local_date(s.end_time, s.timezone_offset) if s.end_time else None
             if end_date:
                 sleep_by_end_date[end_date] = s
             sleep_by_id[s.id] = s
+
+        # Daily key = local WAKE date (see cycle_wake_date). When two cycles map to the
+        # same key, prefer one with a scored recovery, then the latest start_time.
+        cycles_by_date: dict[str, WhoopCycle] = {}
+        for c in cycles:  # ordered by start_time ascending, so later wins ties
+            rec = recoveries_by_cycle.get(c.id)
+            sl = sleep_by_id.get(rec.sleep_id) if rec and rec.sleep_id else None
+            d = cycle_wake_date(c, rec, sl)
+            if not d:
+                continue
+            prev = cycles_by_date.get(d)
+            if prev is not None and _has_scored_recovery(prev, recoveries_by_cycle) and not (
+                _has_scored_recovery(c, recoveries_by_cycle)
+            ):
+                continue
+            cycles_by_date[d] = c
 
         # 4. Garmin daily summaries
         q = self._db.query(GarminDailySummary).filter(
@@ -448,18 +417,18 @@ class Normalizer:
             q = q.filter(GarminSleep.user_id == uid)
         garmin_sleep_by_date = {g.date: g for g in q.all()}
 
-        # 6. VO2 max per date from garmin activities
-        # Garmin timestamps use space separator ("2026-03-25 14:30:00"),
-        # so extract date as first 10 chars for grouping.
-        date_expr = func.substr(GarminActivity.start_time_gmt, 1, 10)
+        # 6. VO2 max per date from garmin activities, keyed by LOCAL date.
+        # Garmin timestamps use space separator ("2026-03-25 14:30:00"); start_time is
+        # startTimeLocal, so its first 10 chars are the local date used for grouping.
+        date_expr = func.substr(GarminActivity.start_time, 1, 10)
         # Range filter uses full timestamp comparison (index-friendly);
         # SUBSTR is only used for GROUP BY (not in WHERE).
         q = self._db.query(
             date_expr.label("d"),
             func.max(GarminActivity.vo2_max).label("v"),
         ).filter(
-            GarminActivity.start_time_gmt >= start_ts,
-            GarminActivity.start_time_gmt < end_ts,
+            GarminActivity.start_time >= start_ts,
+            GarminActivity.start_time < end_ts,
             GarminActivity.vo2_max.isnot(None),
         )
         if uid is not None:
@@ -586,22 +555,6 @@ class Normalizer:
         data["last_updated"] = datetime.now(tz=UTC).isoformat()
         data["user_id"] = self.user_id
         return data
-
-    def _daily_vo2_max(self, date_str: str) -> float | None:
-        """Return the max VO2 max from Garmin activities on the given date."""
-        # Garmin timestamps use space separator ("2026-03-25 14:30:00")
-        vo2_start = date_str + " 00:00:00"
-        vo2_end = date_str + " 23:59:59"
-        query = self._db.query(GarminActivity.vo2_max).filter(
-            GarminActivity.start_time_gmt >= vo2_start,
-            GarminActivity.start_time_gmt <= vo2_end,
-            GarminActivity.vo2_max.isnot(None),
-        )
-        if self.user_id is not None:
-            query = query.filter(GarminActivity.user_id == self.user_id)
-        rows = query.all()
-        values = [r[0] for r in rows if r[0] is not None]
-        return max(values) if values else None
 
     def _upsert[M](self, model_cls: type[M], pk_field: str, data: dict[str, Any]) -> M:
         """Insert or update a single row identified by its primary key."""

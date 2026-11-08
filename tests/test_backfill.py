@@ -54,9 +54,11 @@ class Env:
         )
         self.garmin_cls = p(patch("scripts.backfill.GarminPipeline"))
         self.garmin_run = self.garmin_cls.return_value.run
-        self.garmin_run.side_effect = kw.get("garmin_side", lambda start, end: _log())
+        self.garmin_run.side_effect = kw.get("garmin_side", lambda start, end, **kw: _log())
         self.whoop_cls = p(patch("scripts.backfill.WhoopPipeline"))
-        self.whoop_run = AsyncMock(side_effect=kw.get("whoop_side", lambda start, end: _log()))
+        self.whoop_run = AsyncMock(
+            side_effect=kw.get("whoop_side", lambda start, end, **kw: _log())
+        )
         self.whoop_cls.return_value.run = self.whoop_run
         auth = p(patch("scripts.backfill.WhoopAuth"))
         auth.has_token.return_value = kw.get("token", True)
@@ -187,7 +189,7 @@ def test_whoop_windows_aware_contiguous_final_reaches_now(now) -> None:
 def test_backfill_stops_source_on_failed_chunk(capsys: pytest.CaptureFixture[str]) -> None:
     n = {"i": 0}
 
-    def side(start, end):
+    def side(start, end, **kw):
         n["i"] += 1
         return _log("error") if n["i"] == 2 else _log()
 
@@ -202,7 +204,7 @@ def test_backfill_stops_source_on_failed_chunk(capsys: pytest.CaptureFixture[str
 def test_backfill_stops_source_on_raised_exception(capsys: pytest.CaptureFixture[str]) -> None:
     n = {"i": 0}
 
-    def side(start, end):
+    def side(start, end, **kw):
         n["i"] += 1
         if n["i"] == 2:
             raise RuntimeError("kaput")
@@ -215,7 +217,7 @@ def test_backfill_stops_source_on_raised_exception(capsys: pytest.CaptureFixture
     env.whoop_run.assert_called()
     assert f"make backfill SOURCE=garmin START={env.garmin_calls()[1][0]}" in out
 
-    def whoop_side(start, end):
+    def whoop_side(start, end, **kw):
         raise WhoopReauthRequired("nope")
 
     code, env = run(["--source", "whoop", "--start", _start(65)], whoop_side=whoop_side)
@@ -254,14 +256,14 @@ def test_backfill_refreshes_anomalies_once_over_full_range() -> None:
     env.refresh.assert_called_once_with(env.engine, OWNER, TODAY - timedelta(days=65), TODAY)
     code, env = run(
         ["--start", _start(65)],
-        garmin_side=lambda start, end: _log(stored=0),
-        whoop_side=lambda start, end: _log(stored=0),
+        garmin_side=lambda start, end, **kw: _log(stored=0),
+        whoop_side=lambda start, end, **kw: _log(stored=0),
     )
     env.refresh.assert_not_called()
 
 
 def test_backfill_interrupt_returns_130(capsys: pytest.CaptureFixture[str]) -> None:
-    def side(start, end):
+    def side(start, end, **kw):
         raise KeyboardInterrupt
 
     code, _ = run(["--source", "garmin", "--start", _start(5)], garmin_side=side)
@@ -298,7 +300,7 @@ def test_resume_hint_format() -> None:
 def test_resume_hint_in_run_carries_port_and_chunk_days(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def side(start: date, end: date) -> None:
+    def side(start: date, end: date, **kw) -> None:
         raise RuntimeError("kaput")
 
     code, _ = run(
@@ -322,7 +324,7 @@ def test_ctrl_c_in_anomaly_refresh_returns_130(capsys: pytest.CaptureFixture[str
 def test_whoop_error_status_stops_source(capsys: pytest.CaptureFixture[str]) -> None:
     n = {"i": 0}
 
-    def side(start: datetime, end: datetime) -> MagicMock:
+    def side(start: datetime, end: datetime, **kw) -> MagicMock:
         n["i"] += 1
         return _log("error")
 
@@ -338,7 +340,7 @@ def test_session_rolled_back_after_garmin_db_error() -> None:
     Base.metadata.create_all(engine)
     db = Session(engine)
 
-    def boom(start: date, end: date) -> None:
+    def boom(start: date, end: date, **kw) -> None:
         for _ in range(2):  # duplicate primary key -> failed flush
             db.add(SyncLog(id=1, source="x", sync_type="t", started_at="s", status="success"))
             db.flush()
@@ -349,3 +351,85 @@ def test_session_rolled_back_after_garmin_db_error() -> None:
     assert outcome == backfill.FAILED
     db.execute(text("select 1"))  # PendingRollbackError without the rollback
     db.close()
+
+
+def test_backfill_skips_per_chunk_anomaly_refresh() -> None:
+    code, env = run(["--source", "all", "--start", _start(65)])
+    assert code == 0
+    assert env.garmin_run.call_count and env.whoop_run.call_count
+    for call in [*env.garmin_run.call_args_list, *env.whoop_run.call_args_list]:
+        assert call.kwargs["refresh_anomalies"] is False
+    env.refresh.assert_called_once_with(env.engine, OWNER, TODAY - timedelta(days=65), TODAY)
+
+
+def test_daily_cutoff_fixed_370(capsys: pytest.CaptureFixture[str]) -> None:
+    cutoff = TODAY - timedelta(days=370)
+    code, env = run(["--source", "garmin", "--start", _start(500)])
+    assert code == 0
+    calls = env.garmin_run.call_args_list
+    assert any(c.kwargs["end"] < cutoff for c in calls)
+    for c in calls:
+        assert c.kwargs["daily"] is (c.kwargs["end"] >= cutoff)
+    assert capsys.readouterr().out.count("run activities-only") == 1
+
+
+def test_no_activities_only_chunks_when_start_recent(capsys: pytest.CaptureFixture[str]) -> None:
+    code, env = run(["--source", "garmin", "--start", _start(100)])
+    assert code == 0
+    assert all(c.kwargs["daily"] is True for c in env.garmin_run.call_args_list)
+    assert "activities-only" not in capsys.readouterr().out
+
+
+def test_daily_from_override() -> None:
+    daily_from = TODAY - timedelta(days=200)
+    code, env = run(["--source", "garmin", "--start", _start(400), "--daily-from", str(daily_from)])
+    assert code == 0
+    for c in env.garmin_run.call_args_list:
+        assert c.kwargs["daily"] is (c.kwargs["end"] >= daily_from)
+
+
+def test_interrupt_in_chunk_3_refreshes_through_chunk_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    n = {"i": 0}
+
+    def side(start, end, **kw):
+        n["i"] += 1
+        if n["i"] == 3:
+            raise KeyboardInterrupt
+        return _log()
+
+    start = TODAY - timedelta(days=89)
+    code, env = run(
+        ["--source", "garmin", "--start", str(start), "--chunk-days", "30"], garmin_side=side
+    )
+    assert code == 130
+    env.refresh.assert_called_once_with(env.engine, OWNER, start, start + timedelta(days=59))
+
+
+def test_failed_source_still_refreshes_over_completed_chunks() -> None:
+    n = {"i": 0}
+
+    def side(start, end, **kw):
+        n["i"] += 1
+        return _log("error") if n["i"] == 2 else _log()
+
+    start = TODAY - timedelta(days=59)
+    code, env = run(
+        ["--source", "garmin", "--start", str(start), "--chunk-days", "30"], garmin_side=side
+    )
+    assert code == 1
+    env.refresh.assert_called_once_with(env.engine, OWNER, start, start + timedelta(days=29))
+
+
+def test_refresh_error_logged_and_keeps_exit_code(
+    capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    with ExitStack() as stack:
+        env = Env(stack)
+        env.refresh.side_effect = RuntimeError("db gone")
+        with caplog.at_level("ERROR"):
+            code = main(["--source", "garmin", "--start", _start(5)])
+    assert code == 0
+    assert "FAILED RuntimeError: db gone" in capsys.readouterr().out
+    assert any("Final anomaly refresh" in r.getMessage() for r in caplog.records)

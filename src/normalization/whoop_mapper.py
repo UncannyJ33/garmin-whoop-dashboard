@@ -5,11 +5,97 @@ All functions are pure (no DB access) and accept ORM model instances.
 
 import json
 import logging
-from datetime import datetime
+import re
+from datetime import UTC, datetime, timedelta
 
 from src.database.models import WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout
 
 logger = logging.getLogger(__name__)
+
+
+_OFFSET_RE = re.compile(r"^([+-])(\d{2}):?(\d{2})$")
+
+
+def _parse_offset(tz_offset: str | None) -> timedelta:
+    """Parse a Whoop ``timezone_offset`` (``+HH:MM``, ``+HHMM`` or ``Z``) to a timedelta.
+
+    Missing offsets fall back to UTC at DEBUG; unparseable ones fall back to
+    UTC with a WARNING naming the value.
+    """
+    if not tz_offset:
+        logger.debug("Whoop record has no timezone_offset; using UTC")
+        return timedelta(0)
+    if tz_offset == "Z":
+        return timedelta(0)
+    m = _OFFSET_RE.match(tz_offset)
+    if m is None:
+        logger.warning("Unparseable Whoop timezone_offset %r; using UTC", tz_offset)
+        return timedelta(0)
+    delta = timedelta(hours=int(m.group(2)), minutes=int(m.group(3)))
+    return -delta if m.group(1) == "-" else delta
+
+
+def local_datetime(ts_iso: str, tz_offset: str | None) -> datetime | None:
+    """Convert a UTC ISO timestamp to a naive local datetime using a Whoop offset.
+
+    Whoop reports ``timezone_offset`` per record, so DST needs no tz database.
+    A sleep spanning a DST switch can be off by one hour at the wake end, which
+    only matters for a wake within an hour of midnight.
+
+    Args:
+        ts_iso: UTC ISO 8601 string (``Z`` or ``+00:00``, optional fractional seconds).
+        tz_offset: Whoop offset such as ``"-05:00"``, ``"+0900"`` or ``"Z"``.
+
+    Returns:
+        Naive local datetime, or None when the timestamp cannot be parsed.
+    """
+    try:
+        parsed = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        logger.warning("Could not parse Whoop timestamp %r", ts_iso)
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed + _parse_offset(tz_offset)
+
+
+def local_date(ts_iso: str, tz_offset: str | None) -> str | None:
+    """Return the local calendar date (YYYY-MM-DD) of a UTC timestamp, or None."""
+    dt = local_datetime(ts_iso, tz_offset)
+    return dt.date().isoformat() if dt is not None else None
+
+
+def cycle_wake_date(
+    cycle: WhoopCycle,
+    recovery: WhoopRecovery | None,
+    sleep: WhoopSleep | None,
+) -> str | None:
+    """Return the local WAKE date (YYYY-MM-DD) a Whoop cycle belongs to.
+
+    A Whoop cycle starts at sleep onset, so the cycle's own start date can be the
+    previous evening. The daily key is the local date of the morning the user woke:
+
+    1. If ``sleep`` (the sleep linked from the cycle's recovery) has an ``end_time``,
+       use its local date (sleep offset, falling back to the cycle's offset).
+    2. Otherwise use the cycle's local start datetime, plus one day when the local
+       hour is >= 12 (onset after noon means the wake day is tomorrow; onset after
+       midnight is the same day).
+
+    Returns:
+        ISO date string, or None when no timestamp can be parsed.
+    """
+    if sleep is not None and sleep.end_time:
+        d = local_date(sleep.end_time, sleep.timezone_offset or cycle.timezone_offset)
+        if d:
+            return d
+    if not cycle.start_time:
+        return None
+    dt = local_datetime(cycle.start_time, cycle.timezone_offset)
+    if dt is None:
+        return None
+    if dt.hour >= 12:
+        dt = dt + timedelta(days=1)
+    return dt.date().isoformat()
 
 
 def ms_to_minutes(ms: int | None) -> float | None:
@@ -173,7 +259,9 @@ def map_whoop_workout(workout: WhoopWorkout, mapping: dict) -> dict:
         except ValueError:
             logger.warning("Could not parse workout times for id=%s", workout.id)
 
-    date_str = workout.start_time[:10] if workout.start_time else None
+    date_str = (
+        local_date(workout.start_time, workout.timezone_offset) if workout.start_time else None
+    )
 
     return {
         "id": f"w_{workout.id}",
