@@ -6,6 +6,7 @@ calls to the Whoop and Garmin mapper functions and the deduplication engine.
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,11 @@ from src.normalization.whoop_mapper import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Whoop and Garmin pipelines run on separate scheduler threads (APScheduler
+# BackgroundScheduler, ThreadPoolExecutor) with separate _RUN_LOCKs, so their
+# normalize steps could overlap; serialize them.
+_NORMALIZE_LOCK = threading.Lock()
 
 _DEFAULT_MAPPINGS_PATH = Path(__file__).parent.parent.parent / "config" / "field_mappings.yaml"
 
@@ -380,6 +386,13 @@ class Normalizer:
         Returns:
             Dict with keys "daily", "sleep", "workouts" and row counts.
         """
+        with _NORMALIZE_LOCK:
+            return self._normalize_all_locked(start, end, refresh_anomalies=refresh_anomalies)
+
+    def _normalize_all_locked(
+        self, start: date, end: date, *, refresh_anomalies: bool
+    ) -> dict[str, int]:
+        """Body of :meth:`normalize_all`; the caller holds ``_NORMALIZE_LOCK``."""
         counts = {"daily": 0, "sleep": 0, "workouts": 0}
 
         dates = _date_range(start, end)

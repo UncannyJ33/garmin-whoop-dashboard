@@ -688,3 +688,35 @@ def test_csv_import_normalize_false_skips_unified(db, tmp_path):
     # Unified table NOT populated
     assert db.get(UnifiedWorkout, "g_csv-no-norm-001") is None
 
+
+def test_normalize_all_serializes_across_threads(db, monkeypatch):
+    """Two concurrent normalize_all calls never overlap (module-level lock)."""
+    import threading
+
+    active = 0
+    max_active = 0
+    guard = threading.Lock()
+    first_in = threading.Event()
+    release = threading.Event()
+
+    def fake_locked(self, start, end, *, refresh_anomalies):
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        first_in.set()
+        release.wait(timeout=0.3)
+        with guard:
+            active -= 1
+        return {"daily": 0, "sleep": 0, "workouts": 0}
+
+    monkeypatch.setattr(Normalizer, "_normalize_all_locked", fake_locked)
+    d = date(2024, 3, 7)
+    threads = [threading.Thread(target=Normalizer(db).normalize_all, args=(d, d)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    first_in.wait(timeout=2)
+    for t in threads:
+        t.join(timeout=5)
+
+    assert max_active == 1
