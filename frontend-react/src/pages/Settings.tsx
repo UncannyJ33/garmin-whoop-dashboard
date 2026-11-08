@@ -13,7 +13,7 @@ import { api } from '../api/client'
 // Theme is dark-only — no toggle exposed
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
-import { fmtDateFull } from '../utils/formatters'
+import { fmtDateFull, fmtTargetHours } from '../utils/formatters'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +96,10 @@ const SLEEP_TARGET_MAX_H = 12
 export function Settings() {
   const sleepTargetQ = useSleepTarget()
   const updateSleepTarget = useUpdateSleepTarget()
-  const sleepTarget = (sleepTargetQ.data ?? 480) / 60
+  // null until the server value loads; a failed load disables the controls (no 480 fallback)
+  const sleepTarget = sleepTargetQ.data != null ? sleepTargetQ.data / 60 : null
+  const sleepTargetControlsDisabled =
+    sleepTarget === null || sleepTargetQ.isError || updateSleepTarget.isPending
   const setSleepTarget = (h: number) => {
     const clamped = Math.min(SLEEP_TARGET_MAX_H, Math.max(SLEEP_TARGET_MIN_H, h))
     updateSleepTarget.mutate(Math.round(clamped * 60))
@@ -555,22 +558,32 @@ export function Settings() {
             <div>
               <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Sleep target</p>
               <p className="text-2xs text-slate-500 mt-0.5">Hours per night (5-12) used for sleep debt. Applies to all history: debt is recomputed from the current target.</p>
+              {sleepTargetQ.isError && (
+                <p role="alert" className="text-2xs text-poor mt-1">
+                  Couldn&apos;t load your sleep target ({sleepTargetQ.error instanceof Error ? sleepTargetQ.error.message : 'unknown error'}). Reload to try again.
+                </p>
+              )}
+              {updateSleepTarget.isError && (
+                <p role="alert" className="text-2xs text-poor mt-1">
+                  Couldn&apos;t save your sleep target ({updateSleepTarget.error instanceof Error ? updateSleepTarget.error.message : 'unknown error'}).
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setSleepTarget(sleepTarget - 0.5)}
-                disabled={sleepTarget <= SLEEP_TARGET_MIN_H || sleepTargetQ.isPending || updateSleepTarget.isPending}
+                onClick={() => sleepTarget !== null && setSleepTarget(sleepTarget - 0.5)}
+                disabled={sleepTargetControlsDisabled || sleepTarget <= SLEEP_TARGET_MIN_H}
                 className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
                 aria-label="Decrease sleep target"
               >
                 −
               </button>
               <span className="w-12 text-center font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">
-                {`${sleepTarget}h`}
+                {sleepTarget !== null ? fmtTargetHours(sleepTarget) : '—'}
               </span>
               <button
-                onClick={() => setSleepTarget(sleepTarget + 0.5)}
-                disabled={sleepTarget >= SLEEP_TARGET_MAX_H || sleepTargetQ.isPending || updateSleepTarget.isPending}
+                onClick={() => sleepTarget !== null && setSleepTarget(sleepTarget + 0.5)}
+                disabled={sleepTargetControlsDisabled || sleepTarget >= SLEEP_TARGET_MAX_H}
                 className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
                 aria-label="Increase sleep target"
               >

@@ -473,3 +473,21 @@ class TestMetricsSnapshot:
         result = get_weekly_digest(engine, None, self.ANCHOR)
         delta = result.week_end - result.week_start
         assert delta.days == 6  # 7 days inclusive = 6-day span
+
+
+class TestSleepDebtRelativeToTarget:
+    def test_default_target_thresholds(self):
+        assert _sleep_debt_status(7.6) == "in good shape"
+        assert _sleep_debt_status(6.5) == "manageable"
+        assert _sleep_debt_status(6.0) == "accumulating"
+
+    def test_nine_hour_target_7_6_avg_not_good(self):
+        assert _sleep_debt_status(7.6, 9.0) == "manageable"
+        assert _sleep_debt_status(7.4, 9.0) == "accumulating"
+
+    def test_candidate_wording_uses_target(self):
+        # 7.6h avg (456 min), down 20% vs last week, 9h target
+        c = _sleep_candidate(456.0, None, -20.0, target_hours=9.0)
+        assert c is not None
+        assert "Sleep debt is manageable" in c.text
+        assert "in good shape" not in c.text

@@ -172,19 +172,23 @@ def _training_candidate(
     return _Candidate(text, score=20.0, category="training")
 
 
-def _sleep_debt_status(avg_sleep_hours: float) -> str:
-    """Simple heuristic sleep debt status from average nightly sleep hours."""
-    if avg_sleep_hours < 6.5:
-        return "accumulating"
-    if avg_sleep_hours < 7.5:
+def _sleep_debt_status(avg_sleep_hours: float, target_hours: float = 8.0) -> str:
+    """Sleep debt status relative to the user's nightly target.
+
+    Good: within 0.5h of target; manageable: within 1.5h; otherwise accumulating.
+    """
+    if avg_sleep_hours >= target_hours - 0.5:
+        return "in good shape"
+    if avg_sleep_hours >= target_hours - 1.5:
         return "manageable"
-    return "in good shape"
+    return "accumulating"
 
 
 def _sleep_candidate(
     avg_sleep_duration: float | None,
     avg_deep_sleep: float | None,
     delta_pct: float | None,
+    target_hours: float = 8.0,
 ) -> _Candidate | None:
     if avg_sleep_duration is None:
         return None
@@ -197,7 +201,7 @@ def _sleep_candidate(
     deep_str = f" with {deep_pct}% deep sleep" if deep_pct is not None else ""
 
     if delta_pct is not None and delta_pct <= -_BIG_DELTA:
-        debt = _sleep_debt_status(hours)
+        debt = _sleep_debt_status(hours, target_hours)
         text = (
             f"Sleep dropped to {hours:.1f}h avg, "
             f"{abs(delta_pct):.0f}% less than last week. "
@@ -270,6 +274,7 @@ def get_weekly_digest(
     engine: Engine,
     user_id: str | None,
     target_date: date | None = None,
+    sleep_target_minutes: int = 480,
 ) -> WeeklyDigest:
     """Generate a 2–3 sentence programmatic digest for the past 7 days.
 
@@ -289,6 +294,8 @@ def get_weekly_digest(
         engine: SQLAlchemy engine for the fitness database.
         user_id: App user UUID.
         target_date: Last day of the digest period (defaults to today).
+        sleep_target_minutes: The user's nightly sleep target (default 480); the
+            sleep-debt wording is relative to it.
 
     Returns:
         WeeklyDigest with ``takeaways`` and ``metrics_snapshot`` populated.
@@ -366,7 +373,12 @@ def get_weekly_digest(
     if c:
         candidates.append(c)
 
-    c = _sleep_candidate(avg_sleep_duration, avg_deep_sleep, comparison.get("avg_sleep_duration"))
+    c = _sleep_candidate(
+        avg_sleep_duration,
+        avg_deep_sleep,
+        comparison.get("avg_sleep_duration"),
+        sleep_target_minutes / 60.0,
+    )
     if c:
         candidates.append(c)
 

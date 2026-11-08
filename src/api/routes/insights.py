@@ -11,6 +11,7 @@ from src.api.dependencies import get_engine_dep
 from src.api.models import WeeklyDigestResponse
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.database.user_settings import get_sleep_target_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,10 @@ async def weekly_digest(
     """
     try:
         target = local_date or date.today()
-        result = get_weekly_digest(engine, current_user.id, target)
+        sleep_target = get_sleep_target_minutes(engine, current_user.id)
+        result = get_weekly_digest(
+            engine, current_user.id, target, sleep_target_minutes=sleep_target
+        )
         return WeeklyDigestResponse(
             week_start=result.week_start.isoformat(),
             week_end=result.week_end.isoformat(),

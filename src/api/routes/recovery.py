@@ -49,11 +49,14 @@ WHERE date BETWEEN :start AND :end
   AND user_id = :uid
 """
 
+# Bounded to the request's UTC-widened range, not the whole history.
 _ALL_RECOVERY_DATES_QUERY = """
 SELECT DISTINCT start_time, timezone_offset
 FROM whoop_workouts
 WHERE strain IS NULL AND end_time IS NOT NULL
   AND user_id = :uid
+  AND start_time >= :start
+  AND start_time <  :end
 """
 
 _DAILY_RECOVERY_QUERY = """
@@ -170,7 +173,13 @@ async def with_without(
         rec_dates = {
             local_date(r[0], r[1])
             for r in conn.execute(
-                text(_ALL_RECOVERY_DATES_QUERY), {"uid": current_user.id}
+                text(_ALL_RECOVERY_DATES_QUERY),
+                {
+                    "uid": current_user.id,
+                    # Local dates in [start-1, end-1] sit within 1 UTC day of them; 2 is margin.
+                    "start": (start - timedelta(days=2)).isoformat(),
+                    "end": (end + timedelta(days=2)).isoformat(),
+                },
             ).fetchall()
         }
         daily_rows = (

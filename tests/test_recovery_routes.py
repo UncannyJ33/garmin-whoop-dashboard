@@ -99,3 +99,31 @@ def test_recovery_activity_dated_locally(client):
     body = r.json()
     assert body["with_count"] == 1
     assert body["with_avg"] == pytest.approx(80.0)
+
+
+def test_with_without_recovery_dates_query_is_bounded(client):
+    """The all-recovery-dates query only reads start-2d .. end+2d, not the whole history."""
+    from sqlalchemy import event  # noqa: PLC0415
+
+    from src.api.main import app  # noqa: PLC0415
+
+    eng = app.dependency_overrides[get_engine_dep]()
+    seen: list[tuple] = []
+
+    def _spy(conn, cursor, statement, parameters, context, executemany):
+        if "SELECT DISTINCT start_time" in statement:
+            seen.append((statement, parameters))
+
+    event.listen(eng, "before_cursor_execute", _spy)
+    try:
+        r = client.get(
+            "/api/recovery/with-without?start=2024-02-06&end=2024-02-06", headers=_auth()
+        )
+    finally:
+        event.remove(eng, "before_cursor_execute", _spy)
+    assert r.status_code == 200
+    assert r.json()["with_count"] == 1  # unchanged by the bound
+    assert len(seen) == 1
+    statement, params = seen[0]
+    assert "start_time >=" in statement and "start_time <" in statement
+    assert "2024-02-04" in params and "2024-02-08" in params
