@@ -13,6 +13,7 @@ import { PageSkeleton } from '../LoadingState'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { ScrollContainerContext } from '../../context/ScrollContainerContext'
 
 // ── Offline banner ─────────────────────────────────────────────────────────
 
@@ -135,6 +136,7 @@ export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const isOnline = useOnlineStatus()
   const { pathname } = useLocation()
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null)
 
   return (
     <div
@@ -152,15 +154,18 @@ export function Layout() {
         {!isOnline && <OfflineBanner />}
 
         <main
+          ref={setScrollEl}
           className="flex-1 overflow-y-auto"
           style={{ padding: '24px', maxWidth: '1200px', width: '100%', margin: '0 auto' }}
         >
           {/* key remounts the boundary on navigation, clearing any error */}
-          <ErrorBoundary key={pathname}>
-            <Suspense fallback={<PageSkeleton />}>
-              <Outlet />
-            </Suspense>
-          </ErrorBoundary>
+          <ScrollContainerContext.Provider value={scrollEl}>
+            <ErrorBoundary key={pathname}>
+              <Suspense fallback={<PageSkeleton />}>
+                <Outlet />
+              </Suspense>
+            </ErrorBoundary>
+          </ScrollContainerContext.Provider>
         </main>
 
         {/* Mobile bottom tab bar */}
