@@ -362,79 +362,74 @@ def test_backfill_skips_per_chunk_anomaly_refresh() -> None:
     env.refresh.assert_called_once_with(env.engine, OWNER, TODAY - timedelta(days=65), TODAY)
 
 
-class _FakeGarminClient:
-    """get_daily_summary(d) is empty before ``cutoff`` and populated from it."""
-
-    instances: list["_FakeGarminClient"] = []
-
-    def __init__(self, cutoff: date) -> None:
-        self.cutoff = cutoff
-        self.calls: list[date] = []
-        _FakeGarminClient.instances.append(self)
-
-    def get_daily_summary(self, d: date) -> dict:
-        self.calls.append(d)
-        return {} if d < self.cutoff else {"totalSteps": 1}
-
-
-def _run_with_client(argv: list[str], cutoff: date) -> tuple[int, Env, MagicMock]:
-    _FakeGarminClient.instances = []
-    with ExitStack() as stack:
-        factory = stack.enter_context(
-            patch("scripts.backfill.GarminClient", side_effect=lambda: _FakeGarminClient(cutoff))
-        )
-        env = Env(stack)
-        code = main(argv)
-    return code, env, factory
-
-
-def test_backfill_activities_only_before_daily_depth(capsys: pytest.CaptureFixture[str]) -> None:
-    cutoff = TODAY - timedelta(days=300)
-    code, env, factory = _run_with_client(["--source", "garmin", "--start", _start(400)], cutoff)
+def test_daily_cutoff_fixed_370(capsys: pytest.CaptureFixture[str]) -> None:
+    cutoff = TODAY - timedelta(days=370)
+    code, env = run(["--source", "garmin", "--start", _start(500)])
     assert code == 0
-    factory.assert_called_once()
-    flags = [(c.kwargs["end"], c.kwargs["daily"]) for c in env.garmin_run.call_args_list]
-    early = [daily for end, daily in flags if end < cutoff - timedelta(days=7)]
-    late = [daily for end, daily in flags if end >= cutoff]
-    assert early and all(d is False for d in early)
-    assert late and all(d is True for d in late)
-    assert "Garmin daily summaries start about" in capsys.readouterr().out
+    calls = env.garmin_run.call_args_list
+    assert any(c.kwargs["end"] < cutoff for c in calls)
+    for c in calls:
+        assert c.kwargs["daily"] is (c.kwargs["end"] >= cutoff)
+    assert capsys.readouterr().out.count("run activities-only") == 1
 
 
-def test_backfill_no_probe_when_start_recent() -> None:
-    code, env, factory = _run_with_client(
-        ["--source", "garmin", "--start", _start(100)], TODAY - timedelta(days=300)
-    )
+def test_no_activities_only_chunks_when_start_recent(capsys: pytest.CaptureFixture[str]) -> None:
+    code, env = run(["--source", "garmin", "--start", _start(100)])
     assert code == 0
-    factory.assert_not_called()
     assert all(c.kwargs["daily"] is True for c in env.garmin_run.call_args_list)
+    assert "activities-only" not in capsys.readouterr().out
 
 
-def test_backfill_daily_from_override() -> None:
+def test_daily_from_override() -> None:
     daily_from = TODAY - timedelta(days=200)
-    code, env, factory = _run_with_client(
-        ["--source", "garmin", "--start", _start(400), "--daily-from", str(daily_from)],
-        TODAY - timedelta(days=300),
-    )
+    code, env = run(["--source", "garmin", "--start", _start(400), "--daily-from", str(daily_from)])
     assert code == 0
-    factory.assert_not_called()
     for c in env.garmin_run.call_args_list:
         assert c.kwargs["daily"] is (c.kwargs["end"] >= daily_from)
 
 
-def test_backfill_probe_start_has_data_runs_all_daily() -> None:
-    code, env, _ = _run_with_client(
-        ["--source", "garmin", "--start", _start(400)], TODAY - timedelta(days=500)
+def test_interrupt_in_chunk_3_refreshes_through_chunk_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    n = {"i": 0}
+
+    def side(start, end, **kw):
+        n["i"] += 1
+        if n["i"] == 3:
+            raise KeyboardInterrupt
+        return _log()
+
+    start = TODAY - timedelta(days=89)
+    code, env = run(
+        ["--source", "garmin", "--start", str(start), "--chunk-days", "30"], garmin_side=side
     )
-    assert code == 0
-    assert all(c.kwargs["daily"] is True for c in env.garmin_run.call_args_list)
-    assert len(_FakeGarminClient.instances[0].calls) == 1  # start probe only, short-circuits
+    assert code == 130
+    env.refresh.assert_called_once_with(env.engine, OWNER, start, start + timedelta(days=59))
 
 
-def test_backfill_probe_recent_empty_runs_all_daily(capsys: pytest.CaptureFixture[str]) -> None:
-    code, env, _ = _run_with_client(
-        ["--source", "garmin", "--start", _start(400)], TODAY + timedelta(days=5)
+def test_failed_source_still_refreshes_over_completed_chunks() -> None:
+    n = {"i": 0}
+
+    def side(start, end, **kw):
+        n["i"] += 1
+        return _log("error") if n["i"] == 2 else _log()
+
+    start = TODAY - timedelta(days=59)
+    code, env = run(
+        ["--source", "garmin", "--start", str(start), "--chunk-days", "30"], garmin_side=side
     )
+    assert code == 1
+    env.refresh.assert_called_once_with(env.engine, OWNER, start, start + timedelta(days=29))
+
+
+def test_refresh_error_logged_and_keeps_exit_code(
+    capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    with ExitStack() as stack:
+        env = Env(stack)
+        env.refresh.side_effect = RuntimeError("db gone")
+        with caplog.at_level("ERROR"):
+            code = main(["--source", "garmin", "--start", _start(5)])
     assert code == 0
-    assert all(c.kwargs["daily"] is True for c in env.garmin_run.call_args_list)
-    assert "depth assumption" in capsys.readouterr().out
+    assert "FAILED RuntimeError: db gone" in capsys.readouterr().out
+    assert any("Final anomaly refresh" in r.getMessage() for r in caplog.records)

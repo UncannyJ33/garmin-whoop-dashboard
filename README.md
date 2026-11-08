@@ -68,9 +68,9 @@ tests/            pytest suite
      dashboard's API is running, and uses `caffeinate` on macOS.
    - Garmin daily data reaches only about 180-365 days back; activities about 690 days. Older
      Garmin data comes from an account export via `scripts/import_data.py` (see below).
-   - Garmin chunks older than the daily-history depth run activities-only (a short probe finds
-     the depth; `scripts/backfill.py --daily-from YYYY-MM-DD` overrides it). Anomalies are
-     refreshed once at the end, not per chunk.
+   - Garmin chunks ending before `today - 370 days` run activities-only (fixed cutoff;
+     `scripts/backfill.py --daily-from YYYY-MM-DD` overrides it). Anomalies are refreshed once
+     at the end (also after an interrupt or failed source), not per chunk.
    - Expect about 40 min for 2 years. If it stops, run the printed resume command
      (`make backfill SOURCE=x START=y`) **before** restarting the server.
    - Exit codes: 0 done, 1 error, 2 usage, 3 API running, 130 interrupted.
@@ -114,7 +114,7 @@ Connected / Key not set / Key rejected / Can't reach Garmin. Manual sync
 - Strength: no per-set endpoint. Per-exercise summaries land in `garmin_exercise_summaries`;
   older set-level rows from an export still win when present.
 
-**Backfill past ~180 days: Garmin export import.** Garmin Connect -> Settings -> Data Management ->
+**Backfill past ~1 year: Garmin export import.** Garmin Connect -> Settings -> Data Management ->
 Export Your Data (ZIP), or Activities -> Export CSV.
 
 ```bash
