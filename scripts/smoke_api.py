@@ -169,7 +169,7 @@ def run_smoke(client: Any, headers: dict[str, str], today: date | None = None) -
         placeholders = re.findall(r"\{(\w+)\}", path)
         base_params = {k for k in params if k not in placeholders}
         if "metric" in placeholders:
-            variants = [(f"{m}", {"metric": m}) for m in metrics]
+            variants = [(m, {"metric": m}) for m in metrics]
         elif "workout_id" in placeholders:
             ids: list[str] = list(wk_ids)
             if path.endswith(("/exercise-summary", "/exercise-sets")) and strength_id:
@@ -188,30 +188,15 @@ def run_smoke(client: Any, headers: dict[str, str], today: date | None = None) -
             url = path
             for k, v in pathvars.items():
                 url = url.replace("{" + k + "}", v)
-            if {"start", "end"} <= base_params:
+            one_day = next((k for k in ("end", "date") if k in base_params), None)
+            if {"start", "end"} <= base_params or "days" in base_params:
                 for d in WINDOWS_DAYS:
                     lab = f"{vlabel}/{d}d" if vlabel != "-" else f"{d}d"
-                    call(path, url, _window(d, today), lab, a204)
-            elif "days" in base_params:
-                for d in WINDOWS_DAYS:
-                    lab = f"{vlabel}/{d}d" if vlabel != "-" else f"{d}d"
-                    call(path, url, {"days": str(d)}, lab, a204)
-            elif "end" in base_params:
-                call(
-                    path,
-                    url,
-                    {"end": today.isoformat()},
-                    vlabel if vlabel != "-" else "today",
-                    a204,
-                )
-            elif "date" in base_params:
-                call(
-                    path,
-                    url,
-                    {"date": today.isoformat()},
-                    vlabel if vlabel != "-" else "today",
-                    a204,
-                )
+                    qp = _window(d, today) if "start" in base_params else {"days": str(d)}
+                    call(path, url, qp, lab, a204)
+            elif one_day:
+                lab = vlabel if vlabel != "-" else "today"
+                call(path, url, {one_day: today.isoformat()}, lab, a204)
             else:
                 call(path, url, {}, vlabel, a204)
     return results
