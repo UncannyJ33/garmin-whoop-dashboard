@@ -6,15 +6,13 @@ Personal Garmin + Whoop fitness dashboard. Single user (SJ), self-hosted. Former
 - Frontend: React 18 + TypeScript + Vite + TailwindCSS + Recharts + TanStack Query (`frontend-react/`).
 
 ## Status: Relaunch complete (2026-11-07)
-Phases 0-7 done. Garmin comes from the official Personal API; the SaaS surface is removed (owner via `make owner EMAIL=...`, registration closed); runs locally on SQLite. Tests: 972 passing (serial). The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs.
+Phases 0-8 done. Garmin comes from the official Personal API; the SaaS surface is removed (owner via `make owner EMAIL=...`, registration closed); runs locally on SQLite. Tests: 1022 passing (serial). The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs.
 
 **Open items:**
 - SJ: run `make owner`, connect Whoop (redirect URI), run the first `make backfill`, optionally request a Garmin export.
 - Docker build unverified (Docker isn't installed on the dev machine).
-- Pending product decisions (`docs/reviews/2026-11-06-cleanup.md`): anomaly lookback/cache wipe, UTC vs local workout dates, auth refresh-on-401, Virtuoso workout-log scroll container (needs browser check), error-boundary placement, sleep-target setting, Today "last night" filter.
+- Pending product decision (`docs/reviews/2026-11-06-cleanup.md`): Virtuoso workout-log scroll container (needs browser check).
 - Parked: normalizer reverse-direction duplicate (see Known bug below).
-- Follow-up: remove `create_owner`'s `:memory:` test-only dispose guard, then drop the `sqlalchemy<2.1` pin.
-- Optimization: Garmin backfill makes 3 calls/day past the daily-history depth.
 
 Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan (done): `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
@@ -51,8 +49,14 @@ Garmin/Whoop API → pipelines → raw tables (with `raw_json`) → normalizer +
 - **Source of truth**: Whoop = recovery, sleep quality, body vitals. Garmin = workout detail, running dynamics.
 - Store raw API responses in `raw_json` for reprocessing.
 - **Workout dedup** by timestamp + duration only: Whoop strain workouts (strain IS NOT NULL) matched to Garmin if start diff ≤5 min (`MATCH_START_THRESHOLD_MIN`) and duration diff ≤20% (`MATCH_DURATION_THRESHOLD_PCT`). End-time fallback for Whoop early detection (strength): `MATCH_END_THRESHOLD_MIN=5`, `MATCH_END_DURATION_THRESHOLD_PCT=0.25`, `_END_MATCH_CONFIDENCE_PENALTY=0.8` (`deduplication.py`). Whoop non-strain activities (walks, stretches) stay out of the match.
-- **Daily alignment**: key Whoop recovery by `DATE(whoop_cycles.start_time)` (cycle starts at wake) = Garmin `garmin_daily_summary.date`. Alternative (`DATE(whoop_sleep.end_time)` via join) rejected as extra join/edge cases; revisit on off-by-one errors.
-- **Sleep alignment**: Whoop is truth, keyed by `DATE(whoop_sleep.end_time)` (morning you woke). Garmin sleep `date` is already the wake date. Keying by bedtime date would be off-by-one.
+- **Local time (Phase 8)**: every Whoop date and clock time is the user's local time, from the record's own timezone offset (UTC fallback when absent). That covers workout date, daily key, wake key, recovery-activity date, bedtime/wake hours, and VO2 (keyed by local date). Helpers live in `src/normalization/whoop_mapper.py`.
+- **Daily alignment**: key Whoop recovery by the local date of `whoop_cycles.start_time` (cycle starts at wake) = Garmin `garmin_daily_summary.date`. Alternative (date of `whoop_sleep.end_time` via join) rejected as extra join/edge cases; revisit on off-by-one errors.
+- **Sleep alignment**: Whoop is truth, keyed by the local date of `whoop_sleep.end_time` (morning you woke). Garmin sleep `date` is already the wake date. Keying by bedtime date would be off-by-one.
+- **Anomalies**: detection runs over the 29-day lookback; `anomaly_cache` rows are rewritten only inside the sync window, so an incremental refresh no longer wipes recent anomalies.
+- **Sleep target**: server-side per user, `GET`/`PUT /api/settings` (300-720 min, migration 015), applies to all history; sleep debt uses it.
+- **Caching**: every `/api/*` response is `Cache-Control: no-store` (`CacheControlMiddleware`, `src/api/main.py`); TanStack Query `staleTime` does client caching.
+- **Frontend auth/errors**: a 401 triggers one silent token refresh (single-flight, one retry; `download` excluded). `ErrorBoundary` is per page, keyed by pathname, with `Suspense` inside `Layout`. Today shows the sleep that ended this morning.
+- **Backfill**: no per-chunk anomaly refresh. Garmin chunks ending before the daily-history depth run activities-only; a short probe finds the depth when `--start` is over 180 days back, or pass `--daily-from YYYY-MM-DD` to `scripts/backfill.py` (not exposed by `make backfill`). The double normalization is kept on purpose.
 - Garmin sleep/HRV rows are mostly missing (watch not worn at night; Whoop is). On no-watch nights sleep returns an all-null DTO and HRV returns 204, so `garmin_sleep`/`garmin_hrv` normally get no rows. That is normal.
 - No per-activity detail call: running dynamics, training load/effect and HR zones are in the activity list. `avg_ground_contact_balance` is unavailable and stored NULL.
 - **Known bug:** the normalizer leaves a stale `g_<garmin_activity_id>` `unified_workouts` row when a later Whoop match creates `w_<id>` for the same activity (duplicate workouts, double-counted strength volume). Roadmap Phase 3.

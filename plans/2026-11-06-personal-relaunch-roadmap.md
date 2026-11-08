@@ -268,16 +268,18 @@ Update `README.md` (setup: key → `.env` → `make owner` → `make up`), `CLAU
 Garmin field-name section to the Personal API shapes, and remove the "relaunch in progress"
 banner) and `.env.example`. Fold any spike findings into the research doc.
 
+## Phase 8: Product decisions
+
+- [x] Done 2026-11-07 (branch `feat/phase8-decisions`; plan `plans/2026-11-07-phase8-product-decisions.md`). Anomaly lookback, local-time Whoop dates, silent refresh on 401, per-page error boundary, server-side sleep target (migration 015), Today shows this morning's sleep, `no-store` API caching, backfill efficiency (`--daily-from`), sqlalchemy 2.1.8 (pin dropped). 1022 tests.
+
 ---
 
 ## Open items (2026-11-07)
 
 - **SJ:** `make owner`, connect Whoop (redirect URI), first `make backfill`, optionally a Garmin export.
 - Docker build unverified (Docker not installed on the dev machine).
-- Pending product decisions from `docs/reviews/2026-11-06-cleanup.md`: anomaly lookback/cache wipe, UTC vs local workout dates, auth refresh-on-401, the Virtuoso workout-log scroll container (needs a browser check), error-boundary placement, the sleep-target setting, the Today "last night" filter.
+- Pending product decision from `docs/reviews/2026-11-06-cleanup.md`: the Virtuoso workout-log scroll container (needs a browser check).
 - Parked: normalizer reverse-direction duplicate.
-- Follow-up: remove `create_owner`'s `:memory:` test-only dispose guard, then drop the `sqlalchemy<2.1` pin.
-- Optimization: the Garmin backfill makes 3 calls per day past the daily-history depth.
 
 ---
 
