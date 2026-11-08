@@ -25,6 +25,7 @@ import type {
   SleepConsistency,
   SleepCorrelations,
   SleepInsight,
+  SleepSettings,
   StrengthMaxWeight,
   StrengthVolume,
   SyncStatus,
@@ -173,6 +174,32 @@ export function useSleepInsights(start: string, end: string) {
     staleTime: STALE.MEDIUM,
     retry: 1,
     enabled: !!userId,
+  })
+}
+
+/** Nightly sleep target in minutes (server-side; 480 while loading). */
+export function useSleepTarget() {
+  const { userId } = useAuth()
+  return useQuery({
+    queryKey: ['settings', 'sleep-target', userId],
+    queryFn: ({ signal }) => api.get<SleepSettings>('/api/settings', signal),
+    select: (s) => s.sleep_target_minutes,
+    staleTime: STALE.STATIC,
+    retry: 1,
+    enabled: !!userId,
+  })
+}
+
+export function useUpdateSleepTarget() {
+  const queryClient = useQueryClient()
+  const { userId } = useAuth()
+  return useMutation({
+    mutationFn: (minutes: number) =>
+      api.put<SleepSettings>('/api/settings', { sleep_target_minutes: minutes }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['settings', 'sleep-target', userId], data)
+      void queryClient.invalidateQueries({ queryKey: ['sleep'] })
+    },
   })
 }
 

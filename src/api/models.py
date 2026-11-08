@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.analytics.limiting_factors import Severity
 from src.analytics.readiness_score import Recommendation
@@ -121,6 +121,12 @@ class SleepInsightResponse(BaseModel):
     next_day_recovery_score: float | None = None
     next_day_body_battery: int | None = None
     sleep_debt_estimate: float | None = None
+
+
+class SleepSettings(BaseModel):
+    """User sleep target (5-12 h, in minutes)."""
+
+    sleep_target_minutes: int = Field(ge=300, le=720)
 
 
 class CorrelationResult(BaseModel):

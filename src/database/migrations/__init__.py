@@ -48,3 +48,4 @@ def run(database_url: str | None = None, engine: Engine | None = None) -> None:
     _load("012_composite_indexes.py").run(**kwargs)
     _load("013_anomaly_cache.py").run(**kwargs)
     _load("014_exercise_summaries.py").run(**kwargs)
+    _load("015_user_sleep_target.py").run(**kwargs)

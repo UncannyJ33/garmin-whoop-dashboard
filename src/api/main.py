@@ -16,6 +16,7 @@ from src.api.routes.garmin_upload import router as garmin_upload_router
 from src.api.routes.insights import router as insights_router
 from src.api.routes.readiness import router as readiness_router
 from src.api.routes.recovery import router as recovery_router
+from src.api.routes.settings import router as settings_router
 from src.api.routes.sleep import router as sleep_router
 from src.api.routes.sync import router as sync_router
 from src.api.routes.training import router as training_router
@@ -57,30 +58,23 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# Cache-Control middleware — lets browser skip round-trips on back-navigation
+# Cache-Control middleware — /api/* responses are never cached by the browser
 # ---------------------------------------------------------------------------
-
-# Paths that should never be cached (mutable state or real-time data)
-_NO_CACHE_PREFIXES = ("/api/sync/", "/api/auth/")
 
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
+    """Mark every ``/api/*`` response ``no-store``.
+
+    TanStack Query's ``staleTime`` handles client-side caching; browser HTTP caching
+    would serve stale data after a sync or settings change.
+    """
+
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         response: Response = await call_next(request)
-        path = request.url.path
-        if not path.startswith("/api/"):
-            return response
-        # Skip non-GET and non-success responses
-        if request.method != "GET" or response.status_code >= 400:
-            return response
-        # Mutable endpoints: no cache
-        if any(path.startswith(p) for p in _NO_CACHE_PREFIXES):
+        if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
-        else:
-            # Analytics endpoints: private cache, browser may reuse for 5 min
-            response.headers["Cache-Control"] = "private, max-age=300"
         return response
 
 
@@ -113,6 +107,7 @@ app.include_router(training_router)
 app.include_router(insights_router)
 app.include_router(sync_router)
 app.include_router(garmin_upload_router)
+app.include_router(settings_router)
 
 
 @app.get("/health", tags=["health"])

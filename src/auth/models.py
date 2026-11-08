@@ -3,7 +3,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, String
+from sqlalchemy import Boolean, Column, Integer, String
 
 from src.database.models import Base
 
@@ -18,3 +18,4 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     created_at = Column(String, nullable=False, default=lambda: datetime.now(UTC).isoformat())
     is_active = Column(Boolean, default=True, nullable=False)
+    sleep_target_minutes = Column(Integer, nullable=False, default=480, server_default="480")

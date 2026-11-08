@@ -20,6 +20,7 @@ from src.api.models import (
 )
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.database.user_settings import get_sleep_target_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,10 @@ async def sleep_insights(
     """Return per-night sleep insights linking sleep quality, prior training, and recovery."""
     start, end = dates.validated()
     try:
-        insights = get_sleep_insights(engine, start, end, user_id=current_user.id)
+        target = get_sleep_target_minutes(engine, current_user.id)
+        insights = get_sleep_insights(
+            engine, start, end, target_sleep_minutes=target, user_id=current_user.id
+        )
         return [SleepInsightResponse(**dataclasses.asdict(s)) for s in insights]
     except Exception as exc:
         logger.exception("sleep_insights failed")

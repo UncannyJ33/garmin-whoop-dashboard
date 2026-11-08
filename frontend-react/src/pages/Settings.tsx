@@ -5,7 +5,7 @@ import { Spinner } from '../components/Spinner'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { GARMIN_KEY_LABEL, GarminKeyHint, garminKeyState } from '../components/GarminKeyStatus'
-import { invalidateWorkoutQueries, useChangePassword, useDataStats, useDisconnectWhoop, useGarminStatus, useSyncStatus, useTriggerSync, useWhoopStatus } from '../hooks/useApi'
+import { invalidateWorkoutQueries, useChangePassword, useDataStats, useDisconnectWhoop, useGarminStatus, useSleepTarget, useSyncStatus, useTriggerSync, useUpdateSleepTarget, useWhoopStatus } from '../hooks/useApi'
 import type { UploadResult } from '../types/api'
 import { GarminUpload } from '../components/GarminUpload'
 import { Modal } from '../components/Modal'
@@ -87,32 +87,27 @@ function PlaceholderRow({ label, description }: { label: string; description: st
   )
 }
 
-// ── sleep target localStorage key ──────────────────────────────────────────────
-const SLEEP_TARGET_KEY = 'sleepTargetHours'
-const DEFAULT_SLEEP_TARGET = 8
-
-function useSleepTarget() {
-  const [hours, setHoursState] = useState<number>(() => {
-    const stored = localStorage.getItem(SLEEP_TARGET_KEY)
-    const parsed = stored ? parseFloat(stored) : NaN
-    return isNaN(parsed) ? DEFAULT_SLEEP_TARGET : Math.min(12, Math.max(4, parsed))
-  })
-
-  function setHours(h: number) {
-    const clamped = Math.min(12, Math.max(4, h))
-    localStorage.setItem(SLEEP_TARGET_KEY, String(clamped))
-    setHoursState(clamped)
-  }
-
-  return { hours, setHours }
-}
+// Sleep target bounds (hours), matching the server's 300-720 minute validation
+const SLEEP_TARGET_MIN_H = 5
+const SLEEP_TARGET_MAX_H = 12
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export function Settings() {
-  const { hours: sleepTarget, setHours: setSleepTarget } = useSleepTarget()
+  const sleepTargetQ = useSleepTarget()
+  const updateSleepTarget = useUpdateSleepTarget()
+  const sleepTarget = (sleepTargetQ.data ?? 480) / 60
+  const setSleepTarget = (h: number) => {
+    const clamped = Math.min(SLEEP_TARGET_MAX_H, Math.max(SLEEP_TARGET_MIN_H, h))
+    updateSleepTarget.mutate(Math.round(clamped * 60))
+  }
   const { userId } = useAuth()
   const queryClient = useQueryClient()
+
+  // The sleep target moved server-side; drop the legacy localStorage value.
+  useEffect(() => {
+    try { localStorage.removeItem('sleepTargetHours') } catch { /* storage unavailable */ }
+  }, [])
 
   const statusQ = useSyncStatus()
   const statsQ  = useDataStats()
@@ -559,23 +554,23 @@ export function Settings() {
           <div className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
             <div>
               <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Sleep target</p>
-              <p className="text-2xs text-slate-500 mt-0.5">Hours per night used for sleep debt estimate</p>
+              <p className="text-2xs text-slate-500 mt-0.5">Hours per night (5-12) used for sleep debt. Applies to all history: debt is recomputed from the current target.</p>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setSleepTarget(sleepTarget - 0.5)}
-                disabled={sleepTarget <= 4}
+                disabled={sleepTarget <= SLEEP_TARGET_MIN_H || sleepTargetQ.isPending || updateSleepTarget.isPending}
                 className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
                 aria-label="Decrease sleep target"
               >
                 −
               </button>
               <span className="w-12 text-center font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">
-                {sleepTarget % 1 === 0 ? `${sleepTarget}h` : `${sleepTarget}h`}
+                {`${sleepTarget}h`}
               </span>
               <button
                 onClick={() => setSleepTarget(sleepTarget + 0.5)}
-                disabled={sleepTarget >= 12}
+                disabled={sleepTarget >= SLEEP_TARGET_MAX_H || sleepTargetQ.isPending || updateSleepTarget.isPending}
                 className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-overlay text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 text-base leading-none transition-colors"
                 aria-label="Increase sleep target"
               >
