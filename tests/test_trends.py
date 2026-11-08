@@ -221,7 +221,8 @@ class TestGetMetricSeries:
     """Uses recovery data in 2029-02 (28 days) and 2029-07 (gap days)."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # 28 days of recovery, values 50..77
             for i in range(28):
@@ -396,10 +397,11 @@ class TestWeeklyRollup:
     _END = date(2029, 10, 28)  # Sunday of W43
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             for i in range(7):
-                d = self._START + timedelta(days=i)
+                d = cls._START + timedelta(days=i)
                 session.merge(_daily(d.isoformat(), 70.0 + i))
             for i in range(7):
                 d = date(2029, 10, 15) + timedelta(days=i)
@@ -452,7 +454,8 @@ class TestMonthlyRollup:
     """Uses recovery data for 2029-11 (all=60) and 2029-12 (all=70)."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # November: 30 days at 60
             for i in range(30):
@@ -590,7 +593,8 @@ class TestGetMetricTrend:
     _END = date(2031, 1, 31)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # 40 days ascending 50..89 — trend should be "improving"
             for i in range(40):
@@ -691,11 +695,12 @@ class TestGetWeeklySummary:
     _PREV_END = date(2031, 6, 7)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             # Previous week: recovery=70, hrv=50, rhr=55, strain=10
             for i in range(7):
-                d = self._PREV_START + timedelta(days=i)
+                d = cls._PREV_START + timedelta(days=i)
                 session.merge(
                     _make_daily(
                         d.isoformat(),
@@ -715,7 +720,7 @@ class TestGetWeeklySummary:
                 session.merge(_make_workout(f"ws_prev_{i}", d.isoformat(), duration_minutes=60.0))
             # Current week: recovery=80, strain=12; more workouts
             for i in range(7):
-                d = self._CURR_START + timedelta(days=i)
+                d = cls._CURR_START + timedelta(days=i)
                 session.merge(
                     _make_daily(
                         d.isoformat(),
@@ -824,11 +829,12 @@ class TestTrendAnomalyLookback:
     _JITTER = (60.0, 62.0, 58.0)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as session:
             for i in range(30):
-                d = self._LAST - timedelta(days=29 - i)
-                value = 20.0 if d == self._LAST else self._JITTER[i % 3]
+                d = cls._LAST - timedelta(days=29 - i)
+                value = 20.0 if d == cls._LAST else cls._JITTER[i % 3]
                 session.merge(_make_daily(d.isoformat(), whoop_recovery_score=value))
             session.commit()
 

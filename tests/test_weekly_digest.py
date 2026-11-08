@@ -369,16 +369,17 @@ class TestRecoveryDecline:
     ANCHOR = date(2043, 3, 10)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Prior week: recovery=80
-            prev_end = self.ANCHOR - timedelta(days=7)
+            prev_end = cls.ANCHOR - timedelta(days=7)
             for i in range(7):
                 d = (prev_end - timedelta(days=6 - i)).isoformat()
                 s.merge(_daily(d, recovery=80.0))
             # Current week: recovery=48
             for i in range(7):
-                d = (self.ANCHOR - timedelta(days=6 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=6 - i)).isoformat()
                 s.merge(_daily(d, recovery=48.0))
             s.commit()
 
@@ -410,16 +411,17 @@ class TestOverreachingWarning:
     ANCHOR = date(2043, 5, 1)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # 21 low-strain days (chronic baseline): strain=5 each
             for i in range(21):
-                d = (self.ANCHOR - timedelta(days=27 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=27 - i)).isoformat()
                 s.merge(_workout(d, strain=5.0, uid=i))
             # 7 high-strain days (current week): strain=15 each
             # ACWR ≈ 15 / 7.5 = 2.0 → "danger"
             for i in range(7):
-                d = (self.ANCHOR - timedelta(days=6 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=6 - i)).isoformat()
                 s.merge(_workout(d, strain=15.0, uid=100 + i))
             s.commit()
 

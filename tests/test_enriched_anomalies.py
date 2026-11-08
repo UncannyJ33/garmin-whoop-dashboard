@@ -268,15 +268,16 @@ class TestHrvDropWithStrain:
     ANCHOR = date(2042, 2, 5)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # 14 days of alternating HRV baseline
-            _seed_varying_hrv(s, self.ANCHOR, days=14)
+            _seed_varying_hrv(s, cls.ANCHOR, days=14)
             # Override anchor day: HRV crashes to 20 (way below ~60 baseline)
-            s.merge(_daily(self.ANCHOR.isoformat(), hrv=20.0))
+            s.merge(_daily(cls.ANCHOR.isoformat(), hrv=20.0))
             # Seed two high-strain workouts in the prior 48h
-            d1 = (self.ANCHOR - timedelta(days=1)).isoformat()
-            d2 = (self.ANCHOR - timedelta(days=2)).isoformat()
+            d1 = (cls.ANCHOR - timedelta(days=1)).isoformat()
+            d2 = (cls.ANCHOR - timedelta(days=2)).isoformat()
             s.merge(_workout(d1, strain=22.0, uid=1))
             s.merge(_workout(d2, strain=20.0, uid=2))
             s.commit()
@@ -323,15 +324,16 @@ class TestRecoverySpikeWithSleep:
     ANCHOR = date(2042, 3, 15)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # 14 days of alternating recovery baseline (70/80)
-            _seed_varying_recovery(s, self.ANCHOR, days=14)
+            _seed_varying_recovery(s, cls.ANCHOR, days=14)
             # Override anchor: recovery spikes to 98
-            s.merge(_daily(self.ANCHOR.isoformat(), recovery=98.0))
+            s.merge(_daily(cls.ANCHOR.isoformat(), recovery=98.0))
             # Excellent sleep the night before (unified_sleep is keyed by wake date)
             s.merge(
-                _sleep(self.ANCHOR.isoformat(), performance=95.0, total_min=510.0, deep_min=153.0)
+                _sleep(cls.ANCHOR.isoformat(), performance=95.0, total_min=510.0, deep_min=153.0)
             )  # 8.5h, 30% deep
             s.commit()
 
@@ -385,17 +387,18 @@ class TestCoAnomalies:
     ANCHOR = date(2042, 4, 22)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Seed baseline with BOTH hrv and recovery varying in the same rows
             # so that neither overwrites the other's alternating pattern.
             for i in range(14):
-                d = (self.ANCHOR - timedelta(days=13 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=13 - i)).isoformat()
                 hrv_v = 58.0 if i % 2 == 0 else 62.0
                 rec_v = 70.0 if i % 2 == 0 else 80.0
                 s.merge(_daily(d, hrv=hrv_v, recovery=rec_v))
             # Both crash on anchor day
-            s.merge(_daily(self.ANCHOR.isoformat(), hrv=15.0, recovery=15.0))
+            s.merge(_daily(cls.ANCHOR.isoformat(), hrv=15.0, recovery=15.0))
             s.commit()
 
     def test_both_metrics_detected(self, engine):
@@ -433,17 +436,18 @@ class TestLimit:
     ANCHOR = date(2042, 5, 30)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Seed alternating baseline for multiple metrics
             for i in range(14):
-                d = (self.ANCHOR - timedelta(days=13 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=13 - i)).isoformat()
                 hrv_val = 58.0 if i % 2 == 0 else 62.0
                 rec_val = 70.0 if i % 2 == 0 else 80.0
                 session_daily = _daily(d, hrv=hrv_val, recovery=rec_val)
                 s.merge(session_daily)
             # Both crash on anchor
-            s.merge(_daily(self.ANCHOR.isoformat(), hrv=10.0, recovery=10.0))
+            s.merge(_daily(cls.ANCHOR.isoformat(), hrv=10.0, recovery=10.0))
             s.commit()
 
     def test_limit_1_returns_one(self, engine):
@@ -471,18 +475,19 @@ class TestSortedDescending:
     EARLIER = date(2042, 6, 25)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Seed baseline for both windows (non-overlapping — 30d apart)
             for i in range(14):
-                d1 = (self.ANCHOR - timedelta(days=13 - i)).isoformat()
-                d2 = (self.EARLIER - timedelta(days=13 - i)).isoformat()
+                d1 = (cls.ANCHOR - timedelta(days=13 - i)).isoformat()
+                d2 = (cls.EARLIER - timedelta(days=13 - i)).isoformat()
                 hrv_v = 58.0 if i % 2 == 0 else 62.0
                 s.merge(_daily(d1, hrv=hrv_v))
                 s.merge(_daily(d2, hrv=hrv_v))
             # Anomalies on both anchor and earlier date
-            s.merge(_daily(self.ANCHOR.isoformat(), hrv=10.0))
-            s.merge(_daily(self.EARLIER.isoformat(), hrv=10.0))
+            s.merge(_daily(cls.ANCHOR.isoformat(), hrv=10.0))
+            s.merge(_daily(cls.EARLIER.isoformat(), hrv=10.0))
             s.commit()
 
     def test_most_recent_first(self, engine):
@@ -501,11 +506,12 @@ class TestEnrichAnomalyDirect:
     ANCHOR = date(2042, 8, 15)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Seed training data 2 days prior
-            d1 = (self.ANCHOR - timedelta(days=1)).isoformat()
-            d2 = (self.ANCHOR - timedelta(days=2)).isoformat()
+            d1 = (cls.ANCHOR - timedelta(days=1)).isoformat()
+            d2 = (cls.ANCHOR - timedelta(days=2)).isoformat()
             s.merge(_workout(d1, strain=18.0, uid=10))
             s.merge(_workout(d2, strain=16.0, uid=11))
             s.commit()

@@ -216,12 +216,13 @@ class TestSleepLimiting:
     ANCHOR = date(2041, 1, 15)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # 15 days of uniform baseline data
-            _seed_window(s, self.ANCHOR, days=15)
+            _seed_window(s, cls.ANCHOR, days=15)
             # Override anchor sleep to be way below average (40 vs 75 baseline)
-            s.merge(_sleep(self.ANCHOR.isoformat(), performance=40.0))
+            s.merge(_sleep(cls.ANCHOR.isoformat(), performance=40.0))
             s.commit()
 
     def test_sleep_returned_as_limiting(self, engine):
@@ -269,11 +270,12 @@ class TestRecoveryLimiting:
     ANCHOR = date(2041, 2, 20)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
-            _seed_window(s, self.ANCHOR, days=15)
+            _seed_window(s, cls.ANCHOR, days=15)
             # Override anchor daily: recovery crashes to 20 (vs 75 baseline)
-            s.merge(_daily(self.ANCHOR.isoformat(), recovery=20.0))
+            s.merge(_daily(cls.ANCHOR.isoformat(), recovery=20.0))
             s.commit()
 
     def test_recovery_returned(self, engine):
@@ -299,11 +301,12 @@ class TestBodyBatteryLimiting:
     ANCHOR = date(2041, 3, 28)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
-            _seed_window(s, self.ANCHOR, days=15)
+            _seed_window(s, cls.ANCHOR, days=15)
             # Override anchor daily: body battery crashes to 15 (vs 80 baseline)
-            s.merge(_daily(self.ANCHOR.isoformat(), bb=15))
+            s.merge(_daily(cls.ANCHOR.isoformat(), bb=15))
             s.commit()
 
     def test_body_battery_returned(self, engine):
@@ -329,10 +332,11 @@ class TestGoodDay:
     ANCHOR = date(2041, 5, 5)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Uniform baseline — today is same as all prior days
-            _seed_window(s, self.ANCHOR, days=15)
+            _seed_window(s, cls.ANCHOR, days=15)
             s.commit()
 
     def test_empty_on_good_day(self, engine):
@@ -346,12 +350,13 @@ class TestTopN:
     ANCHOR = date(2041, 6, 10)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
-            _seed_window(s, self.ANCHOR, days=15)
+            _seed_window(s, cls.ANCHOR, days=15)
             # Both recovery and sleep crash on anchor day
-            s.merge(_daily(self.ANCHOR.isoformat(), recovery=20.0))
-            s.merge(_sleep(self.ANCHOR.isoformat(), performance=30.0))
+            s.merge(_daily(cls.ANCHOR.isoformat(), recovery=20.0))
+            s.merge(_sleep(cls.ANCHOR.isoformat(), performance=30.0))
             s.commit()
 
     def test_default_returns_up_to_two(self, engine):
@@ -390,11 +395,12 @@ class TestInsufficientHistory:
     ANCHOR = date(2041, 8, 25)
 
     @pytest.fixture(scope="class", autouse=True)
-    def seed(self, engine):
+    @classmethod
+    def seed(cls, engine):
         with Session(engine) as s:
             # Only seed today + 2 prior days (below _MIN_HISTORY=3 for baseline)
             for i in range(3):
-                d = (self.ANCHOR - timedelta(days=2 - i)).isoformat()
+                d = (cls.ANCHOR - timedelta(days=2 - i)).isoformat()
                 s.merge(_daily(d, recovery=50.0))  # today crashes vs "baseline"
                 s.merge(_sleep(d, performance=50.0))
             s.commit()
