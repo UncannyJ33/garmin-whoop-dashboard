@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy import func
+from sqlalchemy import and_, exists, func
 from sqlalchemy.orm import Session
 
 from src.database.models import (
@@ -45,6 +45,18 @@ from src.normalization.whoop_mapper import (
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAPPINGS_PATH = Path(__file__).parent.parent.parent / "config" / "field_mappings.yaml"
+
+
+def _whoop_workout_qualifies(user_id: str | None) -> list[Any]:
+    """Return the SQLAlchemy conditions a Whoop workout must meet to be unified.
+
+    Shared by the window query and the stale-row cleanup so they cannot drift.
+    ``!= 'driving'`` also excludes NULL ``sport_name`` (SQL NULL semantics).
+    """
+    conds: list[Any] = [WhoopWorkout.strain.isnot(None), WhoopWorkout.sport_name != "driving"]
+    if user_id is not None:
+        conds.append(WhoopWorkout.user_id == user_id)
+    return conds
 
 
 def _date_range(start: date, end: date) -> list[date]:
@@ -185,11 +197,8 @@ class Normalizer:
         whoop_workouts_query = self._db.query(WhoopWorkout).filter(
             WhoopWorkout.start_time >= wk_start_ts,
             WhoopWorkout.start_time <= wk_end_ts,
-            WhoopWorkout.strain.isnot(None),
-            WhoopWorkout.sport_name != "driving",
+            *_whoop_workout_qualifies(self.user_id),
         )
-        if self.user_id is not None:
-            whoop_workouts_query = whoop_workouts_query.filter(WhoopWorkout.user_id == self.user_id)
         whoop_workouts = whoop_workouts_query.all()
 
         ga_start_ts = start_str + " 00:00:00"
@@ -256,16 +265,75 @@ class Normalizer:
             self._upsert(UnifiedWorkout, "id", data)
             rows_written += 1
 
+        removed, rehomed = self._remove_stale_whoop_rows(now)
+        rows_written += rehomed
+
         self._db.commit()
         logger.info(
-            "normalize_workouts %s→%s: %d whoop, %d garmin-only, %d total rows",
+            "normalize_workouts %s→%s: %d whoop, %d garmin-only, %d total rows, "
+            "%d stale w_ rows deleted, %d garmin activities re-homed",
             start_str,
             end_str,
             len(results),
             len(unmatched_garmin),
             rows_written,
+            removed,
+            rehomed,
         )
         return rows_written
+
+    def _remove_stale_whoop_rows(self, now: str) -> tuple[int, int]:
+        """Delete ``w_`` rows whose Whoop workout no longer qualifies; re-home Garmin.
+
+        A ``w_`` row is stale when its Whoop workout was re-scored to NULL strain,
+        re-labelled driving, or deleted. Unwindowed on purpose. The Garmin activity
+        it carried is re-upserted as ``g_<aid>`` when nothing else references it,
+        since it may lie outside the current window.
+
+        Args:
+            now: ISO timestamp used for ``last_updated`` on re-homed rows.
+
+        Returns:
+            ``(rows_deleted, garmin_rows_rehomed)``.
+        """
+        still_qualifies = exists().where(
+            and_(
+                WhoopWorkout.id == UnifiedWorkout.whoop_workout_id,
+                *_whoop_workout_qualifies(self.user_id),
+            )
+        )
+        stale_query = self._db.query(UnifiedWorkout).filter(
+            UnifiedWorkout.whoop_workout_id.isnot(None), ~still_qualifies
+        )
+        if self.user_id is not None:
+            stale_query = stale_query.filter(UnifiedWorkout.user_id == self.user_id)
+        stale_rows = stale_query.all()
+        if not stale_rows:
+            return 0, 0
+
+        orphaned_aids = [r.garmin_activity_id for r in stale_rows if r.garmin_activity_id]
+        for row in stale_rows:
+            self._db.delete(row)
+        self._db.flush()
+
+        rehomed = 0
+        for aid in dict.fromkeys(orphaned_aids):
+            holder = self._db.query(UnifiedWorkout.id).filter(
+                UnifiedWorkout.garmin_activity_id == aid
+            )
+            activity = self._db.query(GarminActivity).filter(GarminActivity.activity_id == aid)
+            if self.user_id is not None:
+                holder = holder.filter(UnifiedWorkout.user_id == self.user_id)
+                activity = activity.filter(GarminActivity.user_id == self.user_id)
+            garmin = activity.first()
+            if holder.first() is not None or garmin is None:
+                continue
+            data = map_garmin_workout(garmin, self._mappings)
+            data["last_updated"] = now
+            data["user_id"] = self.user_id
+            self._upsert(UnifiedWorkout, "id", data)
+            rehomed += 1
+        return len(stale_rows), rehomed
 
     def normalize_all(
         self, start: date, end: date, *, refresh_anomalies: bool = True
@@ -393,8 +461,10 @@ class Normalizer:
             if not d:
                 continue
             prev = cycles_by_date.get(d)
-            if prev is not None and _has_scored_recovery(prev, recoveries_by_cycle) and not (
-                _has_scored_recovery(c, recoveries_by_cycle)
+            if (
+                prev is not None
+                and _has_scored_recovery(prev, recoveries_by_cycle)
+                and not (_has_scored_recovery(c, recoveries_by_cycle))
             ):
                 continue
             cycles_by_date[d] = c

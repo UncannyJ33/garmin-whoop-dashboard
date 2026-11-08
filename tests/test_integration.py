@@ -368,6 +368,147 @@ def test_matched_workout_removes_garmin_only_row(db):
     assert db.get(UnifiedWorkout, "g_g-late-001") is None
 
 
+def _seed_matched_pair(db, *, day="2024-03-07", user_id=None, suffix="x"):
+    """Add a Whoop strain workout + Garmin activity that match, and normalize day D."""
+    db.add(
+        GarminActivity(
+            activity_id=f"ga-{suffix}",
+            activity_type="running",
+            start_time=f"{day} 07:00:00",
+            start_time_gmt=f"{day} 14:02:00",
+            duration_seconds=3600.0,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id=user_id,
+        )
+    )
+    db.add(
+        WhoopWorkout(
+            id=f"wx-{suffix}",
+            start_time=f"{day}T14:00:00Z",
+            end_time=f"{day}T15:00:00Z",
+            sport_name="running",
+            strain=13.5,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id=user_id,
+        )
+    )
+    db.commit()
+    d = date.fromisoformat(day)
+    Normalizer(db, user_id=user_id).normalize_workouts(d, d)
+    assert db.get(UnifiedWorkout, f"w_wx-{suffix}") is not None
+    assert db.get(UnifiedWorkout, f"g_ga-{suffix}") is None
+
+
+def _ids_for_activity(db, aid):
+    return sorted(
+        r[0]
+        for r in db.execute(
+            text("SELECT id FROM unified_workouts WHERE garmin_activity_id = :a"), {"a": aid}
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"strain": None}, {"sport_name": "driving"}],
+    ids=["strain-null", "driving"],
+)
+def test_rescored_whoop_workout_removes_stale_w_row(db, change):
+    """Whoop workout stops qualifying: w_ row dropped, activity counted once as g_."""
+    _seed_matched_pair(db)
+    wk = db.get(WhoopWorkout, "wx-x")
+    for k, v in change.items():
+        setattr(wk, k, v)
+    db.commit()
+
+    d = date(2024, 3, 7)
+    Normalizer(db).normalize_workouts(d, d)
+
+    assert _ids_for_activity(db, "ga-x") == ["g_ga-x"]
+    assert db.get(UnifiedWorkout, "w_wx-x") is None
+
+
+def test_stale_w_row_outside_window_rehomes_garmin(db):
+    """Cleanup has no window; the Garmin activity is re-homed even if outside it."""
+    _seed_matched_pair(db)
+    db.get(WhoopWorkout, "wx-x").strain = None
+    db.commit()
+
+    other = date(2024, 4, 1)
+    Normalizer(db).normalize_workouts(other, other)
+
+    assert db.get(UnifiedWorkout, "w_wx-x") is None
+    assert _ids_for_activity(db, "ga-x") == ["g_ga-x"]
+
+
+def test_deleted_whoop_workout_removes_stale_w_row(db):
+    """Whoop workout gone from source: stale w_ row is dropped, activity re-homed."""
+    _seed_matched_pair(db)
+    uw = db.get(UnifiedWorkout, "w_wx-x")
+    uw.whoop_workout_id = None  # detach FK so the raw row can be removed (SQLite)
+    db.flush()
+    db.delete(db.get(WhoopWorkout, "wx-x"))
+    uw.whoop_workout_id = "wx-x"  # dangling reference, as a stale row would carry
+    db.commit()
+
+    d = date(2024, 3, 7)
+    Normalizer(db).normalize_workouts(d, d)
+
+    assert db.get(UnifiedWorkout, "w_wx-x") is None
+    assert _ids_for_activity(db, "ga-x") == ["g_ga-x"]
+
+
+def test_qualifying_w_rows_untouched(db):
+    """Qualifying matched/unmatched w_ rows outside the window survive; other users' too."""
+    _seed_matched_pair(db, suffix="m", user_id="u1")
+    db.add(
+        WhoopWorkout(
+            id="wx-solo",
+            start_time="2024-03-08T10:00:00Z",
+            end_time="2024-03-08T11:00:00Z",
+            sport_name="cycling",
+            strain=8.0,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id="u1",
+        )
+    )
+    db.commit()
+    Normalizer(db, user_id="u1").normalize_workouts(date(2024, 3, 8), date(2024, 3, 8))
+    assert db.get(UnifiedWorkout, "w_wx-solo") is not None
+
+    # u2 owns a stale-looking w_ row (its Whoop workout has strain NULL)
+    db.add(
+        WhoopWorkout(
+            id="wx-u2",
+            start_time="2024-03-09T10:00:00Z",
+            end_time="2024-03-09T11:00:00Z",
+            sport_name="running",
+            strain=None,
+            fetched_at=datetime.now(tz=UTC).isoformat(),
+            user_id="u2",
+        )
+    )
+    db.commit()
+    db.add(
+        UnifiedWorkout(
+            id="w_wx-u2",
+            date="2024-03-09",
+            start_time="2024-03-09T10:00:00Z",
+            whoop_workout_id="wx-u2",
+            user_id="u2",
+            last_updated=datetime.now(tz=UTC).isoformat(),
+        )
+    )
+    db.commit()
+
+    far = date(2025, 1, 1)
+    Normalizer(db, user_id="u1").normalize_workouts(far, far)
+
+    assert db.get(UnifiedWorkout, "w_wx-m") is not None
+    assert db.get(UnifiedWorkout, "w_wx-solo") is not None
+    assert db.get(UnifiedWorkout, "w_wx-u2") is not None
+
+
 def test_unmatched_garmin_activity_stored_as_garmin_only(db):
     """Garmin activity with no nearby Whoop workout → Garmin-only unified row."""
     garmin_a = GarminActivity(
