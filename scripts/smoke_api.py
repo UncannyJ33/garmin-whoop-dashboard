@@ -44,9 +44,6 @@ SKIP_ROUTES: dict[str, str] = {
 }
 SKIP_PREFIXES: tuple[str, ...] = ("/api/sync/trigger",)
 
-# Routes whose docstring promises 204 when there is no data, though OpenAPI omits it.
-ALLOW_204_ROUTES: frozenset[str] = frozenset({"/api/readiness/today"})
-
 _BARE_NONFINITE = re.compile(r"(?<![\w\"])-?(?:NaN|Infinity)(?![\w\"])")
 _REPR_LEAKS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("None-in-string", re.compile(r"\bNone\b")),
@@ -129,7 +126,7 @@ def discover_routes(app: Any) -> dict[str, dict[str, Any]]:
             continue
         routes[path] = {
             "params": {p["name"]: bool(p.get("required")) for p in op.get("parameters", [])},
-            "204": "204" in op.get("responses", {}) or path in ALLOW_204_ROUTES,
+            "204": "204" in op.get("responses", {}),
         }
     return routes
 
