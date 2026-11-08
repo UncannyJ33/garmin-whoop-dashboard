@@ -310,7 +310,7 @@ export function Recovery() {
       <div className="space-y-4">
         <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Recovery</h1>
         <ErrorState
-          message="Could not load sleep data. Make sure the backend is running on port 8000."
+          message="Could not load sleep data. Make sure the backend is running on port 8001."
           onRetry={() => void insightsQ.refetch()}
         />
       </div>

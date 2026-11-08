@@ -122,34 +122,34 @@ def test_probe_false_for_other_app(capsys: pytest.CaptureFixture[str]) -> None:
         _resp(404, {"detail": "nf"}),
     ):
         with patch("scripts.backfill.httpx.get", return_value=r):
-            assert api_running(8000) is False
+            assert api_running(8001) is False
     assert (
-        "Note: port 8000 is used by another program (not this dashboard)."
+        "Note: port 8001 is used by another program (not this dashboard)."
         in capsys.readouterr().out
     )
 
 
 def test_probe_true_for_older_build_status_only(capsys: pytest.CaptureFixture[str]) -> None:
     with patch("scripts.backfill.httpx.get", return_value=_resp(200, {"status": "ok"})):
-        assert api_running(8000) is True
+        assert api_running(8001) is True
     assert "older build" in capsys.readouterr().out
 
 
 def test_probe_ignores_proxy_env() -> None:
     with patch("scripts.backfill.httpx.get", return_value=_resp(200, {"app": "x"})) as g:
-        api_running(8000)
+        api_running(8001)
     assert g.call_args.kwargs["trust_env"] is False
     assert g.call_args.kwargs["timeout"] == 1.0
 
 
 def test_probe_true_on_timeout() -> None:
     with patch("scripts.backfill.httpx.get", side_effect=httpx.ReadTimeout("x")):
-        assert api_running(8000) is True
+        assert api_running(8001) is True
 
 
 def test_probe_false_on_connect_error() -> None:
     with patch("scripts.backfill.httpx.get", side_effect=httpx.ConnectError("x")):
-        assert api_running(8000) is False
+        assert api_running(8001) is False
 
 
 def test_backfill_chunks_oldest_first_and_end_today() -> None:
@@ -290,8 +290,8 @@ def test_resume_hint_format() -> None:
     assert backfill._resume_hint("garmin", d).splitlines()[0] == (
         "  Resume with: make backfill SOURCE=garmin START=2025-01-01"
     )
-    assert backfill._resume_hint("garmin", d, port=8001, chunk_days=10).splitlines()[0] == (
-        "  Resume with: make backfill SOURCE=garmin START=2025-01-01 PORT=8001 CHUNK_DAYS=10"
+    assert backfill._resume_hint("garmin", d, port=8002, chunk_days=10).splitlines()[0] == (
+        "  Resume with: make backfill SOURCE=garmin START=2025-01-01 PORT=8002 CHUNK_DAYS=10"
     )
 
 

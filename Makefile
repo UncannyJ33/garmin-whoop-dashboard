@@ -8,7 +8,7 @@ RUFF      = .venv/bin/ruff
 # Bind host is BIND_HOST (not HOST: zsh sets HOST to the machine hostname).
 # Default is localhost-only; LAN exposure is an explicit opt-in: make run BIND_HOST=0.0.0.0
 BIND_HOST ?= 127.0.0.1
-PORT      ?= 8000
+PORT      ?= 8001
 
 FRONTEND_SRC = $(shell find frontend-react/src frontend-react/public -type f)
 
@@ -26,12 +26,12 @@ build-frontend: frontend-react/dist/index.html
 
 run: frontend-react/dist/index.html
 	@if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:$(PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
-		echo "Port $(PORT) is in use (try: make run PORT=8001; also set WHOOP_REDIRECT_URI to match)"; exit 1; fi
+		echo "Port $(PORT) is in use (try: make run PORT=8002; also set WHOOP_REDIRECT_URI to match)"; exit 1; fi
 	@echo "Open http://localhost:$(PORT)"
 	$(UVICORN) src.api.main:app --host $(BIND_HOST) --port $(PORT)
 
 dev:
-	$(UVICORN) src.api.main:app --port 8000 --reload
+	$(UVICORN) src.api.main:app --port $(PORT) --reload
 
 run-api: dev
 

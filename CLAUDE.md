@@ -97,8 +97,8 @@ Whoop notes (Nov 2026; research §7):
 
 ## Local dev
 Fresh checkout: `brew install uv`, `uv sync --frozen`, `cp .env.example .env` (`make run` runs `npm ci` when the lockfile changes). `sqlalchemy<2.1` is pinned; `cryptography` is uncapped. Garmin sync needs `GARMIN_PERSONAL_API_KEY` in `.env` (optional `GARMIN_PERSONAL_API_BASE_URL`).
-- `make run`: build frontend if changed, serve on `BIND_HOST` (default `127.0.0.1`, use `BIND_HOST`, not `HOST`: zsh sets `HOST`) and `PORT` (8000); refuses if the port is in use. Open http://localhost:PORT (not 127.0.0.1: per-origin login). If 8000 is taken, `make run PORT=8001` and set `WHOOP_REDIRECT_URI` to the matching port in `.env` and the Whoop dashboard.
-- `make dev` (alias `run-api`): API with reload on :8000; with `cd frontend-react && npm run dev` (Vite :5173, proxies `/api`).
+- `make run`: build frontend if changed, serve on `BIND_HOST` (default `127.0.0.1`, use `BIND_HOST`, not `HOST`: zsh sets `HOST`) and `PORT` (8001); refuses if the port is in use. Open http://localhost:PORT (not 127.0.0.1: per-origin login). Default port is 8001; override with `PORT=`.
+- `make dev` (alias `run-api`): API with reload on :8001; with `cd frontend-react && npm run dev` (Vite :5173, proxies `/api`).
 - `make backfill START=YYYY-MM-DD [SOURCE=garmin|whoop|all] [CHUNK_DAYS=…] [PORT=…]`: chunks oldest first, end today; refuses (exit 3) while this dashboard's API runs (`/api/health` `app: "pulse-dashboard"`); `caffeinate` on macOS; resume hint `make backfill SOURCE=x START=y`; exit codes 0/1/2/3/130. Garmin dailies reach ~180-365 days, activities ~690; older data via `scripts/import_data.py`.
 - `make owner EMAIL=…`, `make build-frontend`, `make up`/`make down` (Compose, optional, `127.0.0.1` only), `make test`, `make lint`, `make fmt`, `make run-sync` (`scripts/initial_sync.py`; exits 1 when there is no owner; runs Whoop and Garmin independently, logs each failure, exits 1 at the end if any source failed)
 - `cd frontend-react && npm run build` (tsc + vite build → `dist/`), `npm run typecheck`

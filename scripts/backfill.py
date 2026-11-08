@@ -115,13 +115,13 @@ def api_running(port: int) -> bool:
 ResumeHint = Callable[[str, date], str]
 
 
-def _resume_hint(source: str, chunk_start: date, port: int = 8000, chunk_days: int = 30) -> str:
+def _resume_hint(source: str, chunk_start: date, port: int = 8001, chunk_days: int = 30) -> str:
     """Return the ``make backfill`` command that resumes from ``chunk_start``.
 
     ``PORT`` and ``CHUNK_DAYS`` are included only when they differ from the defaults.
     """
     extra = ""
-    if port != 8000:
+    if port != 8001:
         extra += f" PORT={port}"
     if chunk_days != DEFAULT_CHUNK_DAYS:
         extra += f" CHUNK_DAYS={chunk_days}"

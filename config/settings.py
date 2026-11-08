@@ -39,10 +39,10 @@ settings = Settings(
     whoop_client_id=os.getenv("WHOOP_CLIENT_ID", ""),
     whoop_client_secret=os.getenv("WHOOP_CLIENT_SECRET", ""),
     whoop_redirect_uri=os.getenv(
-        "WHOOP_REDIRECT_URI", "http://localhost:8000/api/auth/whoop/callback"
+        "WHOOP_REDIRECT_URI", "http://localhost:8001/api/auth/whoop/callback"
     ),
     database_url=os.getenv("DATABASE_URL", "sqlite:///data/fitness_dashboard.db"),
-    app_port=int(os.getenv("PORT") or os.getenv("APP_PORT", "8000")),
+    app_port=int(os.getenv("PORT") or os.getenv("APP_PORT", "8001")),
     cors_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
     garmin_personal_api_key=os.getenv("GARMIN_PERSONAL_API_KEY", ""),
     garmin_personal_api_base_url=os.getenv("GARMIN_PERSONAL_API_BASE_URL")

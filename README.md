@@ -56,11 +56,11 @@ tests/            pytest suite
    `WHOOP_CLIENT_SECRET` and `GARMIN_PERSONAL_API_KEY` (see Garmin data and Whoop below).
 3. Create the single owner account: `make owner EMAIL=you@example.com` (prompts for a password;
    registration is closed).
-4. `make run`, then open <http://localhost:8000> and log in. It builds the frontend only when
+4. `make run`, then open <http://localhost:8001> and log in. It builds the frontend only when
    sources changed, and binds to `127.0.0.1`. Use `localhost` consistently: the Whoop callback
    lands there, and the login lives in per-origin `localStorage`, so `127.0.0.1` is a separate,
    logged-out session.
-5. Settings -> Connect Whoop. `http://localhost:8000/api/auth/whoop/callback` must be registered in
+5. Settings -> Connect Whoop. `http://localhost:8001/api/auth/whoop/callback` must be registered in
    the Whoop developer dashboard and match `WHOOP_REDIRECT_URI`.
 6. **Stop the server (Ctrl-C)**, then backfill history: `make backfill START=2024-11-01`
    (optional `SOURCE=garmin|whoop`, default `all`; `CHUNK_DAYS=`).
@@ -73,17 +73,15 @@ tests/            pytest suite
    - Exit codes: 0 done, 1 error, 2 usage, 3 API running, 130 interrupted.
 7. `make run` again. The scheduler then keeps both sources current.
 
-**Ports.** If 8000 is taken (`make run` refuses with a hint), use `make run PORT=8001`, and set
-`WHOOP_REDIRECT_URI=http://localhost:8001/api/auth/whoop/callback` in `.env` and in the Whoop
-developer dashboard. Pass the same `PORT=` to `make backfill`.
+**Ports.** Default port is 8001; override with `PORT=` (also for `make backfill`).
 
-**Development.** `make dev` (API on :8000 with reload) plus `cd frontend-react && npm run dev`
+**Development.** `make dev` (API on :8001 with reload) plus `cd frontend-react && npm run dev`
 (Vite on :5173, proxies `/api`); open <http://localhost:5173>.
 
 **Optional: Docker Compose.** `make up` / `make down` run the container, published on
-`127.0.0.1:8000` only, using `.env` and `./data`. The Docker build is not verified yet.
+`127.0.0.1:8001` only, using `.env` and `./data`. The Docker build is not verified yet.
 
-**Optional: remote access.** `tailscale serve 8000` keeps the localhost bind. `make run
+**Optional: remote access.** `tailscale serve 8001` keeps the localhost bind. `make run
 BIND_HOST=0.0.0.0` exposes it to the LAN (opt-in; use `BIND_HOST`, not `HOST`, because zsh sets
 `HOST` to the hostname).
 
@@ -126,7 +124,7 @@ import and fills the unified tables.
 
 1. Create an app at <https://developer.whoop.com>. New apps start on the Sandbox tier (10 members),
    which is enough for one person.
-2. Redirect URI: `http://localhost:8000/api/auth/whoop/callback` (must match `WHOOP_REDIRECT_URI`; change both if you use another port).
+2. Redirect URI: `http://localhost:8001/api/auth/whoop/callback` (must match `WHOOP_REDIRECT_URI`; change both if you use another port).
 3. Scopes requested by the code: `read:recovery`, `read:cycles`, `read:workout`, `read:sleep`,
    `read:body_measurement`, `read:profile`, `offline` (needed for refresh tokens).
 4. Data is polled every 30 min. Refresh tokens rotate; a known bug can force re-auth (fix planned
@@ -138,7 +136,7 @@ Whoop data is polling only (no webhooks); do not set up ngrok.
 
 | Command | Does |
 |---|---|
-| `make run` | build frontend if changed, serve on `BIND_HOST:PORT` (127.0.0.1:8000) |
+| `make run` | build frontend if changed, serve on `BIND_HOST:PORT` (127.0.0.1:8001) |
 | `make dev` (alias `run-api`) | FastAPI with reload, for `npm run dev` |
 | `make build-frontend` | production React build to `dist/` |
 | `make owner EMAIL=...` | create the single owner |
