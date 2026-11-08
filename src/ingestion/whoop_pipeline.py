@@ -242,6 +242,8 @@ class WhoopPipeline:
         self,
         start: datetime | None = None,
         end: datetime | None = None,
+        *,
+        refresh_anomalies: bool = True,
     ) -> SyncLog | None:
         """Fetch and store Whoop data for the given window.
 
@@ -249,6 +251,8 @@ class WhoopPipeline:
             start: Sync window start. Defaults to end of last successful sync
                    (or 30 days ago if none exists).
             end: Sync window end. Defaults to now.
+            refresh_anomalies: Passed to ``Normalizer.normalize_all``; the backfill
+                   disables it per chunk and refreshes once at the end.
 
         Returns:
             The completed SyncLog entry, or None if another run holds the lock
@@ -261,11 +265,13 @@ class WhoopPipeline:
             logger.info("Whoop sync already running — skipping this run")
             return None
         try:
-            return await self._run_locked(start, end)
+            return await self._run_locked(start, end, refresh_anomalies)
         finally:
             _RUN_LOCK.release()
 
-    async def _run_locked(self, start: datetime | None, end: datetime | None) -> SyncLog:
+    async def _run_locked(
+        self, start: datetime | None, end: datetime | None, refresh_anomalies: bool
+    ) -> SyncLog:
         """Body of :meth:`run`; the caller holds ``_RUN_LOCK``."""
         auto_start, auto_end = self._get_sync_window()
         sync_start = start or auto_start
@@ -321,7 +327,9 @@ class WhoopPipeline:
             logger.info("Whoop sync complete — %d fetched, %d stored", records_fetched, stored)
 
             normalizer = Normalizer(self._db, user_id=self.user_id)
-            norm_counts = normalizer.normalize_all(sync_start.date(), sync_end.date())
+            norm_counts = normalizer.normalize_all(
+                sync_start.date(), sync_end.date(), refresh_anomalies=refresh_anomalies
+            )
             logger.info("Normalization complete: %s", norm_counts)
 
         except Exception as exc:

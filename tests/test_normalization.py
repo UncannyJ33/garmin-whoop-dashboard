@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, date, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -465,3 +466,12 @@ def test_vo2_max_keyed_by_local_date(session, mappings_path):
     n = Normalizer(session, mappings_path)
     cache = n._prefetch_range(date(2026, 12, 7), date(2026, 12, 7))
     assert cache.vo2_by_date == {"2026-12-07": 55.0}
+
+
+def test_normalize_all_skips_anomaly_refresh_when_disabled(session, mappings_path):
+    n = Normalizer(session, mappings_path, user_id="u-anom")
+    with patch("src.analytics.anomaly_store.refresh_anomalies") as refresh:
+        n.normalize_all(date(2026, 1, 1), date(2026, 1, 2), refresh_anomalies=False)
+        refresh.assert_not_called()
+        n.normalize_all(date(2026, 1, 1), date(2026, 1, 2))
+        refresh.assert_called_once()

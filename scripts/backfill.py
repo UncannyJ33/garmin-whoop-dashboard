@@ -2,10 +2,14 @@
 
 Usage (from project root, venv active):
     python scripts/backfill.py --source {garmin,whoop,all} --start YYYY-MM-DD
-        [--chunk-days N] [--force]
+        [--chunk-days N] [--daily-from YYYY-MM-DD] [--force]
 
 The range always ends today. Both pipelines resume from the latest successful
 SyncLog, so re-running after a failure continues where it stopped.
+
+Garmin daily summaries only exist about 180 days back. Chunks older than that run
+activities-only (no per-day calls): ``--daily-from`` sets the boundary, otherwise a short
+probe finds it when ``--start`` is more than 180 days back.
 
 Exit codes: 0 ok; 1 a source failed / no owner / several users / nothing ran;
 2 usage error; 3 API server running and --force not given; 130 interrupted.
@@ -22,6 +26,8 @@ from sqlalchemy.orm import Session
 
 from config.settings import settings
 from src.analytics.anomaly_store import refresh_anomalies
+from src.clients.garmin_client import GarminClient
+from src.clients.garmin_personal_auth import GarminPersonalApiError
 from src.clients.whoop_auth import WhoopAuth, WhoopReauthRequired, whoop_auth_error
 from src.database.connection import get_engine, get_session_factory
 from src.database.migrations import run as run_migrations
@@ -34,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 GARMIN_MAX_CHUNK_DAYS = 31
 DEFAULT_CHUNK_DAYS = 30
+DAILY_HISTORY_DAYS = 180  # observed depth of Garmin daily summaries
+DAILY_FROM_MARGIN_DAYS = 7
 
 # Per-source outcomes.
 OK, FAILED, SKIPPED = "ok", "failed", "skipped"
@@ -138,14 +146,60 @@ def _print_chunk(source: str, s: date, e: date, log: SyncLog) -> None:
     )
 
 
+def _has_daily(client: GarminClient, d: date) -> bool:
+    """Return True if any daily summary for ``d``, ``d+1`` or ``d+2`` is non-empty.
+
+    A single empty day proves nothing (watch off all day looks like past-the-depth),
+    so three days are checked; a 3-day all-off streak is the residual false negative.
+    """
+    return any(client.get_daily_summary(d + timedelta(days=i)) for i in range(3))
+
+
+def _find_daily_from(client: GarminClient, start: date, today: date) -> date | None:
+    """Find where Garmin daily summaries begin, or None to run daily on every chunk.
+
+    Probes ``start`` (data -> None) and ``today - 180`` (no data -> the depth assumption
+    no longer holds -> None), otherwise binary-searches the earliest date with data and
+    subtracts a 7-day margin. Raises ``GarminPersonalApiError`` on API failure.
+    """
+    if _has_daily(client, start):
+        return None
+    recent = today - timedelta(days=DAILY_HISTORY_DAYS)
+    if not _has_daily(client, recent):
+        print(
+            "  Note: no Garmin daily summaries found 180 days back either; the history-depth "
+            "assumption no longer holds, so daily summaries run for every chunk."
+        )
+        return None
+    lo, hi = start, recent  # lo: no data, hi: data
+    while (hi - lo).days > 1:
+        mid = lo + (hi - lo) // 2
+        if _has_daily(client, mid):
+            hi = mid
+        else:
+            lo = mid
+    return hi - timedelta(days=DAILY_FROM_MARGIN_DAYS)
+
+
 def _run_garmin(
-    db: Session, owner: str, chunks: list[tuple[date, date]], hint: ResumeHint
+    db: Session,
+    owner: str,
+    chunks: list[tuple[date, date]],
+    hint: ResumeHint,
+    daily_from: date | None = None,
 ) -> tuple[str, int]:
-    """Run Garmin chunks oldest first; return ``(outcome, records_stored)``."""
+    """Run Garmin chunks oldest first; return ``(outcome, records_stored)``.
+
+    Chunks ending before ``daily_from`` run activities-only (``daily=False``).
+    The anomaly refresh is skipped per chunk; ``_run`` refreshes once at the end.
+    """
     stored = 0
     for s, e in chunks:
+        daily = daily_from is None or e >= daily_from
         try:
-            log = GarminPipeline(db, user_id=owner).run(start=s, end=e)
+            log = GarminPipeline(db, user_id=owner).run(
+                start=s, end=e, daily=daily, refresh_anomalies=False
+            )
         except KeyboardInterrupt:
             db.rollback()
             raise _Interrupted("garmin", s) from None
@@ -179,7 +233,9 @@ def _run_whoop(
     stored = 0
     for (s, e), (ws, we) in zip(chunks, windows, strict=True):
         try:
-            log = asyncio.run(WhoopPipeline(db, user_id=owner).run(start=ws, end=we))
+            log = asyncio.run(
+                WhoopPipeline(db, user_id=owner).run(start=ws, end=we, refresh_anomalies=False)
+            )
         except KeyboardInterrupt:
             db.rollback()
             raise _Interrupted("whoop", s) from None
@@ -213,6 +269,12 @@ def _parse_args(argv: list[str] | None, today: date) -> argparse.Namespace:
     parser.add_argument("--source", choices=["garmin", "whoop", "all"], default="all")
     parser.add_argument("--start", required=True, type=date.fromisoformat, help="YYYY-MM-DD")
     parser.add_argument("--chunk-days", type=int, default=DEFAULT_CHUNK_DAYS)
+    parser.add_argument(
+        "--daily-from",
+        type=date.fromisoformat,
+        default=None,
+        help="YYYY-MM-DD: Garmin chunks ending before this run activities-only (no probe)",
+    )
     parser.add_argument("--force", action="store_true", help="run even if the API is up")
     args = parser.parse_args(argv)
     if args.start > today:
@@ -220,6 +282,31 @@ def _parse_args(argv: list[str] | None, today: date) -> argparse.Namespace:
     if args.chunk_days < 1:
         parser.error("--chunk-days must be >= 1")
     return args
+
+
+def _resolve_daily_from(
+    args: argparse.Namespace, today: date, chunks: list[tuple[date, date]]
+) -> date | None:
+    """Return the date daily summaries start from (None: every chunk runs daily); prints a note.
+
+    ``--daily-from`` wins and needs no probe. Otherwise probe, but only when ``--start`` is
+    more than 180 days back.
+    """
+    daily_from = args.daily_from
+    if daily_from is None:
+        if args.start >= today - timedelta(days=DAILY_HISTORY_DAYS):
+            return None
+        daily_from = _find_daily_from(GarminClient(), args.start, today)
+        if daily_from is None:
+            return None
+    skipped = [c for c in chunks if c[1] < daily_from]
+    if skipped:
+        first_daily = next((c[0] for c in chunks if c[1] >= daily_from), today)
+        print(
+            f"  Garmin daily summaries start about {daily_from}; {len(skipped)} chunks before "
+            f"{first_daily} run activities-only (override with --daily-from)."
+        )
+    return daily_from
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -287,10 +374,17 @@ def _run(argparse_args: argparse.Namespace, today: date, port: int, hint: Resume
                     outcomes["garmin"] = SKIPPED
                 else:
                     chunk_days = min(args.chunk_days, GARMIN_MAX_CHUNK_DAYS)
-                    outcomes["garmin"], n = _run_garmin(
-                        db, owner, day_chunks(args.start, today, chunk_days), hint
-                    )
-                    stored_total += n
+                    chunks = day_chunks(args.start, today, chunk_days)
+                    try:
+                        daily_from = _resolve_daily_from(args, today, chunks)
+                    except GarminPersonalApiError as exc:
+                        logger.exception("Garmin history-depth probe failed")
+                        print(f"  probe FAILED {type(exc).__name__}: {exc}")
+                        print(hint("garmin", args.start))
+                        outcomes["garmin"] = FAILED
+                    else:
+                        outcomes["garmin"], n = _run_garmin(db, owner, chunks, hint, daily_from)
+                        stored_total += n
 
             if args.source in ("whoop", "all"):
                 print("\nWhoop")

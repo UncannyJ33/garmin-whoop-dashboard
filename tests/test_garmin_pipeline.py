@@ -740,3 +740,14 @@ def test_lock_released_after_exception(db):
         GarminPipeline(db, client=client).run()
     assert garmin_pipeline._RUN_LOCK.acquire(blocking=False)
     garmin_pipeline._RUN_LOCK.release()
+
+
+def test_pipeline_daily_false_skips_daily_calls(db):
+    client = FakeClient(activities=[SAMPLE_ACTIVITY])
+    log = GarminPipeline(db, client=client).run(
+        start=date(2024, 3, 1), end=date(2024, 3, 5), daily=False
+    )
+    assert log.status == "success"
+    for name in ("get_daily_summary", "get_sleep", "get_hrv"):
+        assert name not in client.calls
+    assert client.calls.count("get_activities") == 1

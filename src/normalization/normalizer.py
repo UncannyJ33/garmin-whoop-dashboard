@@ -260,7 +260,9 @@ class Normalizer:
         )
         return rows_written
 
-    def normalize_all(self, start: date, end: date) -> dict[str, int]:
+    def normalize_all(
+        self, start: date, end: date, *, refresh_anomalies: bool = True
+    ) -> dict[str, int]:
         """Run all three normalizers over the date range.
 
         Uses batch-prefetch for daily and sleep to avoid N+1 query patterns.
@@ -269,6 +271,9 @@ class Normalizer:
         Args:
             start: Range start date (inclusive).
             end: Range end date (inclusive).
+            refresh_anomalies: Recompute the anomaly cache for the range (default).
+                The backfill passes False per chunk and refreshes once at the end;
+                analytics-cache invalidation stays unconditional.
 
         Returns:
             Dict with keys "daily", "sleep", "workouts" and row counts.
@@ -296,12 +301,15 @@ class Normalizer:
                 analytics_cache.invalidate_user(self.user_id)
             except Exception:  # noqa: BLE001
                 logger.warning("normalize_all: analytics cache invalidation failed", exc_info=True)
-            try:
-                from src.analytics.anomaly_store import refresh_anomalies
+            if refresh_anomalies:
+                try:
+                    from src.analytics.anomaly_store import (
+                        refresh_anomalies as _refresh_anomalies,
+                    )
 
-                refresh_anomalies(self._db.get_bind(), self.user_id, start, end)
-            except Exception:  # noqa: BLE001
-                logger.warning("normalize_all: anomaly refresh failed", exc_info=True)
+                    _refresh_anomalies(self._db.get_bind(), self.user_id, start, end)
+                except Exception:  # noqa: BLE001
+                    logger.warning("normalize_all: anomaly refresh failed", exc_info=True)
 
         return counts
 
