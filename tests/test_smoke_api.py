@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
-from scripts.smoke_api import check_response, run_smoke
+from scripts.smoke_api import check_response, find_bad_values, run_smoke, sqlite_file_missing
 from src.api.dependencies import get_db, get_engine_dep
 from src.auth.security import create_access_token
 from src.database.connection import get_session_factory
@@ -104,3 +104,22 @@ def test_check_response_flags_problems():
     assert check_response("/x", "-", 204, "", 5.0, True).failed is False
     slow = check_response("/x", "-", 200, "{}", 2500.0, False)
     assert "slow" in slow.flags and not slow.failed
+
+
+def test_find_bad_values_walks_parsed_json():
+    assert find_bad_values(float("nan"))
+    assert find_bad_values({"a": [float("inf")]})
+    assert find_bad_values({"a": ["None"]})
+    assert find_bad_values("undefined")
+    assert not find_bad_values({"name": "Swim Infinity", "note": "None detected", "n": 1.5})
+    assert check_response("/x", "-", 200, '{"a": "None detected"}', 5.0, False).failed is False
+    assert check_response("/x", "-", 200, '{"a": Infinity}', 5.0, False).failed
+
+
+def test_sqlite_file_missing(tmp_path):
+    assert sqlite_file_missing(f"sqlite:///{tmp_path}/nope.db") == f"{tmp_path}/nope.db"
+    existing = tmp_path / "ok.db"
+    existing.write_text("")
+    assert sqlite_file_missing(f"sqlite:///{existing}") is None
+    assert sqlite_file_missing("postgresql://u:p@h/db") is None
+    assert sqlite_file_missing("sqlite:///:memory:") is None

@@ -13,13 +13,19 @@ latency (> 2 s is flagged slow). Response bodies are never printed or saved.
 Usage:
     source <env that exports DATABASE_URL> && python scripts/smoke_api.py [--json PATH]
 
-Exit codes: 0 all good, 1 at least one failure, 2 cannot run (0 or >1 users).
+Note: the smoke run applies pending migrations, the same as app startup. A
+``sqlite:///`` URL whose file does not exist is refused (exit 2) before the app
+is imported, so the run never creates a database.
+
+Exit codes: 0 all good, 1 at least one failure, 2 cannot run (missing sqlite
+file, 0 or >1 users).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 import time
@@ -28,6 +34,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+
+from sqlalchemy.engine import make_url
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -44,14 +52,7 @@ SKIP_ROUTES: dict[str, str] = {
 }
 SKIP_PREFIXES: tuple[str, ...] = ("/api/sync/trigger",)
 
-_BARE_NONFINITE = re.compile(r"(?<![\w\"])-?(?:NaN|Infinity)(?![\w\"])")
-_REPR_LEAKS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("None-in-string", re.compile(r"\bNone\b")),
-    ("Decimal-repr", re.compile(r"Decimal\(")),
-    ("datetime-repr", re.compile(r"datetime\.(?:datetime|date)\(")),
-    ("object-repr", re.compile(r"<[\w.]+ object at 0x")),
-    ("nan-in-string", re.compile(r"\b(?:nan|inf)\b")),
-)
+PLACEHOLDER_STRINGS: frozenset[str] = frozenset({"None", "NaN", "nan", "undefined", "null"})
 
 
 @dataclass
@@ -67,15 +68,33 @@ class CheckResult:
     skipped: str | None = None
 
 
-def _strings(node: Any) -> list[str]:
-    """Collect all string values (not keys) from parsed JSON."""
-    if isinstance(node, str):
-        return [node]
-    if isinstance(node, list):
-        return [s for v in node for s in _strings(v)]
-    if isinstance(node, dict):
-        return [s for v in node.values() for s in _strings(v)]
-    return []
+def find_bad_values(node: Any) -> set[str]:
+    """Walk parsed JSON; return flag names for non-finite floats and placeholder strings."""
+    found: set[str] = set()
+    if isinstance(node, float):
+        if not math.isfinite(node):
+            found.add("non-finite-number")
+    elif isinstance(node, str):
+        if node in PLACEHOLDER_STRINGS:
+            found.add(f"placeholder-string:{node}")
+    elif isinstance(node, list):
+        for v in node:
+            found |= find_bad_values(v)
+    elif isinstance(node, dict):
+        for v in node.values():
+            found |= find_bad_values(v)
+    return found
+
+
+def sqlite_file_missing(url: str) -> str | None:
+    """Return the path of a ``sqlite:///`` URL's file when it does not exist, else None."""
+    parsed = make_url(url)
+    if parsed.get_backend_name() != "sqlite":
+        return None
+    db_path = parsed.database
+    if not db_path or db_path == ":memory:" or Path(db_path).exists():
+        return None
+    return db_path
 
 
 def check_response(
@@ -94,9 +113,6 @@ def check_response(
         res.failed = True
     if status == 204 and allowed_204:
         return res
-    if _BARE_NONFINITE.search(text):
-        res.flags.append("non-finite-number")
-        res.failed = True
     try:
         parsed = json.loads(text)
     except ValueError:
@@ -104,9 +120,8 @@ def check_response(
         res.failed = True
         parsed = None
     if parsed is not None and ok_status:
-        found = {name for s in _strings(parsed) for name, rx in _REPR_LEAKS if rx.search(s)}
-        for name in sorted(found):
-            res.flags.append(f"repr-leak:{name}")
+        for name in sorted(find_bad_values(parsed)):
+            res.flags.append(name)
             res.failed = True
     if ms > SLOW_MS:
         res.flags.append("slow")
@@ -238,7 +253,12 @@ def main(argv: list[str] | None = None) -> int:
 
     from config.settings import settings  # noqa: PLC0415
 
-    print(f"DATABASE_URL={settings.database_url}")
+    url = settings.database_url
+    print(f"DATABASE_URL={make_url(url).render_as_string(hide_password=True)}")
+    missing = sqlite_file_missing(url)
+    if missing is not None:
+        print(f"error: sqlite file {missing} does not exist; refusing to create it.")
+        return 2
 
     with patch("src.api.main.start_scheduler"), patch("src.api.main.stop_scheduler"):
         from fastapi.testclient import TestClient  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
