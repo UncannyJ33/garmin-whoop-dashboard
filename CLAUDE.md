@@ -6,12 +6,13 @@ Personal Garmin + Whoop fitness dashboard. Single user (SJ), self-hosted. Former
 - Frontend: React 18 + TypeScript + Vite + TailwindCSS + Recharts + TanStack Query (`frontend-react/`).
 
 ## Status: Relaunch complete (2026-11-07)
-Phases 0-9 done. Garmin comes from the official Personal API; the SaaS surface is removed (owner via `make owner EMAIL=...`, registration closed); runs locally on SQLite. Tests: 1041 passing (serial). The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs.
+Phases 0-9 done. Garmin comes from the official Personal API; the SaaS surface is removed (owner via `make owner EMAIL=...`, registration closed); runs locally on SQLite. Tests: 1047 passing (serial). The PWA is gone; `frontend-react/public/sw.js` is only a kill-switch for old installs.
 
 **Open items:**
-- SJ: run `make owner`, connect Whoop (redirect URI), run the first `make backfill`, optionally request a Garmin export.
+- Done 2026-11-08: owner created, Whoop connected, first `make backfill START=2024-11-08` (exit 0), `make smoke` on live data (0 failures). Whoop history begins ~Aug 2025. Optional: a Garmin export for daily stats older than the API reaches.
 - Docker build unverified (Docker isn't installed on the dev machine).
-- QA: the API smoke test (`make smoke`) passed on 90 days of live Garmin-only data (report: `docs/reviews/2026-11-07-qa.md`). Browser visual checks are pending SJ's first login.
+- QA: the API smoke test (`make smoke`) passed on 90 days of live Garmin-only data (report: `docs/reviews/2026-11-07-qa.md`). Browser visual checks (launch checklist phase 5) are pending SJ.
+- Suspected bug (unconfirmed): `<main>` scrollTop is not reset on route change (scroll container in `Layout.tsx`). Check during the visual pass.
 
 Roadmap: `plans/2026-11-06-personal-relaunch-roadmap.md` (phases 0–7, decisions D1–D7, questions Q1–Q3). Phase 2 plan (done): `plans/2026-11-06-garmin-personal-api-client.md`.
 Decisions agents must respect:
@@ -115,7 +116,7 @@ Fresh checkout: `brew install uv`, `uv sync --frozen`, `cp .env.example .env` (`
 - Mock httpx: patch `httpx.AsyncClient` at module level; set `__aenter__`/`__aexit__` on the mock instance
 - Mock sleep: `patch("src.clients.whoop_client.asyncio.sleep", new_callable=AsyncMock)`
 - Digit-prefixed migrations (`001_initial.py`) can't be imported directly; loaded via `importlib.util` in `migrations/__init__.py`
-- **1041 passed** with serial `.venv/bin/pytest -q`. xdist (`-n auto`) is still **broken**; run serially. `make lint` is clean.
+- **1047 passed** with serial `.venv/bin/pytest -q`. xdist (`-n auto`) is still **broken**; run serially. `make lint` is clean.
 - `tests/conftest.py` has an autouse fixture that blanks `GARMIN_PERSONAL_API_KEY` and points the base URL at `https://garmin.invalid`, so tests never reach Garmin with the real key.
 - Garmin fixtures: `tests/fixtures/garmin_personal/` (sanitized live shapes; `sleep.json` and `hrv.json` are synthetic, `"_synthetic": true`). Never commit real values. `scripts/garmin_personal_probe.py` is the spike probe; raw samples go to gitignored `data/garmin_personal_samples/`.
 
